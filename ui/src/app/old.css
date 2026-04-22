@@ -15,14 +15,18 @@
   --chip-completed: #2a2a2a;
 
   display: grid;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  height: 100vh; /* merged */
+  overflow: hidden; /* merged */
+
   gap: 8px;
   padding: 8px;
+
   background:
     radial-gradient(circle at 14% 11%, #191919 0%, transparent 42%),
     radial-gradient(circle at 82% 20%, #242424 0%, transparent 39%),
     linear-gradient(145deg, var(--bg-1), var(--bg-2));
+
   color: var(--ink);
   font-family: var(--font-geist-sans);
 }
@@ -132,6 +136,12 @@
   margin-bottom: 8px;
 }
 
+.statusLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .connectionBadge {
   border-radius: 999px;
   border: 1px solid;
@@ -209,7 +219,8 @@
   text-align: center;
 }
 
-.tableCard {
+.tableCard,
+.blankCard {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel-strong);
@@ -269,9 +280,22 @@
   color: var(--danger);
 }
 
+.sendButton {
+  background: #f0f0f0;
+  border: 0;
+  color: #111;
+  min-width: 74px;
+  margin-left: auto;
+}
+
+.sendButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .stopButton {
   background: var(--danger-bg);
-  border-color: #444;
+  border: 1px solid #444;
   color: var(--danger);
   min-width: 74px;
   margin-left: auto;
@@ -284,7 +308,8 @@
 
 .ghostButton:disabled,
 .createButton:disabled,
-.sendButton:disabled {
+.sendButton:disabled,
+.stopButton:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -305,7 +330,6 @@
   gap: 16px;
   padding: 12px 14px;
   border-top: 1px solid #2b2b2b;
-  cursor: pointer;
 }
 
 .documentRow:first-child {
@@ -336,55 +360,11 @@
   white-space: nowrap;
 }
 
-.cellMutedDropdown {
+.cellMuted {
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  user-select: none;
-}
-
-.profileRowContainer {
-  border-top: 1px solid #2b2b2b;
-  display: flex;
-  flex-direction: column;
-}
-.profileRowContainer:first-child {
-  border-top: none;
-}
-
-.profileDomainsList {
-  background: #111;
-  padding: 12px 14px;
-  border-top: 1px dashed #222;
-  font-size: 13px;
-  color: #ccc;
-}
-
-.domainHeader {
-  font-weight: 600;
-  margin-bottom: 6px;
-  color: #fff;
-}
-
-.profileDomainsList ul {
-  margin: 0;
-  padding-left: 20px;
-}
-
-.profileDomainsList li {
-  margin-bottom: 4px;
-}
-
-.iconButton {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #484848;
-  border-radius: 10px;
-  background: #1d1d1d;
-  color: var(--danger);
-  cursor: pointer;
+  font-size: 14px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .emptyState {
@@ -393,8 +373,6 @@
   padding: 16px;
   text-align: center;
 }
-
-/* --- INTEGRATIONS --- */
 
 .integrationSection {
   display: flex;
@@ -406,12 +384,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.integrationSectionTitle {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
 }
 
 .integrationGrid,
@@ -430,62 +402,48 @@
 
 .integrationCard {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 14px;
   border: 1px solid #303030;
   border-radius: 16px;
   background: #171717;
-  padding: 16px;
+  padding: 14px;
 }
 
 .integrationCardBody {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
   min-width: 0;
 }
 
 .integrationCardTitle {
   font-size: 18px;
   font-weight: 700;
-  letter-spacing: -0.02em;
-  margin-bottom: 4px;
 }
 
 .integrationCardText {
+  margin-top: 4px;
   color: var(--muted);
   font-size: 13px;
-  line-height: 1.45;
-  margin-bottom: 10px;
-}
-
-.integrationLogo {
-  flex: 0 0 32px; /* Force exactly 32px width */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-}
-
-.integrationLogo svg {
-  width: 32px;
-  height: 32px;
-  display: block;
 }
 
 .integrationLogoImage {
   width: 32px;
   height: 32px;
   object-fit: contain;
-  display: block;
+}
+
+.integrationBadgeNotion {
+  color: #111;
+}
+
+.integrationBadgeDiscord {
+  color: #5865f2;
 }
 
 .integrationConnectedPill {
-  align-self: flex-start; /* Keeps it tight under text */
   border: 1px solid #3b5f48;
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 6px 10px;
   color: #8cd4a6;
   background: rgb(76 126 94 / 0.16);
   font-size: 12px;
@@ -500,21 +458,52 @@
   background: #202020;
   color: var(--ink);
   font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
   cursor: pointer;
-  flex: 0 0 auto;
-  align-self: center;
 }
 
-/* --- CHAT --- */
+.rightPanel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 8px;
+  animation-delay: 180ms;
+  min-height: 0;
+  height: calc(100vh - 16px); /* merged */
+  overflow: hidden;
+}
+
+.rightPanelOpen {
+  gap: 10px;
+}
+
+.rightPanelCollapsed {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.terminalRailButton {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #444;
+  border-radius: 999px;
+  background: #1f1f1f;
+  color: var(--danger);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.terminalContent {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden; /* merged */
+}
 
 .chatStream {
   display: flex;
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
-  padding-right: 0;
   min-height: 0;
   height: 100%;
   width: 100%;
@@ -527,39 +516,6 @@
   font-size: 14px;
   line-height: 1.45;
   border: 1px solid #343434;
-}
-
-/* Markdown Fixes inside the chat bubble */
-.messageBubble p {
-  margin-top: 0;
-  margin-bottom: 10px;
-}
-.messageBubble p:last-child {
-  margin-bottom: 0;
-}
-.messageBubble ul, 
-.messageBubble ol {
-  margin-top: 0;
-  margin-bottom: 10px;
-  padding-left: 20px;
-}
-.messageBubble li {
-  margin-bottom: 4px;
-}
-.messageBubble strong, 
-.messageBubble b {
-  color: #ffffff;
-  font-weight: 700;
-}
-.messageBubble a {
-  color: #6db98d;
-  text-decoration: none;
-  font-weight: 600;
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease;
-}
-.messageBubble a:hover {
-  border-bottom-color: #6db98d;
 }
 
 .userBubble {
@@ -577,21 +533,10 @@
 .thinkingBubble {
   display: flex;
   gap: 4px;
-  align-items: center;
-  font-weight: 800;
-  letter-spacing: 2px;
 }
 
 .dot {
   animation: colorFade 1.4s infinite ease-in-out both;
-  color: var(--muted);
-}
-.dot:nth-child(1) { animation-delay: -0.32s; }
-.dot:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes colorFade {
-  0%, 80%, 100% { color: var(--muted); }
-  40% { color: #4a90e2; }
 }
 
 .chatComposer {
@@ -603,7 +548,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 0;
 }
 
 .profileSelectInline {
@@ -614,15 +558,6 @@
   color: var(--ink);
   padding: 0 12px;
   min-width: 150px;
-  outline: none;
-}
-
-.sendButton {
-  background: #f0f0f0;
-  border: 0;
-  color: #111;
-  min-width: 74px;
-  margin-left: auto;
 }
 
 .composerInput {
@@ -634,48 +569,11 @@
   border-radius: 10px;
   padding: 0 14px;
 }
-.composerInput:focus {
-  border-color: #525252;
-}
 
 .composerActions {
   display: flex;
   gap: 10px;
   align-items: center;
-}
-
-/* --- TERMINAL --- */
-
-.rightPanel {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 8px;
-  animation-delay: 180ms;
-  height: calc(100vh - 16px);
-  overflow: hidden;
-}
-
-.rightPanelOpen { gap: 10px; }
-.rightPanelCollapsed { align-items: center; justify-content: flex-start; }
-
-.terminalRailButton {
-  width: 28px;
-  height: 28px;
-  border: 1px solid #444;
-  border-radius: 999px;
-  background: #1f1f1f;
-  color: var(--danger);
-  font-weight: 700;
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-
-.terminalContent {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-  overflow: hidden;
 }
 
 .terminalTitle {
@@ -693,7 +591,7 @@
   background: #090909;
   padding: 14px;
   color: #7fffb2;
-  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-family: ui-monospace, monospace;
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -704,68 +602,58 @@
   color: #666;
 }
 
-/* --- SKILLS & TASKS UI --- */
-
-.schemaInputContainer {
-  display: flex;
-  flex-direction: column;
-  background: #111;
-  border: 1px dashed #333;
-  border-radius: 10px;
-  padding: 14px;
-  margin-bottom: 20px;
+/* --- MARKDOWN FORMATTING FIXES --- */
+.messageBubble p {
+  margin-top: 0;
+  margin-bottom: 10px;
 }
 
-.schemaTextarea {
-  width: 100%;
-  height: 140px;
-  background: #000;
-  color: #7fffb2;
-  border: 1px solid #222;
-  border-radius: 8px;
-  padding: 10px;
-  font-family: monospace;
-  font-size: 12px;
-  resize: vertical;
+.messageBubble p:last-child {
+  margin-bottom: 0;
 }
 
-.schemaItemBox {
-  border: 1px solid #2c2c2c;
-  border-radius: 10px;
-  background: #181818;
-  overflow: hidden;
+.messageBubble ul, 
+.messageBubble ol {
+  margin-top: 0;
+  margin-bottom: 10px;
+  padding-left: 20px;
 }
 
-.schemaItemHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px;
+.messageBubble li {
+  margin-bottom: 4px;
 }
 
-.schemaCodeBlock {
-  margin: 0;
-  padding: 14px;
-  background: #000;
-  border-top: 1px solid #2c2c2c;
-  color: #7fffb2;
-  font-family: monospace;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+.messageBubble strong, 
+.messageBubble b {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.messageBubble a {
+  color: #6db98d; /* A sleek, visible green/blue */
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.messageBubble a:hover {
+  border-bottom-color: #6db98d;
+}
+
+@keyframes colorFade {
+  0%, 80%, 100% { opacity: 0.45; }
+  40% { opacity: 1; }
 }
 
 @keyframes rise {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 
-@media (max-width: 1180px) {
-  .shellTerminalOpen { grid-template-columns: 220px minmax(0, 1fr) 280px; }
-  .shellTerminalCollapsed { grid-template-columns: 220px minmax(0, 1fr) 44px; }
-}
-
-@media (max-width: 840px) {
-  .shell { grid-template-columns: 1fr; padding: 6px; }
-  .integrationGrid { grid-template-columns: 1fr; }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

@@ -1,651 +1,651 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect, type ReactNode } from "react";
+import Image from "next/image";
+import ReactMarkdown from "react-markdown";
+import { SiDiscord, SiNotion } from "react-icons/si";
+
 import { useAtlasWebSocket } from "@/hooks/useAtlasWebSocket";
+import { runStartupRoutine } from "@/utils/startupTasks";
+import { executeVesitSkill, VESIT_RESULT_SKILL_SCHEMA } from "@/utils/skillsEngine";
+
 import styles from "./page.module.css";
+
+/* ---------------- TYPES ---------------- */
 
 type SidebarView =
   | "new-chat"
-  | "chat-history"
   | "browser-sessions"
   | "saved-memory"
   | "integrations"
   | "startup-tasks"
   | "skills";
 
-type ChatHistoryItem = {
-  id: string;
-  name: string;
-  updatedAt: string;
-};
-
 type BrowserProfileItem = {
   id: string;
   name: string;
-  storedData: string;
+  domains: string[];
 };
 
-const INITIAL_CHAT_HISTORY: ChatHistoryItem[] = [
-  { id: "chat-1", name: "Plan navigation stack", updatedAt: "Apr 20" },
-  { id: "chat-2", name: "Fix captcha fallback policy", updatedAt: "Apr 19" },
-  { id: "chat-3", name: "Review memory retrieval quality", updatedAt: "Apr 18" },
-  { id: "chat-4", name: "Scrape finance dashboard tasks", updatedAt: "Apr 17" },
-  { id: "chat-5", name: "Design tab orchestration flow", updatedAt: "Apr 16" },
-];
+type RawProfile = {
+  id: string;
+  name: string;
+  storedData?: string;
+};
 
-const INITIAL_BROWSER_PROFILES: BrowserProfileItem[] = [
-  {
-    id: "profile-1",
-    name: "Investor research profile",
-    storedData: "Saved logins, cookies, and preferences",
-  },
-  {
-    id: "profile-2",
-    name: "Documentation profile",
-    storedData: "Stored auth tokens and browsing state",
-  },
-  {
-    id: "profile-3",
-    name: "Lead sourcing profile",
-    storedData: "Saved cookies and workspace context",
-  },
-  {
-    id: "profile-4",
-    name: "Pricing monitor profile",
-    storedData: "Stored credentials and session cache",
-  },
-];
+type DocumentItem = {
+  id: string;
+  name: string;
+  size: string;
+};
+
+type ChatMessage = {
+  role: "user" | "ai";
+  content: string;
+};
+
+type IntegrationItem = {
+  id: string;
+  name: string;
+  description: string;
+  accentClass: string;
+  logo: ReactNode;
+  connectedLabel?: string;
+};
+
+type SchemaItem = {
+  id: string;
+  name: string;
+  schema: string;
+  action?: () => void;
+};
+
+/* ---------------- DATA ---------------- */
 
 const PROMPT_PHRASES = [
   "What's on your mind today?",
   "What should Atlas tackle first?",
   "Where do you want to start?",
-  "What are we working on today?",
-  "Tell me the task you'd like to begin.",
-  "What should I help you explore?",
-  "Drop in a goal and Atlas will get moving.",
-  "What's the mission for this session?",
-  "What would you like to automate next?",
-  "Start with a task, a link, or a question.",
 ];
 
-function pickRandomPrompt() {
-  return PROMPT_PHRASES[Math.floor(Math.random() * PROMPT_PHRASES.length)];
-}
+const pickRandomPrompt = () => PROMPT_PHRASES[Math.floor(Math.random() * PROMPT_PHRASES.length)];
 
-function TrashIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M3 6H21M9 6V4C9 3.45 9.45 3 10 3H14C14.55 3 15 3.45 15 4V6M18 6V20C18 20.55 17.55 21 17 21H7C6.45 21 6 20.55 6 20V6M10 11V17M14 11V17"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+const GMAIL_LOGO = "/integrations/gmail.png";
+const DRIVE_LOGO = "/integrations/drive.png";
+const CALENDAR_LOGO = "/integrations/calendar.png";
+
+const CONNECTED_INTEGRATIONS: IntegrationItem[] = [
+  {
+    id: "gmail-connected",
+    name: "Gmail",
+    description: "Your inbox is connected for email-aware automations.",
+    accentClass: "",
+    logo: <Image className={styles.integrationLogoImage} src={GMAIL_LOGO} alt="Gmail" width={32} height={32} unoptimized />,
+    connectedLabel: "2023.pranav.chandak@ves.ac.in",
+  },
+];
+
+const AVAILABLE_INTEGRATIONS: IntegrationItem[] = [
+  {
+    id: "gmail",
+    name: "Gmail",
+    description: "Add Gmail to route messages, reminders, and follow-ups.",
+    accentClass: "",
+    logo: <Image className={styles.integrationLogoImage} src={GMAIL_LOGO} alt="Gmail" width={32} height={32} unoptimized />,
+  },
+  {
+    id: "drive",
+    name: "Google Drive",
+    description: "Sync Drive files so Atlas can reference docs instantly.",
+    accentClass: "",
+    logo: <Image className={styles.integrationLogoImage} src={DRIVE_LOGO} alt="Drive" width={32} height={32} unoptimized />,
+  },
+  {
+    id: "calendar",
+    name: "Google Calendar",
+    description: "Bring your schedule in so Atlas can spot time blocks.",
+    accentClass: "",
+    logo: <Image className={styles.integrationLogoImage} src={CALENDAR_LOGO} alt="Calendar" width={32} height={32} unoptimized />,
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    description: "Connect Notion to keep task notes, specs, and checklists in sync.",
+    accentClass: styles.integrationBadgeNotion,
+    logo: <SiNotion />,
+  },
+  {
+    id: "discord",
+    name: "Discord",
+    description: "Send updates to Discord when Atlas finishes work.",
+    accentClass: styles.integrationBadgeDiscord,
+    logo: <SiDiscord />,
+  },
+];
+
+const DEFAULT_STARTUP_SCHEMA = `{\n  "task_id": "morning_routine",\n  "trigger": "on_boot",\n  "steps": [\n    { "action": "fetch_api", "url": "https://news.ycombinator.com" }\n  ]\n}`;
+const DEFAULT_SKILL_SCHEMA = `{\n  "skill_id": "custom_skill",\n  "description": "What this skill does...",\n  "parameters": [],\n  "steps": []\n}`;
+
+/* ---------------- PAGE ---------------- */
 
 export default function Home() {
-  const { status, messages, terminalLogs, isWorking, sendMessage: sendWebSocketMessage } = useAtlasWebSocket();
+  const {
+    status,
+    messages,
+    terminalLogs,
+    isWorking,
+    sendMessage: sendWebSocketMessage,
+    stopGeneration,
+    addTerminalLog,
+  } = useAtlasWebSocket();
+
+  const API_BASE = "http://localhost:8000/atlas";
+  const isConnectionReady = status === "CONNECTED";
+
   const [activeView, setActiveView] = useState<SidebarView>("new-chat");
   const [promptPhrase, setPromptPhrase] = useState(PROMPT_PHRASES[0]);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const isConnectionReady = status === "CONNECTED";
+  const [isMockWorking, setIsMockWorking] = useState(false);
 
-  const [chatHistory, setChatHistory] =
-    useState<ChatHistoryItem[]>(INITIAL_CHAT_HISTORY);
-  const [chatSearch, setChatSearch] = useState("");
-  const [selectedChatIds, setSelectedChatIds] = useState<string[]>([]);
+  const isCurrentlyWorking = isWorking || isMockWorking;
 
-  const [browserProfiles, setBrowserProfiles] = useState<BrowserProfileItem[]>(
-    INITIAL_BROWSER_PROFILES,
-  );
+  const [browserProfiles, setBrowserProfiles] = useState<BrowserProfileItem[]>([]);
+  const [savedDocuments, setSavedDocuments] = useState<DocumentItem[]>([]);
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+
   const [profileSearch, setProfileSearch] = useState("");
-  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
-
   const [messageText, setMessageText] = useState("");
   const [composerProfileId, setComposerProfileId] = useState("");
-  const [composerLocked, setComposerLocked] = useState(false);
-  const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const filteredChatHistory = useMemo(() => {
-    const query = chatSearch.trim().toLowerCase();
-    if (!query) {
-      return chatHistory;
-    }
+  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
+  const [expandedSchemaId, setExpandedSchemaId] = useState<string | null>(null);
 
-    return chatHistory.filter((item) => item.name.toLowerCase().includes(query));
-  }, [chatHistory, chatSearch]);
+  // Dynamic Skills & Tasks State
+  const [isAddingTask, setIsAddingTask] = useState(false);
+  const [newTaskName, setNewTaskName] = useState("");
+  const [newTaskSchema, setNewTaskSchema] = useState("");
+  
+  const [isAddingSkill, setIsAddingSkill] = useState(false);
+  const [newSkillName, setNewSkillName] = useState("");
+  const [newSkillSchema, setNewSkillSchema] = useState("");
 
-  const filteredBrowserProfiles = useMemo(() => {
-    const query = profileSearch.trim().toLowerCase();
-    if (!query) {
-      return browserProfiles;
-    }
+  const docUploadRef = useRef<HTMLInputElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
 
-    return browserProfiles.filter((item) => item.name.toLowerCase().includes(query));
-  }, [browserProfiles, profileSearch]);
+  const [skillsList, setSkillsList] = useState<SchemaItem[]>([
+    { id: "s1", name: "Fetch ECS (Sem 5)", action: () => runSkillDemo("ecs", "5"), schema: JSON.stringify(VESIT_RESULT_SKILL_SCHEMA, null, 2) },
+    { id: "s2", name: "Fetch CMPN (Sem 4)", action: () => runSkillDemo("cmpn", "4"), schema: JSON.stringify(VESIT_RESULT_SKILL_SCHEMA, null, 2) },
+    { id: "s3", name: "Fetch IT (Sem 5)", action: () => runSkillDemo("it", "5"), schema: JSON.stringify(VESIT_RESULT_SKILL_SCHEMA, null, 2) },
+  ]);
 
-  const toggleSelectedChat = (id: string) => {
-    setSelectedChatIds((current) =>
-      current.includes(id)
-        ? current.filter((itemId) => itemId !== id)
-        : [...current, id],
-    );
-  };
+  const [tasksList, setTasksList] = useState<SchemaItem[]>([
+    { id: "t1", name: "Morning Routine", action: () => runStartupDemo(), schema: DEFAULT_STARTUP_SCHEMA },
+  ]);
 
-  const toggleSelectedProfile = (id: string) => {
-    setSelectedProfileIds((current) =>
-      current.includes(id)
-        ? current.filter((itemId) => itemId !== id)
-        : [...current, id],
-    );
-  };
+  const allMessages: ChatMessage[] = [...(messages as ChatMessage[]), ...localMessages];
 
-  const removeChatItem = (id: string) => {
-    setChatHistory((current) => current.filter((item) => item.id !== id));
-    setSelectedChatIds((current) => current.filter((itemId) => itemId !== id));
-  };
+  /* ---------------- EFFECTS ---------------- */
 
-  const removeProfileItem = (id: string) => {
-    setBrowserProfiles((current) => current.filter((item) => item.id !== id));
-    setSelectedProfileIds((current) => current.filter((itemId) => itemId !== id));
-  };
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, localMessages, isCurrentlyWorking]); // Fixed: exhaustive-deps
 
-  const deleteSelectedChat = () => {
-    if (!selectedChatIds.length) {
-      return;
-    }
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [terminalLogs]);
 
-    const selectedSet = new Set(selectedChatIds);
-    setChatHistory((current) => current.filter((item) => !selectedSet.has(item.id)));
-    setSelectedChatIds([]);
-  };
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        const profileRes = await fetch(`${API_BASE}/profiles`);
+        const profileJson = await profileRes.json();
+        
+        // Mock domains for profiles since they aren't stored in backend yet
+        const mockDomainSets = [
+          ["github.com", "google.com", "jira.atlassian.com"],
+          ["aws.amazon.com", "vercel.com", "reddit.com"],
+          ["linkedin.com", "twitter.com"]
+        ];
 
-  const deleteSelectedProfiles = () => {
-    if (!selectedProfileIds.length) {
-      return;
-    }
+        const enrichedProfiles = (profileJson.profiles || []).map((p: RawProfile, i: number) => ({
+          ...p,
+          domains: mockDomainSets[i % mockDomainSets.length]
+        }));
 
-    const selectedSet = new Set(selectedProfileIds);
-    setBrowserProfiles((current) =>
-      current.filter((item) => !selectedSet.has(item.id)),
-    );
-    setSelectedProfileIds([]);
-  };
+        setBrowserProfiles(enrichedProfiles);
 
-  const createProfile = () => {
-    const nextIndex = browserProfiles.length + 1;
-    const newProfile: BrowserProfileItem = {
-      id: `profile-${Date.now()}`,
-      name: `New browser profile ${nextIndex}`,
-      storedData: "Stored browser data",
+        // Auto-select first profile for composer
+        if (enrichedProfiles.length > 0) {
+          setComposerProfileId(enrichedProfiles[0].id);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+
+      setSavedDocuments([{ id: "doc-1", name: "resume.pdf", size: "245 KB" }]);
     };
 
-    setBrowserProfiles((current) => [newProfile, ...current]);
-  };
+    void loadInitialData();
+  }, []);
 
-  const allVisibleChatsSelected =
-    filteredChatHistory.length > 0 &&
-    filteredChatHistory.every((item) => selectedChatIds.includes(item.id));
+  /* ---------------- FILTERS ---------------- */
 
-  const allVisibleProfilesSelected =
-    filteredBrowserProfiles.length > 0 &&
-    filteredBrowserProfiles.every((item) => selectedProfileIds.includes(item.id));
+  const filteredBrowserProfiles = useMemo(() => {
+    const q = profileSearch.trim().toLowerCase();
+    return q ? browserProfiles.filter((item) => item.name.toLowerCase().includes(q)) : browserProfiles;
+  }, [browserProfiles, profileSearch]);
 
-  const toggleAllVisibleChats = () => {
-    if (allVisibleChatsSelected) {
-      const visibleIds = new Set(filteredChatHistory.map((item) => item.id));
-      setSelectedChatIds((current) =>
-        current.filter((itemId) => !visibleIds.has(itemId)),
-      );
-      return;
-    }
-
-    const merged = new Set(selectedChatIds);
-    filteredChatHistory.forEach((item) => merged.add(item.id));
-    setSelectedChatIds(Array.from(merged));
-  };
-
-  const toggleAllVisibleProfiles = () => {
-    if (allVisibleProfilesSelected) {
-      const visibleIds = new Set(filteredBrowserProfiles.map((item) => item.id));
-      setSelectedProfileIds((current) =>
-        current.filter((itemId) => !visibleIds.has(itemId)),
-      );
-      return;
-    }
-
-    const merged = new Set(selectedProfileIds);
-    filteredBrowserProfiles.forEach((item) => merged.add(item.id));
-    setSelectedProfileIds(Array.from(merged));
-  };
+  /* ---------------- ACTIONS ---------------- */
 
   const startNewChat = () => {
     setActiveView("new-chat");
     setPromptPhrase(pickRandomPrompt());
     setMessageText("");
-    setComposerProfileId("");
-    setComposerLocked(false);
-    setAttachedFiles([]);
-  };
-
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
-    if (!files.length) {
-      return;
-    }
-
-    setAttachedFiles((current) => [
-      ...current,
-      ...files.map((file) => file.name),
-    ]);
-    event.target.value = "";
+    setLocalMessages([]);
   };
 
   const sendMessage = () => {
-    if (!isConnectionReady) {
-      return;
-    }
-
-    if (!messageText.trim() && !attachedFiles.length) {
-      return;
-    }
-    setComposerLocked(true);
-    const userContent = messageText.trim() || `Attached ${attachedFiles.length} file(s)`;
-    
-    sendWebSocketMessage(userContent);
-    
+    if (!isConnectionReady || !messageText.trim() || !composerProfileId) return;
+    sendWebSocketMessage(messageText.trim());
     setMessageText("");
-    setAttachedFiles([]);
   };
 
+  const createProfile = async () => {
+    const name = prompt("Enter a name for the new browser profile:");
+    if (!name) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/profiles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) return;
+
+      const profileRes = await fetch(`${API_BASE}/profiles`);
+      const json = await profileRes.json();
+      const enrichedProfiles = (json.profiles || []).map((p: RawProfile) => ({
+        ...p,
+        domains: ["New Profile (No domains yet)"]
+      }));
+      setBrowserProfiles(enrichedProfiles);
+      if (!composerProfileId && enrichedProfiles.length > 0) setComposerProfileId(enrichedProfiles[0].id);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDocUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+
+    const newDocs = files.map((file) => ({
+      id: `doc-${Date.now()}-${file.name}`,
+      name: file.name,
+      size: `${(file.size / 1024).toFixed(1)} KB`,
+    }));
+
+    setSavedDocuments((prev) => [...newDocs, ...prev]);
+    e.target.value = "";
+  };
+
+  const saveNewTask = () => {
+    if (!newTaskSchema.trim() || !newTaskName.trim()) return;
+    setTasksList(prev => [...prev, { 
+      id: `task-${Date.now()}`, 
+      name: newTaskName.trim(), 
+      schema: newTaskSchema,
+      action: () => alert(`Mock Execution: ${newTaskName}`)
+    }]);
+    setIsAddingTask(false);
+    setNewTaskSchema("");
+    setNewTaskName("");
+  };
+
+  const saveNewSkill = () => {
+    if (!newSkillSchema.trim() || !newSkillName.trim()) return;
+    setSkillsList(prev => [...prev, { 
+      id: `skill-${Date.now()}`, 
+      name: newSkillName.trim(), 
+      schema: newSkillSchema,
+      action: () => alert(`Mock Execution: ${newSkillName}`)
+    }]);
+    setIsAddingSkill(false);
+    setNewSkillSchema("");
+    setNewSkillName("");
+  };
+
+  /* ---------------- DEMOS ---------------- */
+
+  const runSkillDemo = async (dept: "ecs" | "it" | "cmpn", sem: "4" | "5") => {
+    setIsTerminalOpen(true);
+    setIsMockWorking(true);
+    setLocalMessages((prev) => [...prev, { role: "user", content: `Execute skill: fetch_vesit_results for ${dept.toUpperCase()} Sem ${sem}` }]);
+
+    const result = await executeVesitSkill(dept, sem, addTerminalLog!);
+
+    setLocalMessages((prev) => [...prev, { role: "ai", content: result }]);
+    setActiveView("new-chat");
+    setIsMockWorking(false);
+  };
+
+  const runStartupDemo = async () => {
+    setIsTerminalOpen(true);
+    setIsMockWorking(true);
+    setLocalMessages((prev) => [...prev, { role: "user", content: "Run morning routine." }]);
+
+    const result = await runStartupRoutine(addTerminalLog!);
+
+    setLocalMessages((prev) => [...prev, { role: "ai", content: result }]);
+    setActiveView("new-chat");
+    setIsMockWorking(false);
+  };
+
+  /* ---------------- UI ---------------- */
+
   return (
-    <div
-      className={`${styles.shell} ${
-        isTerminalOpen ? styles.shellTerminalOpen : styles.shellTerminalCollapsed
-      }`}
-    >
+    <div className={`${styles.shell} ${isTerminalOpen ? styles.shellTerminalOpen : styles.shellTerminalCollapsed}`}>
+      
+      {/* SIDEBAR */}
       <aside className={styles.sidebar}>
         <div className={styles.sidebarTop}>
           <p className={styles.brand}>Atlas</p>
           <p className={styles.brandSub}>Autonomous Browser Agent</p>
         </div>
 
-        <button
-          type="button"
-          className={`${styles.newChatButton} ${
-            activeView === "new-chat" ? styles.newChatButtonActive : ""
-          }`}
-          onClick={startNewChat}
-        >
+        <button type="button" className={`${styles.newChatButton} ${activeView === "new-chat" ? styles.newChatButtonActive : ""}`} onClick={startNewChat}>
           New Chat
         </button>
 
         <nav className={styles.navList}>
-          <button
-            type="button"
-            className={`${styles.navItem} ${
-              activeView === "chat-history" ? styles.navItemActive : ""
-            }`}
-            onClick={() => setActiveView("chat-history")}
-          >
-            Chat History
-          </button>
-          <button
-            type="button"
-            className={`${styles.navItem} ${
-              activeView === "browser-sessions" ? styles.navItemActive : ""
-            }`}
-            onClick={() => setActiveView("browser-sessions")}
-          >
-            Browser Profiles
-          </button>
-          <button
-            type="button"
-            className={`${styles.navItem} ${
-              activeView === "saved-memory" ? styles.navItemActive : ""
-            }`}
-            onClick={() => setActiveView("saved-memory")}
-          >
-            Saved Documents
-          </button>
-          <button
-            type="button"
-            className={`${styles.navItem} ${
-              activeView === "integrations" ? styles.navItemActive : ""
-            }`}
-            onClick={() => setActiveView("integrations")}
-          >
-            Integrations
-          </button>
-          <button
-            type="button"
-            className={`${styles.navItem} ${
-              activeView === "startup-tasks" ? styles.navItemActive : ""
-            }`}
-            onClick={() => setActiveView("startup-tasks")}
-          >
-            Startup Tasks
-          </button>
-          <button
-            type="button"
-            className={`${styles.navItem} ${
-              activeView === "skills" ? styles.navItemActive : ""
-            }`}
-            onClick={() => setActiveView("skills")}
-          >
-            Skills
-          </button>
+          <button className={`${styles.navItem} ${activeView === "browser-sessions" ? styles.navItemActive : ""}`} onClick={() => setActiveView("browser-sessions")}>Browser Profiles</button>
+          <button className={`${styles.navItem} ${activeView === "saved-memory" ? styles.navItemActive : ""}`} onClick={() => setActiveView("saved-memory")}>Saved Documents</button>
+          <button className={`${styles.navItem} ${activeView === "integrations" ? styles.navItemActive : ""}`} onClick={() => setActiveView("integrations")}>Integrations</button>
+          <button className={`${styles.navItem} ${activeView === "startup-tasks" ? styles.navItemActive : ""}`} onClick={() => setActiveView("startup-tasks")}>Startup Tasks</button>
+          <button className={`${styles.navItem} ${activeView === "skills" ? styles.navItemActive : ""}`} onClick={() => setActiveView("skills")}>Skills</button>
         </nav>
       </aside>
 
+      {/* CENTER */}
       <section className={styles.centerPanel}>
         <div className={styles.statusBar}>
-          <div className={styles.statusLeft}>
-            <span
-              className={`${styles.connectionBadge} ${
-                isConnectionReady ? styles.connected : styles.notConnected
-              }`}
-            >
-              {isConnectionReady ? "Connected" : "Not Connected"}
-            </span>
-          </div>
+          <span className={`${styles.connectionBadge} ${isConnectionReady ? styles.connected : styles.notConnected}`}>
+            {isConnectionReady ? "Connected" : "Not Connected"}
+          </span>
         </div>
 
+        {/* CHAT */}
         {activeView === "new-chat" && (
           <div className={styles.newChatStage}>
-            <div
-              className={`${styles.newChatContent} ${
-                messages.length === 0 ? styles.newChatContentCentered : ""
-              }`}
-            >
-              {messages.length === 0 ? (
+            <div className={`${styles.newChatContent} ${allMessages.length === 0 ? styles.newChatContentCentered : ""}`}>
+              {allMessages.length === 0 ? (
                 <p className={styles.promptPhrase}>{promptPhrase}</p>
               ) : (
                 <div className={styles.chatStream}>
-                  {messages.map((message, index) => (
-                    <div
-                      key={index}
-                      className={`${styles.messageBubble} ${
-                        message.role === "user" ? styles.userBubble : styles.agentBubble
-                      }`}
-                    >
-                      {message.content}
+                  {allMessages.map((message, index) => (
+                    <div key={index} className={`${styles.messageBubble} ${message.role === "user" ? styles.userBubble : styles.agentBubble}`}>
+                      {message.role === "ai" ? <ReactMarkdown>{message.content}</ReactMarkdown> : message.content}
                     </div>
                   ))}
-                  {isWorking && (
+
+                  {isCurrentlyWorking && (
                     <div className={`${styles.messageBubble} ${styles.agentBubble} ${styles.thinkingBubble}`}>
                       <span className={styles.dot}>.</span>
                       <span className={styles.dot}>.</span>
                       <span className={styles.dot}>.</span>
                     </div>
                   )}
+
+                  <div ref={chatEndRef} />
                 </div>
               )}
             </div>
 
-            <form 
-              className={styles.chatComposer}
-              onSubmit={(e) => {
-                e.preventDefault();
-                sendMessage();
-              }}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                className={styles.hiddenFileInput}
-                accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,application/pdf,.png,.jpg,.jpeg,.webp,.gif,.pdf"
-                multiple
-                onChange={handleFilesSelected}
-              />
-              <input
-                type="text"
-                className={styles.composerInput}
-                placeholder="Type a message"
-                value={messageText}
-                onChange={(event) => setMessageText(event.target.value)}
-              />
+            <form className={styles.chatComposer} onSubmit={(e) => { e.preventDefault(); sendMessage(); }}>
+              <input type="text" className={styles.composerInput} placeholder="Type a message" value={messageText} onChange={(e) => setMessageText(e.target.value)} disabled={isCurrentlyWorking} />
+
               <div className={styles.composerActions}>
-                <button
-                  type="button"
-                  className={styles.attachButton}
-                  onClick={handleUploadClick}
-                  aria-label="Upload images or PDF files"
-                >
-                  +
-                </button>
-                <select
-                  className={styles.profileSelectInline}
-                  value={composerProfileId}
-                  onChange={(event) => setComposerProfileId(event.target.value)}
-                  disabled={composerLocked}
-                  aria-label="Select browser profile"
-                >
-                  <option value="">Profile</option>
-                  {browserProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </option>
+                <select className={styles.profileSelectInline} value={composerProfileId} onChange={(e) => setComposerProfileId(e.target.value)} disabled={isCurrentlyWorking || browserProfiles.length === 0}>
+                  {browserProfiles.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
               </div>
-              <button
-                type="submit"
-                className={styles.sendButton}
-              >
-                Send
-              </button>
+
+              {isCurrentlyWorking ? (
+                <button type="button" className={styles.stopButton} onClick={() => { stopGeneration(); setIsMockWorking(false); }}>Stop</button>
+              ) : (
+                <button type="submit" className={styles.sendButton} disabled={!isConnectionReady || !messageText.trim() || !composerProfileId}>Send</button>
+              )}
             </form>
           </div>
         )}
 
-        {activeView === "chat-history" && (
-          <div className={styles.workspacePanel}>
-            <div className={styles.panelHeader}>
-              <h1 className={styles.panelTitle}>Chat History</h1>
-              <p className={styles.panelSubtitle}>
-                Search, multi-select, and delete previous conversations.
-              </p>
-            </div>
-
-            <div className={styles.tableCard}>
-              <div className={styles.tableControls}>
-                <input
-                  className={styles.searchInput}
-                  type="search"
-                  placeholder="Search chat history"
-                  value={chatSearch}
-                  onChange={(event) => setChatSearch(event.target.value)}
-                />
-                <button
-                  type="button"
-                  className={styles.ghostButton}
-                  onClick={deleteSelectedChat}
-                  disabled={!selectedChatIds.length}
-                >
-                  Delete Selected ({selectedChatIds.length})
-                </button>
-              </div>
-
-              <div className={styles.tableWrap}>
-                <div className={`${styles.tableRow} ${styles.tableHead}`}>
-                  <label className={styles.checkboxCell}>
-                    <input
-                      type="checkbox"
-                      checked={allVisibleChatsSelected}
-                      onChange={toggleAllVisibleChats}
-                      aria-label="Select all chat history rows"
-                    />
-                  </label>
-                  <p>Name</p>
-                  <p>Updated</p>
-                  <p className={styles.tableRight}>Actions</p>
-                </div>
-
-                {filteredChatHistory.map((item) => (
-                  <div className={styles.tableRow} key={item.id}>
-                    <label className={styles.checkboxCell}>
-                      <input
-                        type="checkbox"
-                        checked={selectedChatIds.includes(item.id)}
-                        onChange={() => toggleSelectedChat(item.id)}
-                        aria-label={`Select ${item.name}`}
-                      />
-                    </label>
-                    <p className={styles.cellPrimary}>{item.name}</p>
-                    <p className={styles.cellMuted}>{item.updatedAt}</p>
-                    <div className={styles.rowActions}>
-                      <button
-                        type="button"
-                        className={styles.iconButton}
-                        aria-label={`Delete ${item.name}`}
-                        onClick={() => removeChatItem(item.id)}
-                      >
-                        <TrashIcon />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {!filteredChatHistory.length && (
-                  <div className={styles.emptyState}>No chat history results found.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
+        {/* PROFILES */}
         {activeView === "browser-sessions" && (
           <div className={styles.workspacePanel}>
             <div className={styles.panelHeader}>
               <h1 className={styles.panelTitle}>Browser Profiles</h1>
-              <p className={styles.panelSubtitle}>
-                Create, inspect, and prune stored browser profiles.
-              </p>
+              <p className={styles.panelSubtitle}>Manage isolated browser environments and view saved authentications.</p>
             </div>
 
             <div className={styles.tableCard}>
               <div className={styles.tableControls}>
-                <input
-                  className={styles.searchInput}
-                  type="search"
-                  placeholder="Search browser profiles"
-                  value={profileSearch}
-                  onChange={(event) => setProfileSearch(event.target.value)}
-                />
-                <button
-                  type="button"
-                  className={styles.createButton}
-                  onClick={createProfile}
-                >
-                  Create Profile
-                </button>
-                <button
-                  type="button"
-                  className={styles.ghostButton}
-                  onClick={deleteSelectedProfiles}
-                  disabled={!selectedProfileIds.length}
-                >
-                  Delete Selected ({selectedProfileIds.length})
-                </button>
+                <input className={styles.searchInput} placeholder="Search profiles" value={profileSearch} onChange={(e) => setProfileSearch(e.target.value)} />
+                <button className={styles.createButton} onClick={createProfile}>Create Profile</button>
               </div>
 
               <div className={styles.tableWrap}>
-                <div className={`${styles.tableRow} ${styles.tableHead}`}>
-                  <label className={styles.checkboxCell}>
-                    <input
-                      type="checkbox"
-                      checked={allVisibleProfilesSelected}
-                      onChange={toggleAllVisibleProfiles}
-                      aria-label="Select all browser profile rows"
-                    />
-                  </label>
-                  <p>Name</p>
-                  <p>Stored Data</p>
-                  <p className={styles.tableRight}>Actions</p>
-                </div>
-
                 {filteredBrowserProfiles.map((item) => (
-                  <div className={styles.tableRowProfiles} key={item.id}>
-                    <label className={styles.checkboxCell}>
-                      <input
-                        type="checkbox"
-                        checked={selectedProfileIds.includes(item.id)}
-                        onChange={() => toggleSelectedProfile(item.id)}
-                        aria-label={`Select ${item.name}`}
-                      />
-                    </label>
-                    <p className={styles.cellPrimary}>{item.name}</p>
-                    <p className={styles.cellMuted}>{item.storedData}</p>
-                    <div className={styles.rowActions}>
-                      <button
-                        type="button"
-                        className={styles.iconButton}
-                        aria-label={`Delete ${item.name}`}
-                        onClick={() => removeProfileItem(item.id)}
-                      >
-                        <TrashIcon />
-                      </button>
+                  <div key={item.id} className={styles.profileRowContainer}>
+                    <div className={styles.tableRowProfiles} onClick={() => setExpandedProfileId(expandedProfileId === item.id ? null : item.id)}>
+                      <p className={styles.cellPrimary}>{item.name}</p>
+                      <p className={styles.cellMutedDropdown}>
+                        {item.domains.length} saved sessions {expandedProfileId === item.id ? "▲" : "▼"}
+                      </p>
                     </div>
+                    {expandedProfileId === item.id && (
+                      <div className={styles.profileDomainsList}>
+                        <p className={styles.domainHeader}>Stored Authentications & Cookies:</p>
+                        <ul>
+                          {item.domains.map(d => <li key={d}>{d}</li>)}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 ))}
-
-                {!filteredBrowserProfiles.length && (
-                  <div className={styles.emptyState}>No browser profiles found.</div>
-                )}
+                {!filteredBrowserProfiles.length && <div className={styles.emptyState}>No profiles found.</div>}
               </div>
             </div>
           </div>
         )}
 
-        {(activeView === "saved-memory" ||
-          activeView === "integrations" ||
-          activeView === "startup-tasks" ||
-          activeView === "skills") && (
+        {/* DOCS */}
+        {activeView === "saved-memory" && (
           <div className={styles.workspacePanel}>
-            <div className={styles.blankCard}>
-              <p className={styles.blankTitle}>
-                {activeView === "saved-memory"
-                  ? "Saved Documents"
-                  : activeView === "integrations"
-                    ? "Integrations"
-                    : activeView === "startup-tasks"
-                      ? "Startup Tasks"
-                      : "Skills"}
-              </p>
-              <p className={styles.blankHint} />
+            <div className={styles.panelHeader}>
+              <h1 className={styles.panelTitle}>Saved Documents</h1>
+              <p className={styles.panelSubtitle}>Upload PDFs and documents for semantic retrieval and context during execution.</p>
+            </div>
+
+            <div className={styles.tableCard}>
+              <div className={styles.tableControls}>
+                <input ref={docUploadRef} type="file" multiple style={{ display: "none" }} onChange={handleDocUpload} />
+                <button className={styles.createButton} onClick={() => docUploadRef.current?.click()}>Upload Document</button>
+              </div>
+
+              <div className={styles.tableWrap}>
+                {savedDocuments.map((doc) => (
+                  <div key={doc.id} className={styles.documentRow}>
+                    <p className={styles.documentName}>{doc.name}</p>
+                    <p className={styles.documentSize}>{doc.size}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
+
+        {/* INTEGRATIONS */}
+        {activeView === "integrations" && (
+          <div className={styles.workspacePanel}>
+            <div className={styles.panelHeader}>
+              <h1 className={styles.panelTitle}>Integrations</h1>
+              <p className={styles.panelSubtitle}>Connect Atlas to your external services and daily workflows.</p>
+            </div>
+
+            <div className={styles.integrationSection}>
+              <div className={styles.integrationBlock}>
+                <h2 className={styles.integrationSectionTitle}>Connected</h2>
+                <div className={styles.integrationGridSingle}>
+                  {CONNECTED_INTEGRATIONS.map((integration) => (
+                    <article className={styles.integrationCard} key={integration.id}>
+                      <div className={`${styles.integrationLogo} ${integration.accentClass}`}>
+                        {integration.logo}
+                      </div>
+                      <div className={styles.integrationCardBody}>
+                        <div className={styles.integrationCardTitleRow}>
+                          <div>
+                            <h2 className={styles.integrationCardTitle}>{integration.name}</h2>
+                            <p className={styles.integrationCardText}>{integration.description}</p>
+                          </div>
+                          <span className={styles.integrationConnectedPill}>{integration.connectedLabel}</span>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+
+              <div className={styles.integrationBlock}>
+                <h2 className={styles.integrationSectionTitle}>Add More</h2>
+                <div className={styles.integrationGrid}>
+                  {AVAILABLE_INTEGRATIONS.map((integration) => (
+                    <article className={styles.integrationCard} key={integration.id}>
+                      <div className={`${styles.integrationLogo} ${integration.accentClass}`}>
+                        {integration.logo}
+                      </div>
+                      <div className={styles.integrationCardBody}>
+                        <h2 className={styles.integrationCardTitle}>{integration.name}</h2>
+                        <p className={styles.integrationCardText}>{integration.description}</p>
+                      </div>
+                      <button type="button" className={styles.integrationAddButton}>+</button>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STARTUP TASKS */}
+        {activeView === "startup-tasks" && (
+          <div className={styles.workspacePanel}>
+            <div className={styles.panelHeader}>
+              <h1 className={styles.panelTitle}>Startup Tasks</h1>
+              <p className={styles.panelSubtitle}>Automated routines that run efficiently on system boot without requiring full agent reasoning. Provide a valid JSON schema to create a new task.</p>
+            </div>
+
+            <div className={styles.tableCard} style={{ padding: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
+                <p style={{ color: "#888", margin: 0 }}>Trigger predefined startup routines.</p>
+                <button className={styles.createButton} onClick={() => { setIsAddingTask(!isAddingTask); setNewTaskSchema(DEFAULT_STARTUP_SCHEMA); setNewTaskName(""); }}>
+                  {isAddingTask ? "Cancel" : "Add Task"}
+                </button>
+              </div>
+
+              {isAddingTask && (
+                <div className={styles.schemaInputContainer}>
+                  <input 
+                    className={styles.composerInput} 
+                    style={{ marginBottom: "10px", background: "#000", border: "1px solid #222" }} 
+                    placeholder="Startup Task Name (e.g., Fetch News)" 
+                    value={newTaskName} 
+                    onChange={(e) => setNewTaskName(e.target.value)} 
+                  />
+                  <textarea className={styles.schemaTextarea} value={newTaskSchema} onChange={(e) => setNewTaskSchema(e.target.value)} />
+                  <button className={styles.createButton} style={{ alignSelf: "flex-end", marginTop: "10px" }} onClick={saveNewTask} disabled={!newTaskName.trim() || !newTaskSchema.trim()}>
+                    Save Task Schema
+                  </button>
+                </div>
+              )}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {tasksList.map(task => (
+                  <div key={task.id} className={styles.schemaItemBox}>
+                    <div className={styles.schemaItemHeader}>
+                      <button className={styles.ghostButton} onClick={task.action} style={{flex: 1, textAlign: "left"}}>▶ {task.name}</button>
+                      <button className={styles.iconButton} onClick={() => setExpandedSchemaId(expandedSchemaId === task.id ? null : task.id)}>
+                        {expandedSchemaId === task.id ? "▲" : "▼"}
+                      </button>
+                    </div>
+                    {expandedSchemaId === task.id && (
+                      <pre className={styles.schemaCodeBlock}><code>{task.schema}</code></pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SKILLS */}
+        {activeView === "skills" && (
+          <div className={styles.workspacePanel}>
+            <div className={styles.panelHeader}>
+              <h1 className={styles.panelTitle}>Skill Library</h1>
+              <p className={styles.panelSubtitle}>Execute deterministic JSON workflows instantly via the Macro Engine. Import a new skill by providing its structured JSON schema.</p>
+            </div>
+
+            <div className={styles.tableCard} style={{ padding: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
+                 <p style={{ color: "#888", margin: 0 }}>Run imported skills directly from the library.</p>
+                 <button className={styles.createButton} onClick={() => { setIsAddingSkill(!isAddingSkill); setNewSkillSchema(DEFAULT_SKILL_SCHEMA); setNewSkillName(""); }}>
+                   {isAddingSkill ? "Cancel" : "Add Skill"}
+                 </button>
+              </div>
+
+              {isAddingSkill && (
+                <div className={styles.schemaInputContainer}>
+                  <input 
+                    className={styles.composerInput} 
+                    style={{ marginBottom: "10px", background: "#000", border: "1px solid #222" }} 
+                    placeholder="Skill Name (e.g., Fetch Results)" 
+                    value={newSkillName} 
+                    onChange={(e) => setNewSkillName(e.target.value)} 
+                  />
+                  <textarea className={styles.schemaTextarea} value={newSkillSchema} onChange={(e) => setNewSkillSchema(e.target.value)} />
+                  <button className={styles.createButton} style={{ alignSelf: "flex-end", marginTop: "10px" }} onClick={saveNewSkill} disabled={!newSkillName.trim() || !newSkillSchema.trim()}>
+                    Save Skill Schema
+                  </button>
+                </div>
+              )}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {skillsList.map(skill => (
+                  <div key={skill.id} className={styles.schemaItemBox}>
+                    <div className={styles.schemaItemHeader}>
+                      <button className={styles.ghostButton} onClick={skill.action} style={{flex: 1, textAlign: "left"}}>▶ {skill.name}</button>
+                      <button className={styles.iconButton} onClick={() => setExpandedSchemaId(expandedSchemaId === skill.id ? null : skill.id)}>
+                        {expandedSchemaId === skill.id ? "▲" : "▼"}
+                      </button>
+                    </div>
+                    {expandedSchemaId === skill.id && (
+                      <pre className={styles.schemaCodeBlock}><code>{skill.schema}</code></pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
       </section>
 
-      <aside
-        className={`${styles.rightPanel} ${
-          isTerminalOpen ? styles.rightPanelOpen : styles.rightPanelCollapsed
-        }`}
-      >
-        <button
-          type="button"
-          className={styles.terminalRailButton}
-          onClick={() => setIsTerminalOpen((current) => !current)}
-          aria-label={isTerminalOpen ? "Collapse terminal" : "Expand terminal"}
-        >
+      {/* TERMINAL */}
+      <aside className={`${styles.rightPanel} ${isTerminalOpen ? styles.rightPanelOpen : styles.rightPanelCollapsed}`}>
+        <button className={styles.terminalRailButton} onClick={() => setIsTerminalOpen((v) => !v)}>
           {isTerminalOpen ? ">" : "<"}
         </button>
 
@@ -658,6 +658,7 @@ export default function Home() {
               ) : (
                 terminalLogs.map((log, i) => <div key={i}>{log}</div>)
               )}
+              <div ref={terminalEndRef} />
             </div>
           </div>
         )}

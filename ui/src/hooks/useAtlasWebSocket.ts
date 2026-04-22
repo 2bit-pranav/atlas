@@ -1,3 +1,5 @@
+// hooks/useAtlasWebSocket.ts
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
@@ -17,18 +19,15 @@ export function useAtlasWebSocket(url: string = 'http://localhost:8080/atlas-ws'
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const [isWorking, setIsWorking] = useState<boolean>(false);
   
-  // We use a ref to store the client instance so it persists across renders
   const clientRef = useRef<Client | null>(null);
 
   useEffect(() => {
     const client = new Client({
-      // Provide SockJS instance rather than raw WebSocket
       webSocketFactory: () => new SockJS(url),
-      reconnectDelay: 5000, // Reconnect automatically if connection is lost
+      reconnectDelay: 5000, 
       onConnect: () => {
         setStatus('CONNECTED');
 
-        // Subscribe to AI chat responses
         client.subscribe('/topic/responses', (message) => {
           const chunk = message.body;
           if (chunk === '[DONE]') {
@@ -40,19 +39,16 @@ export function useAtlasWebSocket(url: string = 'http://localhost:8080/atlas-ws'
             
             const lastMsg = prev[prev.length - 1];
             if (lastMsg.role === 'ai') {
-              // Append to the ongoing AI message
               return [
                 ...prev.slice(0, -1),
                 { ...lastMsg, content: lastMsg.content + chunk },
               ];
             } else {
-              // The last message was from the user; start a new AI message
               return [...prev, { role: 'ai', content: chunk }];
             }
           });
         });
 
-        // Subscribe to terminal logs
         client.subscribe('/topic/terminal', (message) => {
           setTerminalLogs((prev) => [...prev, message.body]);
         });
@@ -64,16 +60,11 @@ export function useAtlasWebSocket(url: string = 'http://localhost:8080/atlas-ws'
         console.error('WebSocket Error:', error);
         setStatus('DISCONNECTED');
       },
-      onStompError: (frame) => {
-        console.error('Broker reported error: ' + frame.headers['message']);
-        console.error('Additional details: ' + frame.body);
-      },
     });
 
     client.activate();
     clientRef.current = client;
 
-    // Cleanup on unmount
     return () => {
       client.deactivate();
       setStatus('DISCONNECTED');
@@ -84,11 +75,9 @@ export function useAtlasWebSocket(url: string = 'http://localhost:8080/atlas-ws'
   const sendMessage = useCallback((text: string) => {
     if (!text.trim()) return;
 
-    // Optimistically add user message locally
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setIsWorking(true);
 
-    // Publish execution command to backend
     if (clientRef.current && clientRef.current.connected) {
       clientRef.current.publish({
         destination: '/app/execute',
@@ -99,11 +88,29 @@ export function useAtlasWebSocket(url: string = 'http://localhost:8080/atlas-ws'
     }
   }, []);
 
+  // --- THE FIX: Forcefully abort the connection to stop generation ---
+  const stopGeneration = useCallback(() => {
+    setIsWorking(false);
+    if (clientRef.current) {
+      clientRef.current.deactivate();
+      // Reboot the connection after a tiny delay so it's ready for the next prompt
+      setTimeout(() => {
+        clientRef.current?.activate();
+      }, 500);
+    }
+  }, []);
+
+  const addTerminalLog = useCallback((log: string) => {
+    setTerminalLogs((prev) => [...prev, log]);
+  }, []);
+
   return {
     status,
     messages,
     terminalLogs,
     isWorking,
     sendMessage,
+    stopGeneration,
+    addTerminalLog,
   };
 }

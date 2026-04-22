@@ -59,7 +59,19 @@ def planner_node(state: AgentState):
     """Plans steps and identifies required toolsets"""
     msg = "[Planner] Drafting plan and toolsets..."
     print(msg)
-    recent_msgs = state["messages"][-4:]
+    
+    # --- THE FIX: Safe message extraction for Gemini ---
+    # This guarantees the list starts with a HumanMessage and doesn't orphan tool calls,
+    # preventing the 400 INVALID_ARGUMENT crash from the Gemini API.
+    safe_recent_msgs = trim_messages(
+        state["messages"],
+        max_tokens=1500,
+        strategy="last",
+        token_counter=executor_llm,
+        start_on="human", 
+        include_system=False,
+        allow_partial=False
+    )
     
     facts = state.get("factual_memory", {})
 
@@ -190,7 +202,7 @@ def planner_node(state: AgentState):
     TOOLS: <UPPERCASE, comma-separated toolkit names only>
     """
 
-    planner_messages = [SystemMessage(content=sys_prompt)] + recent_msgs + [
+    planner_messages = [SystemMessage(content=sys_prompt)] + safe_recent_msgs + [
         SystemMessage(content="CRITICAL REMINDER: You are the PLANNER. Do NOT converse with the user. You MUST output EXACTLY 'PLAN: <text>\nTOOLS: <categories>' and nothing else.")
     ]
 
@@ -213,7 +225,12 @@ def planner_node(state: AgentState):
         tools_str = parts[1].strip()
         toolkits = [t.strip() for t in tools_str.split(",") if t.strip() and t.strip() != "NONE"]
 
-    return {"plan": plan_text, "active_toolkits": toolkits, "logs": [msg] if "logs" not in state else state["logs"] + [msg]}
+    # Uses .get() to safely pull existing logs and append the new one
+    return {
+        "plan": plan_text, 
+        "active_toolkits": toolkits, 
+        "logs": state.get("logs", []) + [msg]
+    }
 
 def executor_node(state: AgentState):
     """Executes the plan and calls tools as needed"""
