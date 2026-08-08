@@ -1,6 +1,7 @@
 import asyncio
 import os
 from dotenv import load_dotenv
+from autogen_core.models import ModelInfo
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.ui import Console
 from autogen_ext.models.openai import OpenAIChatCompletionClient
@@ -13,13 +14,13 @@ async def main() -> None:
         # model="gemini-3.5-flash-lite",
         base_url="http://127.0.0.1:8000/",
         api_key="bypass",
-        model_info={
-            "vision": True,
-            "function_calling": True,
-            "structured_output": True,
-            "json_output": True,
-            "family": "unknown"
-        }
+        model_info=ModelInfo(
+            vision=True,
+            function_calling=True,
+            structured_output=True,
+            json_output=True,
+            family="unknown",
+        ),
     )
 
     def calculate_system_load(server_name: str) -> str:
@@ -46,4 +47,3 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 # llama serve -m "C:\Users\prana\Desktop\atlas\llm\gemma-4-E2B_q4_0-it.gguf" --mmproj "C:\Users\prana\Desktop\atlas\llm\gemma-4-E2B-it-mmproj.gguf" --port 8000 -c 64000 --jinja --reasoning auto
-# python -m llama_cpp.server --model "C:\Users\prana\Desktop\atlas\llm\gemma-4-E2B_q4_0-it.gguf" --host 0.0.0.0 --port 8000 --n_ctx 8192 --chat_format gemma

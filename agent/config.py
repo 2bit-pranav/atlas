@@ -1,7 +1,6 @@
 import os
 from typing import Dict, Any
 from dotenv import load_dotenv
-
 from autogen_ext.models.openai import OpenAIChatCompletionClient, _openai_client
 from autogen_core.models import AssistantMessage
 
@@ -45,9 +44,7 @@ def _patched_to_oai_type(
                             tc["extra_content"] = {"google": {"thought_signature": "bypass"}}
     return res
 
-
 _openai_client.to_oai_type = _patched_to_oai_type
-
 
 def get_model_client(use_local: bool = USE_LOCAL_MODEL) -> OpenAIChatCompletionClient:
     """
