@@ -249,7 +249,7 @@ if __name__ == "__main__":
             asyncio.WindowsProactorEventLoopPolicy()
         )
 
-    print("Booting Atlas Dev Server... because rest is forbidden.")
+    print("Booting Atlas Dev Server...")
 
     uvicorn.run(
         "main:app",
