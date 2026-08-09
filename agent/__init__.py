@@ -3,17 +3,20 @@ Atlas Agent Package
 Clean Python module exposing modern AutoGen AssistantAgent and tools.
 """
 
-from config import USE_LOCAL_MODEL, LOCAL_MODEL_NAME, CLOUD_MODEL_NAME, get_model_client
-from tools import web_search, web_fetch
-from agent import AtlasAgent, create_agent
+from config import (
+    get_local_model,
+    get_cloud_model,
+)
+from agent import (
+    AtlasAgent,
+)
+from tools import web_search, web_fetch, write_file
 
 __all__ = [
-    "create_agent",
     "AtlasAgent",
+    "get_local_model",
+    "get_cloud_model",
     "web_search",
     "web_fetch",
-    "get_model_client",
-    "USE_LOCAL_MODEL",
-    "LOCAL_MODEL_NAME",
-    "CLOUD_MODEL_NAME",
+    "write_file",
 ]

@@ -11,18 +11,18 @@ async def web_search(
     query: Annotated[str, "Natural language search query"],
 ) -> str:
     """
-    Search the web using Exa and return rich context for the LLM.
+    Search the web using Exa and return compressed highlights and summaries.
     """
     try:
         results = exa.search(
             query,
             type="auto",
-            num_results=5,
+            num_results=2,
             contents={
-                "text": {
-                    "maxCharacters": 2500,
+                "highlights": {
+                    "numSentences": 3,
+                    "highlightsPerUrl": 2,
                 },
-                "highlights": True,
                 "summary": {
                     "query": query,
                 },
@@ -30,62 +30,80 @@ async def web_search(
         )
 
         if not results.results:
-            return "No relevant results were found."
+            return "No relevant results found."
 
-        sections = []
-
+        formatted_results = []
         for i, r in enumerate(results.results, 1):
-
-            title = getattr(r, "title", "")
+            title = getattr(r, "title", "Untitled")
             url = getattr(r, "url", "")
-            summary = getattr(r, "summary", "")
-            text = getattr(r, "text", "")
-
+            summary = getattr(r, "summary", "").strip()
             highlights = getattr(r, "highlights", [])
-            highlight_text = "\n".join(f"- {h}" for h in highlights)
+            
+            snippet = f"**[{i}] {title}**\nURL: {url}"
+            if summary:
+                snippet += f"\nSummary: {summary}"
+            if highlights:
+                hl_str = " ".join(h.strip() for h in highlights)
+                snippet += f"\nHighlights: {hl_str}"
 
-            sections.append(f"""
-            SOURCE {i}
-            TITLE: {title}
-            URL: {url}
-            SUMMARY: {summary}
-            HIGHLIGHTS: {highlight_text}
-            CONTENT: {text}
-            """.strip())
+            formatted_results.append(snippet)
 
-        return "\n\n" + ("=" * 80 + "\n\n").join(sections)
+        return "\n\n---\n\n".join(formatted_results)
 
     except Exception as e:
-        return f"Search failed.\n\n{e}"
+        return f"Search error: {e}"
 
 
 async def web_fetch(
     url: Annotated[str, "URL to fetch"],
 ) -> str:
     """
-    Fetch one page using Exa's cached crawler.
+    Fetch and extract clean text content from a single webpage.
     """
     try:
         results = exa.get_contents(
             urls=[url],
             text={
-                "maxCharacters": 6000,
+                "maxCharacters": 2500,
             },
-            highlights=True,
-            summary={"query": "Summarize this page."},
+            summary={"query": "Key technical points and main concepts"},
         )
 
         if not results.results:
-            return "Unable to fetch webpage."
+            return "Unable to fetch content from URL."
 
         page = results.results[0]
+        title = getattr(page, "title", "Untitled")
+        summary = getattr(page, "summary", "").strip()
+        text = getattr(page, "text", "").strip()
 
-        return f"""
-        TITLE: {page.title}
-        URL: {page.url}
-        SUMMARY: {getattr(page, "summary", "")}
-        CONTENT: {page.text}
-        """.strip()
+        output = f"**TITLE:** {title}\n**URL:** {page.url}\n"
+        if summary:
+            output += f"**SUMMARY:** {summary}\n\n"
+        output += f"**CONTENT:**\n{text}"
+
+        return output
 
     except Exception as e:
-        return f"Fetch failed.\n\n{e}"
+        return f"Fetch error: {e}"
+
+
+async def write_file(
+    path: Annotated[str, "Path of the file to create or update"],
+    content: Annotated[str, "Plain text content to write into the file"]
+) -> str:
+    """
+    Create a new file or overwrite an existing file.
+    """
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(content)
+
+        return f"Successfully wrote file to '{path}'"
+
+    except Exception as e:
+        return f"Failed writing file: {e}"

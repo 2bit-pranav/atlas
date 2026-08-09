@@ -3,7 +3,7 @@ import os
 import sys
 from dotenv import load_dotenv
 from autogen_core.models import ModelInfo
-from autogen_agentchat.teams import MagenticOneGroupChat, SelectorGroupChat
+from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.ui import Console
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
 from autogen_agentchat.agents import AssistantAgent
@@ -36,6 +36,7 @@ async def update_file(file_path: str, content: str) -> str:
         return f"File successfully updated at: {abs_path}"
     except Exception as e:
         return f"Failed to update file: {str(e)}"
+
 
 async def run_without_code_executor():
     client = OpenAIChatCompletionClient(
@@ -104,6 +105,7 @@ async def run_without_code_executor():
     await web_surfer.close()
     await file_surfer.close()
     await client.close()
+
 
 if __name__ == "__main__":
     asyncio.run(run_without_code_executor())

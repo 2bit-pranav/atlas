@@ -86,3 +86,9 @@ llm/*.ckpt
 
 # Generated TypeScript declaration from Next.js
 next-env.d.ts
+/agent/old_config.py
+/test/*.txt
+/llm/*.jinja
+/llm/*
+/agent/f1_champions.txt
+/agent/*.txt
