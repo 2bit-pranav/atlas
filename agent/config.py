@@ -151,6 +151,7 @@ def extract_gemma_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], Optional[
 from openai.types.chat import ChatCompletionMessageToolCall
 from openai.types.chat.chat_completion_message_tool_call import Function
 
+# Token leakage has been fixed since commit #7c43c78
 class GemmaCompletionClient(OpenAIChatCompletionClient):
     """
     Custom OpenAIChatCompletionClient for Gemma models under llama-server.
