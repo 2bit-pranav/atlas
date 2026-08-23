@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from pathlib import Path
 from typing import Dict, Any, Tuple, List, Sequence, Optional, Mapping
 from dotenv import load_dotenv
 
@@ -17,7 +18,8 @@ from autogen_ext.models.openai import (
     _openai_client,
 )
 
-load_dotenv()
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(ENV_PATH)
 
 LOCAL_MODEL_NAME: str = os.getenv(
     "LOCAL_MODEL_NAME",
@@ -53,158 +55,249 @@ MODEL_INFO: ModelInfo = ModelInfo(
 )
 
 
-# class Gemma4CompletionClient(OpenAIChatCompletionClient):
-#     """
-#     Bi-directional interceptor client for Gemma 4 running under llama-server in AutoGen 0.7.5.
-#     """
+def parse_gemma_args_string(raw_args: str) -> Dict[str, Any]:
+    """Parse raw Gemma tool argument string into a Python dict."""
+    if not raw_args:
+        return {}
 
-#     def _sanitize_and_extract(
-#         self, text: str, allow_tools: bool = True
-#     ) -> Tuple[Optional[str], Optional[List[FunctionCall]], Optional[str]]:
-#         if not text:
-#             return None, None, None
+    cleaned = raw_args.replace('<|"', '"').replace('"|>', '"').replace('<|', '').replace('|>', '')
 
-#         thought_text: Optional[str] = None
+    try:
+        return json.loads(f"{{{cleaned}}}")
+    except Exception:
+        pass
 
-#         # 1. Extract Reasoning / Channel thoughts
-#         channel_pattern = r"(?:<\|channel\|?>|<channel>)(.*?)(?:<\|/channel\|?>|</channel>|$)"
-#         channel_match = re.search(channel_pattern, text, re.DOTALL)
-#         if channel_match:
-#             thought_text = channel_match.group(1).strip()
-#             text = re.sub(channel_pattern, "", text, flags=re.DOTALL).strip()
+    result = {}
+    kv_pattern = r'([a-zA-Z_]\w*)\s*:\s*(?:<\|"\|>|")?(.*?)(?:<\|"\|>|"|\s*(?:,|$))'
+    for k, v in re.findall(kv_pattern, raw_args, re.DOTALL):
+        k = k.strip()
+        v = v.strip().replace('<|"', '"').replace('"|>', '"').strip()
+        if v.lower() == "true":
+            result[k] = True
+        elif v.lower() == "false":
+            result[k] = False
+        else:
+            try:
+                result[k] = json.loads(v)
+            except Exception:
+                result[k] = v
+    return result
 
-#         # 2. Strip leaked tool responses
-#         text = re.sub(
-#             r"(?:<\|tool_response\|?>|<tool_response>).*?(?:<\|/tool_response\|?>|</tool_response>|$)",
-#             "",
-#             text,
-#             flags=re.DOTALL,
-#         )
 
-#         # 3. Strip trailing EOG and special control tokens
-#         text = re.sub(r"(?:</s>|<\|turn_end\|?>|<\|im_end\|?>)", "", text).strip()
+def extract_gemma_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """
+    Extract leaked Gemma tool call tokens from response text.
+    Returns (parsed_tool_calls, cleaned_text).
+    """
+    if not text:
+        return [], text
 
-#         function_calls: List[FunctionCall] = []
-#         clean_text = text
+    tool_calls = []
+    clean_text = text
 
-#         # 4. Extract Tool Calls (matches <|tool_call>, <tool_call>, <tool_call|>, etc.)
-#         tool_call_pattern = r"(?:<\|?tool_call\|?>?)?\s*call:([a-zA-Z0-9_]+)\{(.*?)\}\s*(?:<\|?/?tool_call\|?>?)?"
-#         matches = list(re.finditer(tool_call_pattern, text, re.DOTALL))
+    # Pattern: <|tool_call|>call:Name{...}<|tool_call|> or call:Name{...}
+    call_pattern = r"(?:<\|?tool_call\|?>?)?\s*call:([a-zA-Z0-9_]+)\s*\{"
+    matches = list(re.finditer(call_pattern, clean_text))
 
-#         if matches:
-#             for i, match in enumerate(matches):
-#                 full_match_str = match.group(0)
-#                 func_name = match.group(1)
-#                 raw_args_str = match.group(2).strip()
+    for match in matches:
+        func_name = match.group(1)
+        start_brace_idx = match.end() - 1
 
-#                 clean_text = clean_text.replace(full_match_str, "").strip()
+        brace_count = 0
+        end_brace_idx = -1
+        in_quotes = False
+        quote_char = None
 
-#                 if allow_tools:
-#                     args_dict = {}
+        for i in range(start_brace_idx, len(clean_text)):
+            char = clean_text[i]
+            if char in ('"', "'") and (i == 0 or clean_text[i - 1] != '\\'):
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = char
+                elif quote_char == char:
+                    in_quotes = False
+                    quote_char = None
+            elif not in_quotes:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_brace_idx = i
+                        break
 
-#                     # Clean quote escape artifacts (<|"|> -> ")
-#                     cleaned_json_str = raw_args_str.replace('<|"', '"').replace('"|>', '"').replace('<|', '').replace('|>', '')
+        if end_brace_idx != -1:
+            full_raw_call = clean_text[match.start():end_brace_idx + 1]
+            raw_args_body = clean_text[start_brace_idx + 1:end_brace_idx].strip()
 
-#                     try:
-#                         args_dict = json.loads(f"{{{cleaned_json_str}}}")
-#                     except Exception:
-#                         # Fallback key-value extraction for non-standard parameter formatting
-#                         kv_pattern = r'([a-zA-Z_]\w*)\s*:\s*(?:<\|"\|>|")?(.*?)(?:<\|"\|>|"|\s*$)(?:,|\s*)'
-#                         kv_matches = re.findall(kv_pattern, raw_args_str, re.DOTALL)
+            after_call = clean_text[end_brace_idx + 1:]
+            tag_match = re.match(r"\s*(?:<\|?/?tool_call\|?>?)", after_call)
+            if tag_match:
+                full_raw_call += tag_match.group(0)
 
-#                         if kv_matches:
-#                             for k, v in kv_matches:
-#                                 v_clean = v.strip().replace('<|"', '"').replace('"|>', '"').strip()
-#                                 if v_clean.lower() == "true":
-#                                     args_dict[k] = True
-#                                 elif v_clean.lower() == "false":
-#                                     args_dict[k] = False
-#                                 else:
-#                                     try:
-#                                         args_dict[k] = json.loads(v_clean)
-#                                     except Exception:
-#                                         args_dict[k] = v_clean
+            args_dict = parse_gemma_args_string(raw_args_body)
+            tool_calls.append({
+                "name": func_name,
+                "arguments": args_dict
+            })
+            clean_text = clean_text.replace(full_raw_call, "").strip()
 
-#                     function_calls.append(
-#                         FunctionCall(
-#                             id=f"call_{func_name}_{i}",
-#                             name=func_name,
-#                             arguments=json.dumps(args_dict),
-#                         )
-#                     )
+    clean_text = re.sub(r"</?(?:tool_call|tool_response|channel)\|?>?", "", clean_text).strip()
+    clean_text = re.sub(r"<\|?/?tool_call\|?>?", "", clean_text).strip()
 
-#         # Strip any leftover control tags from text output
-#         clean_text = re.sub(r"</?(?:tool_call|tool_response|channel)\|?>?", "", clean_text).strip()
-#         clean_text = re.sub(r"<\|?/?tool_call\|?>?", "", clean_text).strip()
-#         final_content = clean_text if clean_text else None
+    return tool_calls, (clean_text if clean_text else None)
 
-#         return final_content, function_calls if function_calls else None, thought_text
 
-#     async def create(
-#         self,
-#         messages: Sequence[LLMMessage],
-#         *,
-#         tools: Sequence[Any] = [],
-#         tool_choice: Any = "auto",
-#         json_output: Optional[Any] = None,
-#         extra_create_args: Mapping[str, Any] = {},
-#         cancellation_token: Any = None,
-#         **kwargs: Any,
-#     ) -> CreateResult:
+from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.chat.chat_completion_message_tool_call import Function
 
-#         has_tools = bool(tools)
+class GemmaCompletionClient(OpenAIChatCompletionClient):
+    """
+    Custom OpenAIChatCompletionClient for Gemma models under llama-server.
+    Intercepts both create() and create_stream() in AutoGen 0.4 to convert leaked tool tokens
+    into FunctionCall objects when tools are allowed, and guarantees valid string responses during reflection flows.
+    """
 
-#         processed_messages = []
-#         for msg in messages:
-#             if isinstance(msg, AssistantMessage) and isinstance(msg.content, str):
-#                 cleaned, _, thought = self._sanitize_and_extract(msg.content, allow_tools=has_tools)
-#                 msg = AssistantMessage(
-#                     content=cleaned or "Understood.",
-#                     source=msg.source,
-#                     thought=thought or msg.thought,
-#                 )
-#             processed_messages.append(msg)
+    async def create(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        tools: Sequence[Any] = [],
+        tool_choice: Any = "auto",
+        json_output: Optional[Any] = None,
+        extra_create_args: Mapping[str, Any] = {},
+        cancellation_token: Any = None,
+        **kwargs: Any,
+    ) -> CreateResult:
+        result: CreateResult = await super().create(
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            json_output=json_output,
+            extra_create_args=extra_create_args,
+            cancellation_token=cancellation_token,
+            **kwargs,
+        )
 
-#         result: CreateResult = await super().create(
-#             messages=processed_messages,
-#             tools=tools,
-#             tool_choice=tool_choice,
-#             json_output=json_output,
-#             extra_create_args=extra_create_args,
-#             cancellation_token=cancellation_token,
-#             **kwargs,
-#         )
+        has_tools = bool(tools) and tool_choice != "none"
 
-#         if isinstance(result.content, str):
-#             clean_content, function_calls, extracted_thought = self._sanitize_and_extract(
-#                 result.content, allow_tools=has_tools
-#             )
+        if isinstance(result.content, str):
+            parsed_calls, clean_text = extract_gemma_tool_calls(result.content)
+            if parsed_calls and has_tools:
+                func_calls = []
+                for i, tc in enumerate(parsed_calls):
+                    func_calls.append(
+                        FunctionCall(
+                            id=f"call_{tc['name']}_{i}",
+                            name=tc["name"],
+                            arguments=json.dumps(tc["arguments"]),
+                        )
+                    )
+                return CreateResult(
+                    finish_reason="function_calls",
+                    content=func_calls,
+                    usage=result.usage,
+                    cached=result.cached,
+                    thought=result.thought,
+                )
+            else:
+                fallback_text = clean_text if (clean_text and clean_text.strip()) else "Tool operation processed."
+                return CreateResult(
+                    finish_reason="stop",
+                    content=fallback_text,
+                    usage=result.usage,
+                    cached=result.cached,
+                    thought=result.thought,
+                )
 
-#             if function_calls:
-#                 return CreateResult(
-#                     finish_reason="function_calls",
-#                     content=function_calls,
-#                     usage=result.usage or RequestUsage(prompt_tokens=0, completion_tokens=0),
-#                     cached=result.cached,
-#                     thought=extracted_thought,
-#                 )
-#             else:
-#                 fallback_content = clean_content
-#                 if not fallback_content:
-#                     if extracted_thought:
-#                         fallback_content = extracted_thought
-#                     else:
-#                         fallback_content = "Tool execution completed."
+        return result
 
-#                 return CreateResult(
-#                     finish_reason=result.finish_reason,
-#                     content=fallback_content,
-#                     usage=result.usage or RequestUsage(prompt_tokens=0, completion_tokens=0),
-#                     cached=result.cached,
-#                     thought=extracted_thought,
-#                 )
+    async def create_stream(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        tools: Sequence[Any] = [],
+        tool_choice: Any = "auto",
+        json_output: Optional[Any] = None,
+        extra_create_args: Mapping[str, Any] = {},
+        cancellation_token: Any = None,
+        **kwargs: Any,
+    ):
+        has_tools = bool(tools) and tool_choice != "none"
+        yielded_str_chunks = False
+        final_result: Optional[CreateResult] = None
 
-#         return result
+        async for chunk in super().create_stream(
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            json_output=json_output,
+            extra_create_args=extra_create_args,
+            cancellation_token=cancellation_token,
+            **kwargs,
+        ):
+            if isinstance(chunk, str):
+                if chunk and chunk.strip():
+                    yielded_str_chunks = True
+                yield chunk
+            elif isinstance(chunk, CreateResult):
+                final_result = chunk
+            else:
+                yield chunk
+
+        if not final_result:
+            fallback_text = "Tool operation processed."
+            if not yielded_str_chunks:
+                yield fallback_text
+            final_result = CreateResult(
+                finish_reason="stop",
+                content=fallback_text,
+                usage=RequestUsage(prompt_tokens=0, completion_tokens=0),
+                cached=False,
+            )
+        elif isinstance(final_result.content, str):
+            parsed_calls, clean_text = extract_gemma_tool_calls(final_result.content)
+            if parsed_calls and has_tools:
+                func_calls = []
+                for i, tc in enumerate(parsed_calls):
+                    func_calls.append(
+                        FunctionCall(
+                            id=f"call_{tc['name']}_{i}",
+                            name=tc["name"],
+                            arguments=json.dumps(tc["arguments"]),
+                        )
+                    )
+                final_result = CreateResult(
+                    finish_reason="function_calls",
+                    content=func_calls,
+                    usage=final_result.usage,
+                    cached=final_result.cached,
+                    thought=final_result.thought,
+                )
+            else:
+                fallback_text = clean_text if (clean_text and clean_text.strip()) else "Tool operation processed."
+                if not yielded_str_chunks:
+                    yield fallback_text
+                final_result = CreateResult(
+                    finish_reason="stop",
+                    content=fallback_text,
+                    usage=final_result.usage,
+                    cached=final_result.cached,
+                    thought=final_result.thought,
+                )
+        elif not final_result.content:
+            fallback_text = "Tool operation processed."
+            if not yielded_str_chunks:
+                yield fallback_text
+            final_result = CreateResult(
+                finish_reason="stop",
+                content=fallback_text,
+                usage=final_result.usage,
+                cached=final_result.cached,
+                thought=final_result.thought,
+            )
+
+        yield final_result
 
 
 # Gemini thought signature patch
@@ -287,13 +380,26 @@ async def attach_thought_signature_cache(client: OpenAIChatCompletionClient):
 
 # Model factories
 def get_local_model() -> OpenAIChatCompletionClient:
-    return OpenAIChatCompletionClient(
+    """
+    Factory function for local model client.
+    Returns GemmaCompletionClient (with low-level response interceptor).
+    To revert to standard OpenAIChatCompletionClient, simply comment GemmaCompletionClient and uncomment OpenAIChatCompletionClient.
+    """
+    return GemmaCompletionClient(
         model=LOCAL_MODEL_NAME,
         base_url=LOCAL_BASE_URL,
         api_key="bypass",
         model_info=MODEL_INFO,
         parallel_tool_calls=False,
     )
+    # return OpenAIChatCompletionClient(
+    #     model=LOCAL_MODEL_NAME,
+    #     base_url=LOCAL_BASE_URL,
+    #     api_key="bypass",
+    #     model_info=MODEL_INFO,
+    #     parallel_tool_calls=False,
+    # )
+
 
 # thought signatures are by default preserved. pass False for testing.
 def get_cloud_model(

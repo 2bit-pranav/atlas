@@ -3,7 +3,7 @@ from typing import Annotated
 from dotenv import load_dotenv
 from exa_py import Exa
 
-load_dotenv()
+load_dotenv(r"C:\Users\prana\Desktop\atlas\agent\.env")
 
 exa = Exa(api_key=os.environ["EXA_API_KEY"])
 
@@ -17,11 +17,12 @@ async def web_search(
         results = exa.search(
             query,
             type="auto",
-            num_results=2,
+            system_prompt="Prefer official sources and avoid duplicate results",
+            num_results=5,
             contents={
                 "highlights": {
                     "numSentences": 3,
-                    "highlightsPerUrl": 2,
+                    "highlightsPerUrl": 3,
                 },
                 "summary": {
                     "query": query,
@@ -86,24 +87,3 @@ async def web_fetch(
 
     except Exception as e:
         return f"Fetch error: {e}"
-
-
-async def write_file(
-    path: Annotated[str, "Path of the file to create or update"],
-    content: Annotated[str, "Plain text content to write into the file"]
-) -> str:
-    """
-    Create a new file or overwrite an existing file.
-    """
-    try:
-        directory = os.path.dirname(path)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
-
-        with open(path, "w", encoding="utf-8") as file:
-            file.write(content)
-
-        return f"Successfully wrote file to '{path}'"
-
-    except Exception as e:
-        return f"Failed writing file: {e}"

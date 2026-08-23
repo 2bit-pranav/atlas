@@ -2,113 +2,112 @@ import asyncio
 import os
 from datetime import datetime
 from dotenv import load_dotenv
-
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
+from autogen_agentchat.tools import AgentTool
 from autogen_agentchat.ui import Console
-from autogen_ext.agents.file_surfer import FileSurfer
-
-from config import get_local_model, get_cloud_model
-from tools import web_search, web_fetch, write_file
+from .config import get_local_model, get_cloud_model
+from .web_agent.agent import web_agent
+from .file_agent.agent import file_agent
 
 load_dotenv()
 
 current_datetime = datetime.now().astimezone().strftime("%A, %B %d, %Y, %H:%M %Z")
 
-
 class AtlasAgent:
-    def __init__(self):
-        # Cloud model handles selector routing and reasoning reliably
-        cloud_model = get_cloud_model()
-        # Local model can be used for sub-agents if desired, or cloud for maximum speed
-        local_model = get_local_model()
-
-        # 1. Research Agent (Fast Exa Web Search)
-        self.researcher = AssistantAgent(
-            name="ResearchAgent",
-            model_client=cloud_model,
-            description="Searches the web for facts, rankings, sports results, and real-time data using Exa search.",
-            system_message=f"""
-            You are a Web Research Specialist. Current datetime: {current_datetime}.
-            
-            DUTIES:
-            - Use `web_search` or `web_fetch` to gather accurate data requested by the user.
-            - Once search results are received, present the clear, structured output in the chat.
-            - Do NOT attempt to write or save files yourself.
-            """,
-            tools=[web_search, web_fetch],
-            reflect_on_tool_use=False,
-        )
-
-        # 2. File Writer Agent (Single Responsibility: Write to Disk)
-        self.file_writer = AssistantAgent(
-            name="FileWriterAgent",
-            model_client=cloud_model,
-            description="Selected ONLY AFTER data is available in chat and needs to be written or updated on disk.",
-            system_message="""
-            You are a File System Specialist.
-            
-            DUTIES:
-            - Inspect the chat history for the data collected by ResearchAgent or user instructions.
-            - Immediately invoke `write_file` or `update_file` to save the exact formatted data to the specified path.
-            - Always confirm completion after the tool execution finishes.
-            """,
-            tools=[write_file],
-            reflect_on_tool_use=False,
-        )
-
-        # 3. File Reader Agent (Read-only inspection)
-        self.file_reader = FileSurfer(
-            name="FileReaderAgent",
-            model_client=local_model,
-            description="Reads and inspects local files on disk when the user asks to analyze existing file content.",
-        )
-
-        # 4. Evaluator Agent (Pipeline Termination Guard)
-        self.evaluator = AssistantAgent(
-            name="Evaluator",
-            model_client=cloud_model,
-            description="Selected ONLY AFTER FileWriterAgent or ResearchAgent has completed the full user request.",
-            system_message="""
-            You are a Task Completion Validator.
-            
-            RULES:
-            1. If the user asked to save/write a file, check if `FileWriterAgent` successfully called `write_file`.
-            2. If `write_file` returned a success message OR if a simple query was completely answered, output:
-               FINAL_TASK_COMPLETE
-            3. Output ONLY 'FINAL_TASK_COMPLETE' when the entire user request is 100% satisfied.
-            """,
-        )
-
     def _build_team(self) -> SelectorGroupChat:
         cloud_model = get_cloud_model()
+        local_model = get_local_model()
 
-        # Stops execution immediately when Evaluator outputs FINAL_TASK_COMPLETE
-        termination = (
-            TextMentionTermination("FINAL_TASK_COMPLETE")
-            | MaxMessageTermination(max_messages=8)
-        )
+        # Single agent approach
+        web_agent_tool = AgentTool(agent=web_agent)
+        file_agent_tool = AgentTool(agent=file_agent)
 
-        return SelectorGroupChat(
-            participants=[
-                self.researcher,
-                self.file_writer,
-                self.file_reader,
-                self.evaluator,
-            ],
-            model_client=cloud_model,  # Cloud Selector guarantees accurate agent transitions
-            termination_condition=termination,
+        atlas = AssistantAgent(
+            name="atlas",
+            model_client=local_model,
+            tools=[web_agent_tool, file_agent_tool],
+            system_message=f"""
+            You are Atlas, the primary AI assistant.
+        
+            Your role is to be a helpful, reliable conversational assistant capable of
+            handling both simple requests directly and complex tasks through specialized
+            agents.
+
+            Current date and time: {current_datetime}
+
+            CRITICAL GROUNDING RULES:
+            - NEVER use internal training memory or memory assumptions for real-world facts, dates, sports champions, or historical data.
+            - FOR ANY FACTUAL OR RECENT QUERY (e.g., F1 champions, current events, dates): You MUST call WebResearchTeam FIRST to get live web data.
+            - NEVER call FileAgent with data generated from internal memory. Always call WebResearchTeam first, get the verified web output, then pass that web output to FileAgent.
+            - Relative to {current_datetime}, ensure queries for "last N years/seasons" include the most recent completed seasons up to today.
+        
+            Available specialists:
+            - WebResearchTeam:
+              Performs web research, gathers relevant evidence, checks completeness,
+              and returns a consolidated research result.
+        
+            - FileAgent:
+              The ONLY agent that actually creates, reads, and modifies UTF-8 text files on disk,
+              and verifies that file operations succeeded.
+        
+            General behavior & Rules:
+            - You DO NOT have direct file system I/O capabilities. File operations can ONLY be performed by delegating to FileAgent.
+            - NEVER claim, simulate, or pretend to create or modify files yourself.
+            - If a task requires BOTH web research and saving to a file:
+              1. Call WebResearchTeam FIRST to gather live web data.
+              2. Next, call FileAgent with the gathered web data and target filename to write/save the file.
+              3. Only claim the file operation succeeded after FileAgent verifies success.
+            - Do not expose internal agent names, delegation steps, or orchestration details to the user.
+            - Synthesize specialist results into a clear final response.
+            """,
+            reflect_on_tool_use=True,
+            max_tool_iterations=5,
         )
+        return atlas
+
+        # --- Alternative Outer Team Approach (Solution 2) ---
+        # chat_agent = AssistantAgent(
+        #     name="chat_agent",
+        #     model_client=local_model,
+        #     description="Primary orchestrator for user queries. Does NOT have direct tools; must orchestrate web_agent then file_agent.",
+        #     system_message=f"""
+        #     You are Atlas, the main conversational coordinator.
+        #     Current time: {current_datetime}.
+        #
+        #     CRITICAL DELEGATION & GROUNDING RULES:
+        #     - You are an orchestrator ONLY. You DO NOT have direct file tools and DO NOT have web tools.
+        #     - NEVER guess, hallucinate, or recall factual statistics (like F1 champions) from internal memory.
+        #     - STEP 1: Select web_agent FIRST to perform live web research.
+        #     - STEP 2: Wait for web_agent to complete research and output DATA_COMPLETE.
+        #     - STEP 3: Select file_agent to write the verified web research output to disk.
+        #     - STEP 4: Only after file_agent completes with FILE_TASK_COMPLETE, provide the final response to the user and include 'FINAL_TASK_COMPLETE' on its own line.
+        #     """,
+        # )
+        #
+        # termination = TextMentionTermination("FINAL_TASK_COMPLETE") | MaxMessageTermination(max_messages=10)
+        #
+        # team = SelectorGroupChat(
+        #     name="atlas_team",
+        #     participants=[
+        #         chat_agent,
+        #         web_agent,
+        #         file_agent,
+        #     ],
+        #     model_client=local_model,
+        #     termination_condition=termination,
+        # )
+        # return team
 
     async def chat(self, prompt: str):
-        team = self._build_team()
-        await Console(team.run_stream(task=prompt))
+        atlas = self._build_team()
+        await Console(atlas.run_stream(task=prompt))
 
 
 async def main():
     atlas = AtlasAgent()
-    print("Atlas Team System Ready.\n")
+    print("Atlas Ready.\n")
 
     while True:
         prompt = input("=" * 80 + "\nYou: ").strip()
