@@ -12,9 +12,10 @@ import {
     PanelRightOpen,
 } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
+import { useChatStore } from "@/stores/chat-store";
 
 const items = [
-    { icon: PlusIcon, label: "New Chat" },
+    { icon: PlusIcon, label: "New Chat", action: "new" },
     { icon: History, label: "Chat History" },
     { icon: Globe, label: "Browser Profiles" },
     { icon: Brain, label: "Saved Memory" },
@@ -26,6 +27,7 @@ export default function Sidebar() {
     const toggle = useUIStore((s) => s.toggleSidebar);
     const theme = useUIStore((s) => s.theme);
     const toggleTheme = useUIStore((s) => s.toggleTheme);
+    const clearMessages = useChatStore((s) => s.clearMessages);
 
     return (
         <aside
@@ -69,9 +71,10 @@ export default function Sidebar() {
             </div>
 
             <div className="flex flex-1 flex-col gap-1 p-2">
-                {items.map(({ icon: Icon, label }) => (
+                {items.map(({ icon: Icon, label, action }) => (
                     <button
                         key={label}
+                        onClick={action === "new" ? clearMessages : undefined}
                         className="flex h-10 items-center rounded-xl px-3 text-sm"
                         style={{
                             background: "transparent",

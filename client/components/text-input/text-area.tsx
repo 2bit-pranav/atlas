@@ -6,9 +6,10 @@ import { Textarea } from "@/components/ui/textarea";
 interface Props {
     value: string;
     onChange: (value: string) => void;
+    onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 }
 
-export default function TextArea({ value, onChange }: Props) {
+export default function TextArea({ value, onChange, onKeyDown }: Props) {
     const wrapperRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -37,6 +38,7 @@ export default function TextArea({ value, onChange }: Props) {
                 ref={textareaRef}
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
+                onKeyDown={onKeyDown}
                 placeholder="What would you like Atlas to do?"
                 className="absolute inset-0 resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
                 style={{

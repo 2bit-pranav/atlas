@@ -1,27 +1,47 @@
-from fastapi import FastAPI
+import sys
+from pathlib import Path
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+# ensure project root is in sys path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from agent.agent import AtlasAgent
 
 app = FastAPI()
+
+# enable CORS for frontend client
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+atlas_agent = AtlasAgent()
+
+class ChatRequest(BaseModel):
+    prompt: str
 
 @app.get("/")
 async def root():
     return {"message": "atlas says hi"}
 
-@app.get("/chats")
-async def get_chats():
-    return "list of chats"
+# stream model response to client
+@app.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    if not request.prompt or not request.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+    return StreamingResponse(
+        atlas_agent.chat(request.prompt),
+        media_type="text/plain"
+    )
 
-@app.post("/chats")
-async def post_chats():
-    return "a new chat was created"
-
-@app.get("/chats/{id}")
-async def get_chats_with_id(id: str):
-    return f"chat #{id}"
-
-@app.delete("/chats/{id}")
-async def delete_chat_with_id(id: str):
-    return f"chat #{id} was deleted"
-
-@app.patch("/chats/{id}")
-async def patch_chat_with_id(id: str):
-    return f"chat #{id} was updated"
+# reset agent message history
+@app.post("/reset")
+async def reset_endpoint():
+    await atlas_agent.reset()
+    return {"status": "ok", "message": "History reset successfully"}

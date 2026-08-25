@@ -6,8 +6,9 @@ from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
 from autogen_agentchat.tools import AgentTool
-from autogen_agentchat.ui import Console
-from .config import get_local_model, get_cloud_model
+from autogen_agentchat.messages import ModelClientStreamingChunkEvent, TextMessage
+from autogen_agentchat.base import TaskResult
+from .config import get_local_model
 from .web_agent.agent import web_agent
 from .file_agent.agent import file_agent
 
@@ -16,8 +17,10 @@ load_dotenv()
 current_datetime = datetime.now().astimezone().strftime("%A, %B %d, %Y, %H:%M %Z")
 
 class AtlasAgent:
-    def _build_team(self) -> SelectorGroupChat:
-        cloud_model = get_cloud_model()
+    def __init__(self):
+        self.agent = self._build_agent()
+
+    def _build_agent(self) -> AssistantAgent:
         local_model = get_local_model()
 
         # Single agent approach
@@ -59,50 +62,37 @@ class AtlasAgent:
               1. Call WebResearchTeam FIRST to gather live web data.
               2. Next, call FileAgent with the gathered web data and target filename to write/save the file.
               3. Only claim the file operation succeeded after FileAgent verifies success.
-            - Do not expose internal agent names, delegation steps, or orchestration details to the user.
-            - Synthesize specialist results into a clear final response.
+              - Do not expose internal agent names, delegation steps, or orchestration details to the user.
+              - Synthesize specialist results into a clear final response.
             """,
             reflect_on_tool_use=True,
             max_tool_iterations=5,
         )
         return atlas
 
-        # --- Alternative Outer Team Approach (Solution 2) ---
-        # chat_agent = AssistantAgent(
-        #     name="chat_agent",
-        #     model_client=local_model,
-        #     description="Primary orchestrator for user queries. Does NOT have direct tools; must orchestrate web_agent then file_agent.",
-        #     system_message=f"""
-        #     You are Atlas, the main conversational coordinator.
-        #     Current time: {current_datetime}.
-        #
-        #     CRITICAL DELEGATION & GROUNDING RULES:
-        #     - You are an orchestrator ONLY. You DO NOT have direct file tools and DO NOT have web tools.
-        #     - NEVER guess, hallucinate, or recall factual statistics (like F1 champions) from internal memory.
-        #     - STEP 1: Select web_agent FIRST to perform live web research.
-        #     - STEP 2: Wait for web_agent to complete research and output DATA_COMPLETE.
-        #     - STEP 3: Select file_agent to write the verified web research output to disk.
-        #     - STEP 4: Only after file_agent completes with FILE_TASK_COMPLETE, provide the final response to the user and include 'FINAL_TASK_COMPLETE' on its own line.
-        #     """,
-        # )
-        #
-        # termination = TextMentionTermination("FINAL_TASK_COMPLETE") | MaxMessageTermination(max_messages=10)
-        #
-        # team = SelectorGroupChat(
-        #     name="atlas_team",
-        #     participants=[
-        #         chat_agent,
-        #         web_agent,
-        #         file_agent,
-        #     ],
-        #     model_client=local_model,
-        #     termination_condition=termination,
-        # )
-        # return team
+    # extract recent model response from sequence
+    def _extract_recent_response(self, task_result: TaskResult) -> str:
+        for msg in reversed(task_result.messages):
+            if isinstance(msg, TextMessage) and msg.source != "user":
+                return msg.content
+        return ""
 
+    # stream agent response chunks
     async def chat(self, prompt: str):
-        atlas = self._build_team()
-        await Console(atlas.run_stream(task=prompt))
+        chunk_yielded = False
+
+        async for message in self.agent.run_stream(task=prompt):
+            if isinstance(message, ModelClientStreamingChunkEvent):
+                if message.content:
+                    chunk_yielded = True
+                    yield message.content
+            elif isinstance(message, TaskResult) and not chunk_yielded:
+                recent_response = self._extract_recent_response(message)
+                if recent_response:
+                    yield recent_response
+
+    async def reset(self):
+        self.agent = self._build_agent()
 
 
 async def main():
@@ -113,7 +103,13 @@ async def main():
         prompt = input("=" * 80 + "\nYou: ").strip()
         if prompt.lower() in {"exit", "quit", "bye"}:
             break
-        await atlas.chat(prompt)
+        if prompt.lower() == "/reset":
+            await atlas.reset()
+            print("History reset.")
+            continue
+        async for chunk in atlas.chat(prompt):
+            print(chunk, end="", flush=True)
+        print()
 
 
 if __name__ == "__main__":

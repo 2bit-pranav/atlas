@@ -10,6 +10,7 @@ import {
   useTextInputStore,
   type AttachmentItem,
 } from "@/stores/text-input-store";
+import { useChatStore } from "@/stores/chat-store";
 
 export default function TextInput() {
     const text = useTextInputStore((s) => s.text);
@@ -19,11 +20,15 @@ export default function TextInput() {
     const removeAttachment = useTextInputStore((s) => s.removeAttachment);
     const clearAll = useTextInputStore((s) => s.clearAll);
 
+    const sendMessage = useChatStore((s) => s.sendMessage);
+    const sending = useChatStore((s) => s.sending);
+
     const imageInput = useRef<HTMLInputElement>(null);
     const documentInput = useRef<HTMLInputElement>(null);
+
     const canSend = useMemo(() => {
-        return text.trim().length > 0;
-    }, [text]);
+        return text.trim().length > 0 && !sending;
+    }, [text, sending]);
 
     function handleFiles(files: FileList | null) {
         if (!files) return;
@@ -44,12 +49,17 @@ export default function TextInput() {
     }
 
     function send() {
-        console.log({
-            text,
-            attachments,
-        });
-
+        if (!canSend) return;
+        const prompt = text;
         clearAll();
+        sendMessage(prompt);
+    }
+
+    function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            send();
+        }
     }
 
     return (
@@ -80,7 +90,7 @@ export default function TextInput() {
 
                 {/* Editor */}
                 <div className="relative">
-                    <TextArea value={text} onChange={setText} />
+                    <TextArea value={text} onChange={setText} onKeyDown={handleKeyDown} />
                 </div>
 
                 {/* Toolbar */}
