@@ -3,8 +3,6 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.teams import SelectorGroupChat
-from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
 from autogen_agentchat.tools import AgentTool
 from autogen_agentchat.messages import ModelClientStreamingChunkEvent, TextMessage
 from autogen_agentchat.base import TaskResult
@@ -42,9 +40,9 @@ class AtlasAgent:
 
             CRITICAL GROUNDING RULES:
             - NEVER use internal training memory or memory assumptions for real-world facts, dates, sports champions, or historical data.
-            - FOR ANY FACTUAL OR RECENT QUERY (e.g., F1 champions, current events, dates): You MUST call WebResearchTeam FIRST to get live web data.
+            - FOR ANY FACTUAL OR RECENT QUERY (e.g., current events, dates): You MUST call WebResearchTeam FIRST to get live web data.
             - NEVER call FileAgent with data generated from internal memory. Always call WebResearchTeam first, get the verified web output, then pass that web output to FileAgent.
-            - Relative to {current_datetime}, ensure queries for "last N years/seasons" include the most recent completed seasons up to today.
+            - Relative to {current_datetime}, ensure queries for "last N years" include the most recent completed events up to today.
         
             Available specialists:
             - WebResearchTeam:
