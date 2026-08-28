@@ -51,6 +51,7 @@ def create_atlas_agent(model_client: ChatCompletionClient) -> AssistantAgent:
           - Do not expose internal agent names, delegation steps, or orchestration details to the user.
           - Synthesize specialist results into a clear final response.
         """,
+        model_client_stream=True,
         reflect_on_tool_use=True,
         max_tool_iterations=5,
     )

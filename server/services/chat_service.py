@@ -1,11 +1,17 @@
 import uuid
 from typing import Dict, Any, AsyncGenerator
-from autogen_agentchat.messages import ModelClientStreamingChunkEvent, TextMessage
+from autogen_agentchat.messages import (
+    ModelClientStreamingChunkEvent,
+    TextMessage,
+    ThoughtEvent,
+)
 from autogen_agentchat.base import TaskResult
 from agent.config import get_local_model, get_cloud_model
 from agent.agent import create_atlas_agent
 
 CHAT_DB: Dict[str, Dict[str, Any]] = {}
+
+_THOUGHT_PREFIX = "<|atlas_thought|>"
 
 class ChatService:
 
@@ -33,12 +39,26 @@ class ChatService:
 
         chunk_yielded = False
         async for message in atlas.run_stream(task=prompt):
-            if isinstance(message, ModelClientStreamingChunkEvent):
-                if message.content:
-                    chunk_yielded = True
-                    yield {"type": "chunk", "content": message.content}
 
-            # fallback if response not streamed
+            # Word-by-word streaming chunk from create_stream
+            if isinstance(message, ModelClientStreamingChunkEvent):
+                content = message.content
+                if not content:
+                    continue
+                chunk_yielded = True
+                if content.startswith(_THOUGHT_PREFIX):
+                    thought_text = content[len(_THOUGHT_PREFIX):]
+                    if thought_text:
+                        yield {"type": "thought", "content": thought_text}
+                else:
+                    yield {"type": "chunk", "content": content}
+
+            # AutoGen ThoughtEvent (emitted after inference when model_result.thought is set)
+            elif isinstance(message, ThoughtEvent):
+                if message.content:
+                    yield {"type": "thought", "content": message.content}
+
+            # Fallback: TaskResult when streaming did not happen
             elif isinstance(message, TaskResult) and not chunk_yielded:
                 for msg in reversed(message.messages):
                     if isinstance(msg, TextMessage) and msg.source != "user":

@@ -4,6 +4,7 @@ export interface Message {
     id: string;
     role: "user" | "assistant";
     content: string;
+    thought?: string;
 }
 
 export interface ChatRequest {
@@ -97,6 +98,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             id: assistantMessageId,
             role: "assistant",
             content: "",
+            thought: "",
         };
 
         const nextMessages = [...messages, userMessage, assistantMessage];
@@ -194,7 +196,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
                                     };
                                 });
                             }
-                            // Append streamed chunks to assistant message
+                            // Append streamed thoughts in real time
+                            else if (
+                                parsed.type === "thought" &&
+                                parsed.content
+                            ) {
+                                set((state) => {
+                                    const updatedMessages = state.messages.map((msg) =>
+                                        msg.id === assistantMessageId
+                                            ? {
+                                                  ...msg,
+                                                  thought:
+                                                      (msg.thought || "") +
+                                                      parsed.content,
+                                              }
+                                            : msg
+                                    );
+
+                                    const currentId = state.activeChatId;
+                                    const syncedChats = currentId
+                                        ? state.chats.map((c) =>
+                                              c.id === currentId
+                                                  ? { ...c, messages: updatedMessages }
+                                                  : c
+                                          )
+                                        : state.chats;
+
+                                    return {
+                                        messages: updatedMessages,
+                                        chats: syncedChats,
+                                    };
+                                });
+                            }
+                            // Append streamed chunks to assistant response
                             else if (
                                 parsed.type === "chunk" &&
                                 parsed.content
@@ -248,7 +282,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 const targetMsg = state.messages.find(
                     (m) => m.id === assistantMessageId,
                 );
-                const hasContent = targetMsg && targetMsg.content.length > 0;
+                const hasContent =
+                    targetMsg &&
+                    ((targetMsg.content && targetMsg.content.length > 0) ||
+                        (targetMsg.thought && targetMsg.thought.length > 0));
 
                 const finalMessages = hasContent
                     ? state.messages

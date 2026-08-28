@@ -164,30 +164,28 @@ def extract_gemma_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], Optional[
     return tool_calls, (cleaned if cleaned else None)
 
 
-class StreamingThoughtFilter:
+class ReasoningStreamParser:
     """
-    Filters out thinking tokens (<think>...</think> and <|channel>thought...<channel|>)
-    from real-time streaming chunks so internal thoughts are never leaked to user response.
+    Parses real-time streaming tokens and categorizes them into
+    ('thought', text) or ('content', text) without buffering delays.
     """
     def __init__(self):
-        self.in_think_block = False
+        self.in_think = False
         self.in_channel_thought = False
         self.buffer = ""
 
-    def process_chunk(self, chunk: str) -> List[str]:
+    def parse(self, chunk: str) -> List[Tuple[str, str]]:
         if not chunk:
             return []
 
-        out: List[str] = []
+        out: List[Tuple[str, str]] = []
         self.buffer += chunk
 
         while self.buffer:
-            if not self.in_think_block and not self.in_channel_thought:
+            if not self.in_think and not self.in_channel_thought:
                 think_idx = self.buffer.find("<think>")
-                channel_idx = -1
-                m = re.search(r"<\|?channel\|?>\s*thought", self.buffer)
-                if m:
-                    channel_idx = m.start()
+                m = re.search(r"<\|?channel\|?>\s*thought\n?", self.buffer)
+                channel_idx = m.start() if m else -1
 
                 indices = [idx for idx in [think_idx, channel_idx] if idx != -1]
                 if not indices:
@@ -195,58 +193,83 @@ class StreamingThoughtFilter:
                     if partial:
                         safe_len = partial.start()
                         if safe_len > 0:
-                            out.append(self.buffer[:safe_len])
+                            out.append(("content", self.buffer[:safe_len]))
                             self.buffer = self.buffer[safe_len:]
                         break
                     else:
-                        out.append(self.buffer)
+                        out.append(("content", self.buffer))
                         self.buffer = ""
                         break
                 else:
                     first_idx = min(indices)
                     if first_idx > 0:
-                        out.append(self.buffer[:first_idx])
+                        out.append(("content", self.buffer[:first_idx]))
 
                     if first_idx == think_idx:
-                        self.in_think_block = True
+                        self.in_think = True
                         self.buffer = self.buffer[think_idx + len("<think>"):]
                     else:
                         self.in_channel_thought = True
                         self.buffer = self.buffer[m.end():]
-            elif self.in_think_block:
+
+            elif self.in_think:
                 end_idx = self.buffer.find("</think>")
                 if end_idx != -1:
-                    self.in_think_block = False
+                    thought_text = self.buffer[:end_idx]
+                    if thought_text:
+                        out.append(("thought", thought_text))
+                    self.in_think = False
                     self.buffer = self.buffer[end_idx + len("</think>"):]
                 else:
-                    self.buffer = ""
-                    break
+                    partial = re.search(r"</[a-zA-Z]*$", self.buffer)
+                    if partial:
+                        safe_len = partial.start()
+                        if safe_len > 0:
+                            out.append(("thought", self.buffer[:safe_len]))
+                            self.buffer = self.buffer[safe_len:]
+                        break
+                    else:
+                        out.append(("thought", self.buffer))
+                        self.buffer = ""
+                        break
+
             elif self.in_channel_thought:
-                end_m = re.search(r"<\|?/?channel\|?>", self.buffer)
+                end_m = re.search(r"<\|?/?channel\|?>\n?", self.buffer)
                 if end_m:
+                    thought_text = self.buffer[:end_m.start()]
+                    if thought_text:
+                        out.append(("thought", thought_text))
                     self.in_channel_thought = False
                     self.buffer = self.buffer[end_m.end():]
                 else:
-                    self.buffer = ""
-                    break
+                    partial = re.search(r"<[a-zA-Z|?]*$", self.buffer)
+                    if partial:
+                        safe_len = partial.start()
+                        if safe_len > 0:
+                            out.append(("thought", self.buffer[:safe_len]))
+                            self.buffer = self.buffer[safe_len:]
+                        break
+                    else:
+                        out.append(("thought", self.buffer))
+                        self.buffer = ""
+                        break
 
         return out
 
-    def flush(self) -> List[str]:
-        if not self.in_think_block and not self.in_channel_thought and self.buffer:
-            res = [self.buffer]
+    def flush(self) -> List[Tuple[str, str]]:
+        if self.buffer:
+            tag = "thought" if (self.in_think or self.in_channel_thought) else "content"
+            res = [(tag, self.buffer)]
             self.buffer = ""
             return res
-        self.buffer = ""
         return []
 
 
 class GemmaCompletionClient(OpenAIChatCompletionClient):
     """
     Custom OpenAIChatCompletionClient for Gemma models under llama-server.
-    Intercepts both create() and create_stream() in AutoGen to convert leaked tool tokens
-    into FunctionCall objects when tools are allowed, filter reasoning traces from user content,
-    and guarantee valid string responses.
+    Intercepts create() and create_stream() to yield tagged thoughts and content
+    for word-by-word streaming, parse leaked tool tokens, and guarantee valid outputs.
     """
 
     async def create(
@@ -317,7 +340,7 @@ class GemmaCompletionClient(OpenAIChatCompletionClient):
         has_tools = bool(tools) and tool_choice != "none"
         yielded_str_chunks = False
         final_result: Optional[CreateResult] = None
-        thought_filter = StreamingThoughtFilter()
+        parser = ReasoningStreamParser()
 
         async for chunk in super().create_stream(
             messages=messages,
@@ -329,20 +352,25 @@ class GemmaCompletionClient(OpenAIChatCompletionClient):
             **kwargs,
         ):
             if isinstance(chunk, str):
-                processed_chunks = thought_filter.process_chunk(chunk)
-                for p_chunk in processed_chunks:
-                    if p_chunk:
+                for tag, text in parser.parse(chunk):
+                    if text:
                         yielded_str_chunks = True
-                        yield p_chunk
+                        if tag == "thought":
+                            yield f"<|atlas_thought|>{text}"
+                        else:
+                            yield text
             elif isinstance(chunk, CreateResult):
                 final_result = chunk
             else:
                 yield chunk
 
-        for rem_chunk in thought_filter.flush():
-            if rem_chunk:
+        for tag, text in parser.flush():
+            if text:
                 yielded_str_chunks = True
-                yield rem_chunk
+                if tag == "thought":
+                    yield f"<|atlas_thought|>{text}"
+                else:
+                    yield text
 
         if not final_result:
             fallback_text = "Tool operation processed."
@@ -507,9 +535,7 @@ def get_local_model(
         api_key="bypass",
         model_info=MODEL_INFO,
         parallel_tool_calls=False,
-        extra_create_args={
-            "extra_body": extra_body
-        },
+        extra_body=extra_body,
     )
 
 

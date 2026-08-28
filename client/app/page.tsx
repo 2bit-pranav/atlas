@@ -5,6 +5,7 @@ import AppLayout from "@/components/layout/app-layout";
 import TextInput from "@/components/text-input/text-input";
 import MarkdownRenderer from "@/components/markdown-renderer";
 import { useChatStore } from "@/stores/chat-store";
+import { Brain, ChevronDown } from "lucide-react";
 
 export default function Home() {
     const messages = useChatStore((s) => s.messages);
@@ -58,12 +59,50 @@ export default function Home() {
                                                 border: "1px solid var(--border)",
                                             }}
                                         >
+                                            {/* Collapsible Reasoning Process for Assistant */}
+                                            {msg.role === "assistant" && msg.thought && (
+                                                <details
+                                                    open={!msg.content}
+                                                    className="mb-3 group rounded-xl border p-2.5 text-xs transition-all"
+                                                    style={{
+                                                        borderColor: "var(--border)",
+                                                        background: "var(--surface-hover)",
+                                                    }}
+                                                >
+                                                    <summary
+                                                        className="flex items-center gap-1.5 cursor-pointer font-medium select-none outline-none"
+                                                        style={{ color: "var(--muted)" }}
+                                                    >
+                                                        <Brain size={14} className="shrink-0" />
+                                                        <span>Thinking Process</span>
+                                                        <ChevronDown
+                                                            size={14}
+                                                            className="ml-auto shrink-0 transition-transform duration-200 group-open:rotate-180"
+                                                        />
+                                                    </summary>
+                                                    <div
+                                                        className="mt-2 pt-2 border-t text-xs whitespace-pre-wrap leading-relaxed opacity-85 max-h-60 overflow-y-auto font-mono"
+                                                        style={{
+                                                            borderColor: "var(--border)",
+                                                            color: "var(--text)",
+                                                        }}
+                                                    >
+                                                        {msg.thought}
+                                                    </div>
+                                                </details>
+                                            )}
+
+                                            {/* Actual Response Content */}
                                             {msg.content ? (
                                                 msg.role === "user" ? (
                                                     msg.content
                                                 ) : (
                                                     <MarkdownRenderer content={msg.content} />
                                                 )
+                                            ) : msg.thought ? (
+                                                <span className="text-muted text-xs animate-pulse">
+                                                    Formulating response...
+                                                </span>
                                             ) : (
                                                 <span className="text-muted animate-pulse">
                                                     Atlas is thinking...

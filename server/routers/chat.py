@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from typing import AsyncGenerator, Optional
+from typing import Optional
 from pydantic import BaseModel
 import json
 from ..services.chat_service import ChatService
@@ -24,4 +24,12 @@ async def chat_endpoint(req: ChatRequest):
         ):
             yield f"data: {json.dumps(item)}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
