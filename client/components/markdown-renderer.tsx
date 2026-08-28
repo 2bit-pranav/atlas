@@ -14,16 +14,26 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
             remarkPlugins={[remarkGfm]}
             components={{
                 p({ children }) {
-                    return <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>;
+                    return (
+                        <p className="mb-3 last:mb-0 leading-relaxed">
+                            {children}
+                        </p>
+                    );
                 },
                 strong({ children }) {
-                    return <strong className="font-semibold">{children}</strong>;
+                    return (
+                        <strong className="font-semibold">{children}</strong>
+                    );
                 },
                 em({ children }) {
                     return <em className="italic">{children}</em>;
                 },
                 del({ children }) {
-                    return <del className="line-through opacity-75">{children}</del>;
+                    return (
+                        <del className="line-through opacity-75">
+                            {children}
+                        </del>
+                    );
                 },
                 h1({ children }) {
                     return (
@@ -83,7 +93,9 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
                     );
                 },
                 hr() {
-                    return <hr className="my-4 border-t border-[var(--border)]" />;
+                    return (
+                        <hr className="my-4 border-t border-[var(--border)]" />
+                    );
                 },
                 table({ children }) {
                     return (
@@ -102,7 +114,11 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
                     );
                 },
                 tbody({ children }) {
-                    return <tbody className="divide-y divide-[var(--border)]">{children}</tbody>;
+                    return (
+                        <tbody className="divide-y divide-[var(--border)]">
+                            {children}
+                        </tbody>
+                    );
                 },
                 tr({ children }) {
                     return (
@@ -119,9 +135,22 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
                     );
                 },
                 td({ children }) {
-                    return <td className="px-4 py-2.5 text-sm leading-relaxed">{children}</td>;
+                    return (
+                        <td className="px-4 py-2.5 text-sm leading-relaxed">
+                            {children}
+                        </td>
+                    );
                 },
-                code({ node, inline, className, children, ...props }: any) {
+                code({
+                    node,
+                    inline,
+                    className,
+                    children,
+                    ...props
+                }: React.ComponentPropsWithoutRef<"code"> & {
+                    inline?: boolean;
+                    node?: unknown;
+                }) {
                     if (inline) {
                         return (
                             <code

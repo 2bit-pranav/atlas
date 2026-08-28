@@ -1,14 +1,13 @@
+from autogen_core.models import ChatCompletionClient 
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
-from ..config import get_local_model
 from .tools import read_file, write_file, verify_operation
 
-local_model = get_local_model()
-
-file_executor_agent = AssistantAgent(
+def create_file_agent(model_client: ChatCompletionClient) -> RoundRobinGroupChat:
+    file_executor_agent = AssistantAgent(
     name="file_executor_agent",
-    model_client=local_model,
+    model_client=model_client,
     tools=[read_file, write_file, verify_operation],
     description="An agent that executes file operations including reading, writing, appending, and verifying files.",
     system_message="""
@@ -31,41 +30,43 @@ file_executor_agent = AssistantAgent(
     - Do not invent file contents or claim operations succeeded without calling tools.
     - Clearly state what tool actions you performed.
     """,
-)
+    )
 
-file_auditor_agent = AssistantAgent(
-    name="file_auditor_agent",
-    model_client=local_model,
-    description="An auditor agent that verifies whether all requested file operations have been fully executed and verified.",
-    system_message="""
-    You are the File Operation Auditor.
+    file_auditor_agent = AssistantAgent(
+        name="file_auditor_agent",
+        model_client=model_client,
+        description="An auditor agent that verifies whether all requested file operations have been fully executed and verified.",
+        system_message="""
+        You are the File Operation Auditor.
 
-    Inspect the original task and the executor's latest tool results and actions.
+        Inspect the original task and the executor's latest tool results and actions.
 
-    Verify whether all required steps of the task have been satisfied:
-    1. If reading a file was required (e.g. to inspect content or count lines), was read_file executed?
-    2. If writing or appending to a file was required, was write_file executed with the correct content?
-    3. If any file was created or modified, was verify_operation called?
+        Verify whether all required steps of the task have been satisfied:
+        1. If reading a file was required (e.g. to inspect content or count lines), was read_file executed?
+        2. If writing or appending to a file was required, was write_file executed with the correct content?
+        3. If any file was created or modified, was verify_operation called?
 
-    If ALL steps required by the user's task are fully executed and verified, respond exactly:
+        If ALL steps required by the user's task are fully executed and verified, respond exactly:
 
-    FILE_TASK_COMPLETE
+        FILE_TASK_COMPLETE
 
-    Otherwise, respond:
+        Otherwise, respond:
 
-    FILE_TASK_INCOMPLETE
-    REASON: <specific step remaining, e.g. call write_file to append line count, or call verify_operation>
+        FILE_TASK_INCOMPLETE
+        REASON: <specific step remaining, e.g. call write_file to append line count, or call verify_operation>
 
-    Do not report complete if a requested write, append, or verification step has not yet been executed by the executor.
-    """,
-)
+        Do not report complete if a requested write, append, or verification step has not yet been executed by the executor.
+        """,
+    )
 
-termination = TextMentionTermination("FILE_TASK_COMPLETE") | MaxMessageTermination(8)
+    termination = TextMentionTermination("FILE_TASK_COMPLETE") | MaxMessageTermination(8)
 
-file_agent = RoundRobinGroupChat(
-    participants=[file_executor_agent, file_auditor_agent],
-    name="file_execution_agent",
-    description="A file execution team agent that governs file executor and auditor agents to perform file operations.",
-    termination_condition=termination,
-    max_turns=6,
-)
+    file_agent = RoundRobinGroupChat(
+        participants=[file_executor_agent, file_auditor_agent],
+        name="file_execution_agent",
+        description="A file execution team agent that governs file executor and auditor agents to perform file operations.",
+        termination_condition=termination,
+        max_turns=6,
+    )
+
+    return file_agent

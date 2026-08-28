@@ -84,6 +84,23 @@ def parse_gemma_args_string(raw_args: str) -> Dict[str, Any]:
     return result
 
 
+def strip_thinking_tags(text: str) -> str:
+    """Strips <think>...</think> and <|channel>thought...<channel|> blocks from text."""
+    if not text:
+        return ""
+    # Strip <think>...</think>
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    # Strip <|channel>thought...<channel|> or <|channel|>thought...<|channel|>
+    cleaned = re.sub(r"<\|?channel\|?>\s*thought.*?<\|?channel\|?>", "", cleaned, flags=re.DOTALL)
+    # Strip unclosed thought tags
+    cleaned = re.sub(r"<think>.*", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<\|?channel\|?>\s*thought.*", "", cleaned, flags=re.DOTALL)
+    # Clean up leftover control tags
+    cleaned = re.sub(r"</?(?:think|tool_call|tool_response|channel)\|?>?", "", cleaned)
+    cleaned = re.sub(r"<\|?/?(?:think|tool_call|tool_response|channel)\|?>?", "", cleaned)
+    return cleaned.strip()
+
+
 def extract_gemma_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """
     Extract leaked Gemma tool call tokens from response text.
@@ -142,21 +159,94 @@ def extract_gemma_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], Optional[
             })
             clean_text = clean_text.replace(full_raw_call, "").strip()
 
-    clean_text = re.sub(r"</?(?:tool_call|tool_response|channel)\|?>?", "", clean_text).strip()
-    clean_text = re.sub(r"<\|?/?tool_call\|?>?", "", clean_text).strip()
+    cleaned = strip_thinking_tags(clean_text)
 
-    return tool_calls, (clean_text if clean_text else None)
+    return tool_calls, (cleaned if cleaned else None)
 
 
-from openai.types.chat import ChatCompletionMessageToolCall
-from openai.types.chat.chat_completion_message_tool_call import Function
+class StreamingThoughtFilter:
+    """
+    Filters out thinking tokens (<think>...</think> and <|channel>thought...<channel|>)
+    from real-time streaming chunks so internal thoughts are never leaked to user response.
+    """
+    def __init__(self):
+        self.in_think_block = False
+        self.in_channel_thought = False
+        self.buffer = ""
 
-# Token leakage has been fixed since commit #7c43c78
+    def process_chunk(self, chunk: str) -> List[str]:
+        if not chunk:
+            return []
+
+        out: List[str] = []
+        self.buffer += chunk
+
+        while self.buffer:
+            if not self.in_think_block and not self.in_channel_thought:
+                think_idx = self.buffer.find("<think>")
+                channel_idx = -1
+                m = re.search(r"<\|?channel\|?>\s*thought", self.buffer)
+                if m:
+                    channel_idx = m.start()
+
+                indices = [idx for idx in [think_idx, channel_idx] if idx != -1]
+                if not indices:
+                    partial = re.search(r"<[a-zA-Z|?]*$", self.buffer)
+                    if partial:
+                        safe_len = partial.start()
+                        if safe_len > 0:
+                            out.append(self.buffer[:safe_len])
+                            self.buffer = self.buffer[safe_len:]
+                        break
+                    else:
+                        out.append(self.buffer)
+                        self.buffer = ""
+                        break
+                else:
+                    first_idx = min(indices)
+                    if first_idx > 0:
+                        out.append(self.buffer[:first_idx])
+
+                    if first_idx == think_idx:
+                        self.in_think_block = True
+                        self.buffer = self.buffer[think_idx + len("<think>"):]
+                    else:
+                        self.in_channel_thought = True
+                        self.buffer = self.buffer[m.end():]
+            elif self.in_think_block:
+                end_idx = self.buffer.find("</think>")
+                if end_idx != -1:
+                    self.in_think_block = False
+                    self.buffer = self.buffer[end_idx + len("</think>"):]
+                else:
+                    self.buffer = ""
+                    break
+            elif self.in_channel_thought:
+                end_m = re.search(r"<\|?/?channel\|?>", self.buffer)
+                if end_m:
+                    self.in_channel_thought = False
+                    self.buffer = self.buffer[end_m.end():]
+                else:
+                    self.buffer = ""
+                    break
+
+        return out
+
+    def flush(self) -> List[str]:
+        if not self.in_think_block and not self.in_channel_thought and self.buffer:
+            res = [self.buffer]
+            self.buffer = ""
+            return res
+        self.buffer = ""
+        return []
+
+
 class GemmaCompletionClient(OpenAIChatCompletionClient):
     """
     Custom OpenAIChatCompletionClient for Gemma models under llama-server.
-    Intercepts both create() and create_stream() in AutoGen 0.4 to convert leaked tool tokens
-    into FunctionCall objects when tools are allowed, and guarantees valid string responses during reflection flows.
+    Intercepts both create() and create_stream() in AutoGen to convert leaked tool tokens
+    into FunctionCall objects when tools are allowed, filter reasoning traces from user content,
+    and guarantee valid string responses.
     """
 
     async def create(
@@ -227,6 +317,7 @@ class GemmaCompletionClient(OpenAIChatCompletionClient):
         has_tools = bool(tools) and tool_choice != "none"
         yielded_str_chunks = False
         final_result: Optional[CreateResult] = None
+        thought_filter = StreamingThoughtFilter()
 
         async for chunk in super().create_stream(
             messages=messages,
@@ -238,13 +329,20 @@ class GemmaCompletionClient(OpenAIChatCompletionClient):
             **kwargs,
         ):
             if isinstance(chunk, str):
-                if chunk and chunk.strip():
-                    yielded_str_chunks = True
-                yield chunk
+                processed_chunks = thought_filter.process_chunk(chunk)
+                for p_chunk in processed_chunks:
+                    if p_chunk:
+                        yielded_str_chunks = True
+                        yield p_chunk
             elif isinstance(chunk, CreateResult):
                 final_result = chunk
             else:
                 yield chunk
+
+        for rem_chunk in thought_filter.flush():
+            if rem_chunk:
+                yielded_str_chunks = True
+                yield rem_chunk
 
         if not final_result:
             fallback_text = "Tool operation processed."
@@ -380,26 +478,39 @@ async def attach_thought_signature_cache(client: OpenAIChatCompletionClient):
 
 
 # Model factories
-def get_local_model() -> OpenAIChatCompletionClient:
+def get_local_model(
+    thinking_budget: int = None
+) -> OpenAIChatCompletionClient:
     """
-    Factory function for local model client.
-    Returns GemmaCompletionClient (with low-level response interceptor).
-    To revert to standard OpenAIChatCompletionClient, simply comment GemmaCompletionClient and uncomment OpenAIChatCompletionClient.
+    Factory function for local Gemma client.
+    Accepts dynamic thinking budget parameters per request.
     """
+    budget = 0 if thinking_budget is None else thinking_budget
+    is_thinking_enabled = budget > 0
+
+    extra_body: Dict[str, Any] = {
+        "reasoning_budget": budget,
+        "thinking_budget": budget,
+        "reasoning_budget_tokens": budget,
+        "thinking_budget_tokens": budget,
+        "chat_template_kwargs": {
+            "enable_thinking": is_thinking_enabled
+        },
+    }
+
+    if not is_thinking_enabled:
+        extra_body["reasoning_format"] = "none"
+
     return GemmaCompletionClient(
         model=LOCAL_MODEL_NAME,
         base_url=LOCAL_BASE_URL,
         api_key="bypass",
         model_info=MODEL_INFO,
         parallel_tool_calls=False,
+        extra_create_args={
+            "extra_body": extra_body
+        },
     )
-    # return OpenAIChatCompletionClient(
-    #     model=LOCAL_MODEL_NAME,
-    #     base_url=LOCAL_BASE_URL,
-    #     api_key="bypass",
-    #     model_info=MODEL_INFO,
-    #     parallel_tool_calls=False,
-    # )
 
 
 # thought signatures are by default preserved. pass False for testing.
