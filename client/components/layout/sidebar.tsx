@@ -17,8 +17,8 @@ import { useChatStore } from "@/stores/chat-store";
 
 const items = [
     { icon: PlusIcon, label: "New Chat", isNewChat: true },
-    { icon: Globe, label: "Browser Profiles" },
     { icon: Brain, label: "Manage Memory" },
+    { icon: Globe, label: "Browser Sessions" },
     { icon: Lightbulb, label: "Manage Skills" },
     { icon: Plug, label: "Integrations" },
 ];

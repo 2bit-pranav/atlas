@@ -21,6 +21,18 @@ from autogen_ext.models.openai import (
 ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(ENV_PATH)
 
+# Suppress the noisy "Model X not found. Using cl100k_base encoding." warning
+# that tiktoken emits on every call because it doesn't know local .gguf names.
+# We register the local model name as an alias for gpt-4o's encoding
+# (which is cl100k_base anyway, so token counts stay accurate).
+try:
+    import tiktoken
+    tiktoken.model.MODEL_TO_ENCODING.update({
+        os.getenv("LOCAL_MODEL_NAME", "gemma-4-E2B_q4_0-it.gguf"): "cl100k_base",
+    })
+except Exception:
+    pass  # tiktoken not installed — AutoGen will handle it gracefully
+
 LOCAL_MODEL_NAME: str = os.getenv(
     "LOCAL_MODEL_NAME",
     "gemma-4-E2B_q4_0-it.gguf"
@@ -543,7 +555,7 @@ def get_local_model(
 def get_cloud_model(
     enable_patch: bool = True,
 ) -> OpenAIChatCompletionClient:
-    
+
     if enable_patch:
         enable_gemini_patch()
 
@@ -557,7 +569,12 @@ def get_cloud_model(
 
     if enable_patch:
         import asyncio
-        asyncio.create_task(
-            attach_thought_signature_cache(client)
-        )
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(attach_thought_signature_cache(client))
+        except RuntimeError:
+            # No running loop yet — caller must await attach_thought_signature_cache
+            # themselves before using the client, or call get_cloud_model() inside
+            # an async context.
+            pass
     return client
