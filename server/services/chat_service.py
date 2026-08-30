@@ -18,10 +18,50 @@ PDF_EXTENSIONS = {".pdf"}
 DOCX_EXTENSIONS = {".docx"}
 EXCEL_EXTENSIONS = {".xlsx", ".xls"}
 
+from datetime import datetime, timezone
+import shutil
+
 CHAT_DB: Dict[str, Dict[str, Any]] = {}
 _THOUGHT_PREFIX = "<|atlas_thought|>"
 
 class ChatService:
+
+    @classmethod
+    def get_all_sessions(cls) -> List[Dict[str, Any]]:
+        sessions = [
+            {
+                "id": s["id"],
+                "title": s.get("title", "Untitled Chat"),
+                "created_at": s.get("created_at", ""),
+                "updated_at": s.get("updated_at", ""),
+            }
+            for s in CHAT_DB.values()
+        ]
+        sessions.sort(key=lambda x: x["updated_at"], reverse=True)
+        return sessions
+
+    @classmethod
+    def get_session(cls, chat_id: str) -> Optional[Dict[str, Any]]:
+        s = CHAT_DB.get(chat_id)
+        if not s:
+            return None
+        return {
+            "id": s["id"],
+            "title": s.get("title", "Untitled Chat"),
+            "created_at": s.get("created_at", ""),
+            "updated_at": s.get("updated_at", ""),
+            "messages": s.get("messages", []),
+        }
+
+    @classmethod
+    def delete_session(cls, chat_id: str) -> bool:
+        if chat_id in CHAT_DB:
+            del CHAT_DB[chat_id]
+            uploads_dir = Path(__file__).resolve().parent.parent / "uploads" / chat_id
+            if uploads_dir.exists():
+                shutil.rmtree(uploads_dir, ignore_errors=True)
+            return True
+        return False
 
     @staticmethod
     def validate_path(path: str) -> Optional[Path]:
@@ -150,19 +190,65 @@ class ChatService:
     ) -> AsyncGenerator[Dict[str, Any], None]:
 
         active_chat = chat_id or str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        session = CHAT_DB.setdefault(active_chat, {
+            "id": active_chat,
+            "title": "New Chat",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "messages": [],
+            "agent_state": None,
+        })
+
+        clean_prompt = prompt.strip()
+
+        # Derive chat title from first user prompt or attachment name if untitled
+        if session.get("title") == "New Chat" or not session.get("messages"):
+            if clean_prompt:
+                first_line = clean_prompt.split("\n")[0].strip()
+                title = first_line[:35] + ("..." if len(first_line) > 35 else "")
+            elif attachments:
+                first_att = attachments[0]
+                fname = first_att.get("name") if isinstance(first_att, dict) else Path(str(first_att)).name
+                title = f"File: {fname}"
+            else:
+                title = "Chat Session"
+            session["title"] = title
+
+        # Record User Message
+        user_attachment_meta = []
+        if attachments:
+            for a in attachments:
+                fname = a.get("name") if isinstance(a, dict) else Path(str(a)).name
+                is_img = any(fname.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
+                user_attachment_meta.append({
+                    "name": fname,
+                    "type": "image" if is_img else "document",
+                })
+
+        user_msg = {
+            "id": str(uuid.uuid4()),
+            "role": "user",
+            "content": clean_prompt,
+            "attachments": user_attachment_meta,
+        }
+        session["messages"].append(user_msg)
 
         model_client = get_cloud_model() if use_cloud else get_local_model(thinking_budget=thinking_budget)
         atlas = create_atlas_agent(model_client=model_client)
 
-        session = CHAT_DB.setdefault(active_chat, {})
-        if "agent_state" in session:
+        if session.get("agent_state"):
             await atlas.load_state(session["agent_state"])
 
         yield {"type": "meta", "chat_id": active_chat}
 
         task = cls.build_task_payload(prompt, attachments, active_chat)
 
+        accumulated_content = ""
+        accumulated_thought = ""
         chunk_yielded = False
+
         async for message in atlas.run_stream(task=task):
             if isinstance(message, ModelClientStreamingChunkEvent):
                 content = message.content
@@ -172,18 +258,31 @@ class ChatService:
                 if content.startswith(_THOUGHT_PREFIX):
                     thought_text = content[len(_THOUGHT_PREFIX):]
                     if thought_text:
+                        accumulated_thought += thought_text
                         yield {"type": "thought", "content": thought_text}
                 else:
+                    accumulated_content += content
                     yield {"type": "chunk", "content": content}
 
             elif isinstance(message, ThoughtEvent):
                 if message.content:
+                    accumulated_thought += message.content
                     yield {"type": "thought", "content": message.content}
 
             elif isinstance(message, TaskResult) and not chunk_yielded:
                 for msg in reversed(message.messages):
                     if isinstance(msg, TextMessage) and msg.source != "user":
+                        accumulated_content += msg.content
                         yield {"type": "chunk", "content": msg.content}
                         break
 
+        # Record Assistant Message
+        assistant_msg = {
+            "id": str(uuid.uuid4()),
+            "role": "assistant",
+            "content": accumulated_content,
+            "thought": accumulated_thought if accumulated_thought else None,
+        }
+        session["messages"].append(assistant_msg)
+        session["updated_at"] = datetime.now(timezone.utc).isoformat()
         session["agent_state"] = await atlas.save_state()

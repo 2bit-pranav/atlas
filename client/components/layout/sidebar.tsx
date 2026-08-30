@@ -11,8 +11,9 @@ import {
     PanelLeftOpen,
     PanelRightOpen,
     MessageSquare,
+    Trash2,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect } from "react";
 import { useUIStore } from "@/stores/ui-store";
 import { useChatStore } from "@/stores/chat-store";
 
@@ -30,23 +31,16 @@ export default function Sidebar() {
     const theme = useUIStore((s) => s.theme);
     const toggleTheme = useUIStore((s) => s.toggleTheme);
 
-    const messages = useChatStore((s) => s.messages);
     const activeChatId = useChatStore((s) => s.activeChatId);
-    const selectChat = useChatStore((s) => s.setActiveChatId);
+    const sessions = useChatStore((s) => s.sessions);
+    const fetchSessions = useChatStore((s) => s.fetchSessions);
+    const loadSession = useChatStore((s) => s.loadSession);
+    const deleteSession = useChatStore((s) => s.deleteSession);
     const resetChat = useChatStore((s) => s.resetChat);
 
-    const chats = useMemo(() => {
-        if (!activeChatId && messages.length === 0) {
-            return [] as Array<{ id: string; title: string }>;
-        }
-
-        return [
-            {
-                id: activeChatId ?? "draft-chat",
-                title: messages[0]?.content ? "Current Chat" : "New Chat",
-            },
-        ];
-    }, [activeChatId, messages]);
+    useEffect(() => {
+        void fetchSessions();
+    }, [fetchSessions]);
 
     return (
         <aside
@@ -99,7 +93,7 @@ export default function Sidebar() {
                                     resetChat();
                                 }
                             }}
-                            className="flex h-10 items-center rounded-xl px-3 text-sm"
+                            className="flex h-10 items-center rounded-xl px-3 text-sm font-medium"
                             style={{
                                 background: "transparent",
                             }}
@@ -118,47 +112,52 @@ export default function Sidebar() {
                     ))}
                 </div>
 
-                {/* Horizontal rule below Integrations option */}
+                {/* Horizontal rule below options */}
                 <hr
                     className="my-2 border-t"
                     style={{ borderColor: "var(--border)" }}
                 />
 
-                {/* List of in-memory chats */}
+                {/* List of in-memory chat sessions */}
                 <div className="flex flex-1 flex-col gap-1 overflow-y-auto min-h-0">
-                    {(Array.isArray(chats) ? chats : []).map((chat) => {
-                        const isActive = chat.id === activeChatId;
+                    {sessions.map((session) => {
+                        const isActive = session.id === activeChatId;
                         return (
-                            <button
-                                key={chat.id}
-                                onClick={() => selectChat(chat.id === "draft-chat" ? null : chat.id)}
-                                title={chat.title}
-                                className="flex h-10 items-center rounded-xl px-3 text-sm text-left transition-colors"
+                            <div
+                                key={session.id}
+                                className="group flex items-center justify-between rounded-xl px-3 h-10 text-sm transition-colors cursor-pointer"
                                 style={{
                                     background: isActive
                                         ? "var(--surface-hover)"
                                         : "transparent",
                                     color: "var(--text)",
                                 }}
-                                onMouseEnter={(e) => {
-                                    if (!isActive)
-                                        e.currentTarget.style.background =
-                                            "var(--surface-hover)";
-                                }}
-                                onMouseLeave={(e) => {
-                                    if (!isActive)
-                                        e.currentTarget.style.background =
-                                            "transparent";
-                                }}
+                                onClick={() => void loadSession(session.id)}
                             >
-                                <MessageSquare size={18} className="shrink-0" />
+                                <div className="flex items-center min-w-0 flex-1">
+                                    <MessageSquare size={18} className="shrink-0 opacity-70" />
+
+                                    {open && (
+                                        <span className="ml-3 truncate font-normal text-xs" title={session.title}>
+                                            {session.title}
+                                        </span>
+                                    )}
+                                </div>
 
                                 {open && (
-                                    <span className="ml-3 truncate font-normal">
-                                        {chat.title}
-                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void deleteSession(session.id);
+                                        }}
+                                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity rounded"
+                                        title="Delete chat session"
+                                    >
+                                        <Trash2 size={13} />
+                                    </button>
                                 )}
-                            </button>
+                            </div>
                         );
                     })}
                 </div>

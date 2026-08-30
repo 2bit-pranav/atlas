@@ -96,4 +96,6 @@ next-env.d.ts
 /llm/*
 /agent/f1_champions.txt
 /agent/*.txt
+
 .vscode/
+/server/uploads/

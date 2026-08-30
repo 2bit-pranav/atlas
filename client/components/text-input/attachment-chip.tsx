@@ -44,7 +44,7 @@ export default function AttachmentChip({ item, onDelete }: Props) {
                 </div>
             )}
 
-            <div className="flex flex-col min-w-0 flex-1 pr-4">
+            <div className="flex flex-col min-w-0 flex-1">
                 <span
                     className="truncate text-xs font-medium leading-tight"
                     title={item.name}
@@ -62,8 +62,7 @@ export default function AttachmentChip({ item, onDelete }: Props) {
             <button
                 type="button"
                 onClick={onDelete}
-                className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full shadow-md text-white opacity-0 transition-opacity group-hover:opacity-100"
-                style={{ background: "#ef4444" }}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/90 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-600 shadow-sm"
                 title="Remove attachment"
             >
                 <X size={12} />

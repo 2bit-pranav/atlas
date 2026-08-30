@@ -22,8 +22,16 @@ export interface ChatRequestPayload {
     attachments?: string[];
 }
 
+export interface ChatSessionMeta {
+    id: string;
+    title: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
 export interface ChatState {
     messages: Message[];
+    sessions: ChatSessionMeta[];
     activeChatId: string | null;
     isLoading: boolean;
     error: string | null;
@@ -35,6 +43,9 @@ export interface ChatState {
     setActiveChatId: (chatId: string | null) => void;
     clearError: () => void;
     resetChat: () => void;
+    fetchSessions: () => Promise<void>;
+    loadSession: (chatId: string) => Promise<void>;
+    deleteSession: (chatId: string) => Promise<void>;
     sendMessage: (
         prompt: string,
         attachmentFiles?: Array<string | File>,
@@ -43,6 +54,7 @@ export interface ChatState {
 
 export const useChatStore = create<ChatState>((set, get) => ({
     messages: [],
+    sessions: [],
     activeChatId: null,
     isLoading: false,
     error: null,
@@ -61,6 +73,55 @@ export const useChatStore = create<ChatState>((set, get) => ({
             error: null,
             isLoading: false,
         }),
+
+    fetchSessions: async () => {
+        try {
+            const res = await fetch("http://localhost:8001/api/sessions");
+            if (res.ok) {
+                const data = await res.json();
+                set({ sessions: data });
+            }
+        } catch (err) {
+            console.error("Failed to fetch sessions:", err);
+        }
+    },
+
+    loadSession: async (chatId: string) => {
+        set({ isLoading: true, error: null });
+        try {
+            const res = await fetch(`http://localhost:8001/api/sessions/${chatId}`);
+            if (!res.ok) {
+                throw new Error("Failed to load chat session");
+            }
+            const data = await res.json();
+            set({
+                activeChatId: data.id,
+                messages: data.messages || [],
+            });
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Error loading session";
+            set({ error: msg });
+        } finally {
+            set({ isLoading: false });
+        }
+    },
+
+    deleteSession: async (chatId: string) => {
+        try {
+            const res = await fetch(`http://localhost:8001/api/sessions/${chatId}`, {
+                method: "DELETE",
+            });
+            if (res.ok) {
+                const { activeChatId } = get();
+                if (activeChatId === chatId) {
+                    get().resetChat();
+                }
+                void get().fetchSessions();
+            }
+        } catch (err) {
+            console.error("Failed to delete session:", err);
+        }
+    },
 
     sendMessage: async (
         prompt: string,
@@ -221,6 +282,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             });
         } finally {
             set({ isLoading: false });
+            void get().fetchSessions();
         }
     },
 }));
