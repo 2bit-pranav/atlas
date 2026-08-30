@@ -68,6 +68,10 @@ env/
 pip-wheel-metadata/
 *.egg-info/
 
+# Staged chat attachments
+server/staging/*
+!server/staging/.gitkeep
+
 # Local tooling and app-specific outputs
 .vercel/
 *.sqlite3
@@ -92,3 +96,4 @@ next-env.d.ts
 /llm/*
 /agent/f1_champions.txt
 /agent/*.txt
+.vscode/

@@ -141,17 +141,27 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
                         </td>
                     );
                 },
+                pre({ children }) {
+                    return (
+                        <div className="my-3 overflow-hidden rounded-xl border border-[var(--border)] bg-[#121212] text-xs text-zinc-100 shadow-sm">
+                            <pre className="overflow-x-auto p-4 font-mono leading-relaxed">
+                                {children}
+                            </pre>
+                        </div>
+                    );
+                },
                 code({
-                    node,
-                    inline,
                     className,
                     children,
                     ...props
                 }: React.ComponentPropsWithoutRef<"code"> & {
-                    inline?: boolean;
                     node?: unknown;
                 }) {
-                    if (inline) {
+                    const isCodeBlock =
+                        Boolean(className) ||
+                        (typeof children === "string" && children.includes("\n"));
+
+                    if (!isCodeBlock) {
                         return (
                             <code
                                 className="rounded bg-[var(--surface-hover)] px-1.5 py-0.5 font-mono text-[0.875em] border border-[var(--border)] text-[var(--text)]"
@@ -162,13 +172,9 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
                         );
                     }
                     return (
-                        <div className="my-3 overflow-hidden rounded-xl border border-[var(--border)] bg-[#121212] text-xs text-zinc-100 shadow-sm">
-                            <pre className="overflow-x-auto p-4 font-mono leading-relaxed">
-                                <code className={className} {...props}>
-                                    {children}
-                                </code>
-                            </pre>
-                        </div>
+                        <code className={className} {...props}>
+                            {children}
+                        </code>
                     );
                 },
             }}

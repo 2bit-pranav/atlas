@@ -12,6 +12,7 @@ import {
     PanelRightOpen,
     MessageSquare,
 } from "lucide-react";
+import { useMemo } from "react";
 import { useUIStore } from "@/stores/ui-store";
 import { useChatStore } from "@/stores/chat-store";
 
@@ -29,10 +30,23 @@ export default function Sidebar() {
     const theme = useUIStore((s) => s.theme);
     const toggleTheme = useUIStore((s) => s.toggleTheme);
 
-    const chats = useChatStore((s) => s.chats);
+    const messages = useChatStore((s) => s.messages);
     const activeChatId = useChatStore((s) => s.activeChatId);
-    const selectChat = useChatStore((s) => s.selectChat);
+    const selectChat = useChatStore((s) => s.setActiveChatId);
     const resetChat = useChatStore((s) => s.resetChat);
+
+    const chats = useMemo(() => {
+        if (!activeChatId && messages.length === 0) {
+            return [] as Array<{ id: string; title: string }>;
+        }
+
+        return [
+            {
+                id: activeChatId ?? "draft-chat",
+                title: messages[0]?.content ? "Current Chat" : "New Chat",
+            },
+        ];
+    }, [activeChatId, messages]);
 
     return (
         <aside
@@ -112,12 +126,12 @@ export default function Sidebar() {
 
                 {/* List of in-memory chats */}
                 <div className="flex flex-1 flex-col gap-1 overflow-y-auto min-h-0">
-                    {chats.map((chat) => {
+                    {(Array.isArray(chats) ? chats : []).map((chat) => {
                         const isActive = chat.id === activeChatId;
                         return (
                             <button
                                 key={chat.id}
-                                onClick={() => selectChat(chat.id)}
+                                onClick={() => selectChat(chat.id === "draft-chat" ? null : chat.id)}
                                 title={chat.title}
                                 className="flex h-10 items-center rounded-xl px-3 text-sm text-left transition-colors"
                                 style={{

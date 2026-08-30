@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import AttachmentChip from "./attachment-chip";
 import PlusMenu from "./plus-menu";
 import TextArea from "./text-area";
@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   useTextInputStore,
-  type AttachmentItem,
+  buildAttachmentItems,
+  type MessageAttachment,
 } from "@/stores/text-input-store";
 import { useChatStore } from "@/stores/chat-store";
 
@@ -33,18 +34,19 @@ export default function TextInput() {
     const clearAll = useTextInputStore((s) => s.clearAll);
 
     const sendMessage = useChatStore((s) => s.sendMessage);
-    const sending = useChatStore((s) => s.sending);
+    const isLoading = useChatStore((s) => s.isLoading);
     const useCloud = useChatStore((s) => s.useCloud);
     const setUseCloud = useChatStore((s) => s.setUseCloud);
     const thinkingBudget = useChatStore((s) => s.thinkingBudget);
     const setThinkingBudget = useChatStore((s) => s.setThinkingBudget);
 
-    const imageInput = useRef<HTMLInputElement>(null);
-    const documentInput = useRef<HTMLInputElement>(null);
+    const fileInput = useRef<HTMLInputElement>(null);
+    const dragCounter = useRef(0);
+    const [isDragging, setIsDragging] = useState(false);
 
     const canSend = useMemo(() => {
-        return text.trim().length > 0 && !sending;
-    }, [text, sending]);
+        return (text.trim().length > 0 || attachments.length > 0) && !isLoading;
+    }, [text, attachments.length, isLoading]);
 
     const currentThinkingOption = useMemo(() => {
         return (
@@ -54,28 +56,23 @@ export default function TextInput() {
     }, [thinkingBudget]);
 
     function handleFiles(files: FileList | null) {
-        if (!files) return;
+        if (!files || files.length === 0) return;
 
-        Array.from(files).forEach((file) => {
-            const attachment: AttachmentItem = {
-                id: crypto.randomUUID(),
-                file,
-                name: file.name,
-                type: file.type.startsWith("image") ? "image" : "document",
-                preview: file.type.startsWith("image")
-                    ? URL.createObjectURL(file)
-                    : undefined,
-            };
-
-            addAttachment(attachment);
-        });
+        const fileArray = Array.from(files);
+        const items = buildAttachmentItems(fileArray);
+        items.forEach((item) => addAttachment(item));
     }
 
     function send() {
         if (!canSend) return;
+
         const prompt = text;
+        const attachmentFiles = attachments
+            .map((item) => item.file)
+            .filter((file): file is File => !!file);
+
         clearAll();
-        sendMessage(prompt);
+        void sendMessage(prompt, attachmentFiles);
     }
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -85,15 +82,57 @@ export default function TextInput() {
         }
     }
 
+    function handleDragEnter(e: React.DragEvent<HTMLDivElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current += 1;
+
+        if (e.dataTransfer.types.includes("Files")) {
+            setIsDragging(true);
+        }
+    }
+
+    function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current -= 1;
+
+        if (dragCounter.current <= 0) {
+            dragCounter.current = 0;
+            setIsDragging(false);
+        }
+    }
+
+    function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current = 0;
+        setIsDragging(false);
+        void handleFiles(e.dataTransfer.files);
+    }
+
     return (
         <>
             <div
-                className="mx-auto w-full max-w-4xl rounded-3xl px-4 py-3 mb-5"
+                className="mx-auto w-full max-w-4xl rounded-3xl px-4 py-3 mb-5 transition-colors"
                 style={{
-                    background: "var(--surface)",
+                    background: isDragging
+                        ? "var(--surface-hover)"
+                        : "var(--surface)",
+                    border: isDragging
+                        ? "2px dashed var(--text)"
+                        : "2px dashed transparent",
                 }}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
             >
-                {/* Attachments */}
                 {attachments.length > 0 && (
                     <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
                         {attachments.map((attachment) => (
@@ -106,20 +145,16 @@ export default function TextInput() {
                     </div>
                 )}
 
-                {/* Editor */}
                 <div className="relative">
                     <TextArea value={text} onChange={setText} onKeyDown={handleKeyDown} />
                 </div>
 
-                {/* Toolbar */}
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                     <PlusMenu
-                        onImages={() => imageInput.current?.click()}
-                        onDocuments={() => documentInput.current?.click()}
+                        onFiles={() => fileInput.current?.click()}
                         onSkills={() => console.log("skills")}
                     />
 
-                    {/* Thinking Dropdown with Label */}
                     <div className="flex items-center gap-1.5">
                         <span
                             className="text-xs font-medium select-none"
@@ -173,7 +208,6 @@ export default function TextInput() {
                         </DropdownMenu>
                     </div>
 
-                    {/* Use Cloud Switch Toggle */}
                     <div className="flex items-center gap-2">
                         <label
                             className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none"
@@ -225,19 +259,13 @@ export default function TextInput() {
             <input
                 hidden
                 multiple
-                ref={imageInput}
-                accept="image/png,image/jpeg,image/webp"
+                ref={fileInput}
+                accept="image/png,image/jpeg,image/webp,.pdf,.txt"
                 type="file"
-                onChange={(e) => handleFiles(e.target.files)}
-            />
-
-            <input
-                hidden
-                multiple
-                ref={documentInput}
-                accept=".pdf,.txt"
-                type="file"
-                onChange={(e) => handleFiles(e.target.files)}
+                onChange={(e) => {
+                    void handleFiles(e.target.files);
+                    e.target.value = "";
+                }}
             />
         </>
     );

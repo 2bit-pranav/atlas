@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, ImageIcon, Plus, Sparkles } from "lucide-react";
+import { FileIcon, Plus, Sparkles } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -9,16 +9,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 interface Props {
-    onImages: () => void;
-    onDocuments: () => void;
+    onFiles: () => void;
     onSkills: () => void;
 }
 
-export default function PlusMenu({
-    onImages,
-    onDocuments,
-    onSkills,
-}: Props) {
+export default function PlusMenu({ onFiles, onSkills }: Props) {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
@@ -31,14 +26,9 @@ export default function PlusMenu({
             </DropdownMenuTrigger>
 
             <DropdownMenuContent side="top" align="start">
-                <DropdownMenuItem onClick={onImages}>
-                    <ImageIcon size={16} />
-                    Images
-                </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={onDocuments}>
-                    <FileText size={16} />
-                    Documents
+                <DropdownMenuItem onClick={onFiles}>
+                    <FileIcon size={16} />
+                    Files
                 </DropdownMenuItem>
 
                 <DropdownMenuItem onClick={onSkills}>

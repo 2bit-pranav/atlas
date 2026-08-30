@@ -1,26 +1,50 @@
-from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
-from typing import Optional
-from pydantic import BaseModel
 import json
+import uuid
+from pathlib import Path
+from typing import Optional, List, Dict
+from fastapi import APIRouter, File, Form, UploadFile
+from fastapi.responses import StreamingResponse
 from ..services.chat_service import ChatService
 
-router = APIRouter(prefix="/api")
-
-class ChatRequest(BaseModel):
-    prompt: str
-    chat_id: Optional[str] = None
-    thinking_budget: int = 0
-    use_cloud: bool = False
+router = APIRouter(prefix="/api", tags=["Chat"])
+UPLOADS_BASE_DIR = Path(__file__).resolve().parent.parent / "uploads"
 
 @router.post("/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(
+    prompt: str = Form(...),
+    chat_id: Optional[str] = Form(None),
+    thinking_budget: int = Form(0),
+    use_cloud: bool = Form(False),
+    attachments: list[UploadFile] = File(default_factory=list),
+):
+    active_chat_id = chat_id if (chat_id and chat_id.strip()) else str(uuid.uuid4())
+    attachment_payloads: List[Dict[str, str]] = []
+
+    if attachments:
+        chat_upload_dir = UPLOADS_BASE_DIR / active_chat_id
+        chat_upload_dir.mkdir(parents=True, exist_ok=True)
+
+        for file in attachments:
+            if not file.filename:
+                continue
+
+            orig_filename = Path(file.filename).name
+            file_path = chat_upload_dir / orig_filename
+            content = await file.read()
+            file_path.write_bytes(content)
+
+            attachment_payloads.append({
+                "name": orig_filename,
+                "path": str(file_path),
+            })
+
     async def event_generator():
         async for item in ChatService.process_chat(
-            prompt=req.prompt,
-            chat_id=req.chat_id,
-            thinking_budget=req.thinking_budget,
-            use_cloud=req.use_cloud
+            chat_id=active_chat_id,
+            prompt=prompt,
+            attachments=attachment_payloads,
+            thinking_budget=thinking_budget,
+            use_cloud=use_cloud,
         ):
             yield f"data: {json.dumps(item)}\n\n"
 

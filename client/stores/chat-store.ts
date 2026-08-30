@@ -1,52 +1,50 @@
 import { create } from "zustand";
 
+export interface ChatAttachment {
+    name: string;
+    path?: string;
+    type?: "image" | "document";
+}
+
 export interface Message {
     id: string;
     role: "user" | "assistant";
     content: string;
     thought?: string;
+    attachments?: ChatAttachment[];
 }
 
-export interface ChatRequest {
+export interface ChatRequestPayload {
     prompt: string;
     chat_id?: string | null;
     thinking_budget?: number;
     use_cloud?: boolean;
-}
-
-export interface Chat {
-    id: string;
-    title: string;
-    messages: Message[];
+    attachments?: string[];
 }
 
 export interface ChatState {
-    // State
     messages: Message[];
-    chats: Chat[];
     activeChatId: string | null;
     isLoading: boolean;
-    sending: boolean;
     error: string | null;
     useCloud: boolean;
     thinkingBudget: number;
 
-    // Setters & Actions
     setUseCloud: (useCloud: boolean) => void;
     setThinkingBudget: (budget: number) => void;
     setActiveChatId: (chatId: string | null) => void;
     clearError: () => void;
     resetChat: () => void;
-    selectChat: (chatId: string) => void;
-    sendMessage: (prompt: string) => Promise<void>;
+    sendMessage: (
+        prompt: string,
+        attachmentFiles?: Array<string | File>,
+    ) => Promise<void>;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
     messages: [],
-    chats: [],
     activeChatId: null,
     isLoading: false,
-    sending: false,
     error: null,
     useCloud: false,
     thinkingBudget: 0,
@@ -62,35 +60,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
             activeChatId: null,
             error: null,
             isLoading: false,
-            sending: false,
         }),
 
-    selectChat: (chatId: string) => {
-        const { chats } = get();
-        const targetChat = chats.find((c) => c.id === chatId);
-        if (targetChat) {
-            set({
-                activeChatId: chatId,
-                messages: targetChat.messages,
-                error: null,
-            });
-        }
-    },
-
-    sendMessage: async (prompt: string) => {
+    sendMessage: async (
+        prompt: string,
+        attachmentFiles: Array<string | File> = [],
+    ) => {
         const cleanPrompt = prompt.trim();
-        if (!cleanPrompt) return;
+        if (!cleanPrompt && attachmentFiles.length === 0) return;
 
-        const { activeChatId, useCloud, thinkingBudget, messages, chats } = get();
+        const { activeChatId, useCloud, thinkingBudget, messages } = get();
 
-        // Generate chat title by truncating after the first 2-3 words
-        const defaultTitle = cleanPrompt.split(/\s+/).slice(0, 3).join(" ");
+        const userAttachments: ChatAttachment[] = attachmentFiles.map((file) => {
+            if (file instanceof File) {
+                return {
+                    name: file.name,
+                    type: file.type.startsWith("image/") ? "image" : "document",
+                };
+            }
+            const strFile = String(file);
+            const isImg = /\.(png|jpe?g|webp|gif|bmp)$/i.test(strFile);
+            return {
+                name: strFile.split(/[\/\\]/).pop() || strFile,
+                type: isImg ? "image" : "document",
+            };
+        });
 
-        // 1. Optimistically append user message and empty assistant placeholder
         const userMessage: Message = {
             id: crypto.randomUUID(),
             role: "user",
             content: cleanPrompt,
+            attachments: userAttachments,
         };
 
         const assistantMessageId = crypto.randomUUID();
@@ -101,52 +101,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
             thought: "",
         };
 
-        const nextMessages = [...messages, userMessage, assistantMessage];
-
-        // Update chats array if activeChatId already exists
-        const updatedChats = activeChatId
-            ? chats.map((c) =>
-                  c.id === activeChatId ? { ...c, messages: nextMessages } : c
-              )
-            : chats;
-
         set({
-            messages: nextMessages,
-            chats: updatedChats,
+            messages: [...messages, userMessage, assistantMessage],
             isLoading: true,
-            sending: true,
             error: null,
         });
 
         try {
-            const payload: ChatRequest = {
-                prompt: cleanPrompt,
-                chat_id: activeChatId,
-                thinking_budget: thinkingBudget,
-                use_cloud: useCloud,
-            };
+            const formData = new FormData();
+            formData.append("prompt", cleanPrompt);
+            if (activeChatId) formData.append("chat_id", activeChatId);
+            formData.append("thinking_budget", String(thinkingBudget));
+            formData.append("use_cloud", String(useCloud));
+
+            attachmentFiles.forEach((attachment) => {
+                if (attachment instanceof File) {
+                    formData.append("attachments", attachment, attachment.name);
+                    return;
+                }
+
+                if (attachment && attachment.trim()) {
+                    formData.append("attachments", attachment);
+                }
+            });
 
             const response = await fetch("http://localhost:8001/api/chat", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(payload),
+                body: formData,
             });
 
-            if (!response.ok) {
+            if (!response.ok || !response.body) {
                 throw new Error(
-                    `Server returned HTTP status ${response.status}: ${response.statusText}`,
+                    `HTTP ${response.status}: ${response.statusText}`,
                 );
             }
 
-            if (!response.body) {
-                throw new Error(
-                    "No readable response body received from server.",
-                );
-            }
-
-            // 2. Read SSE stream
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
@@ -167,42 +156,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
                         try {
                             const parsed = JSON.parse(rawJson);
-
-                            // Capture server generated chat_id
                             if (parsed.type === "meta" && parsed.chat_id) {
-                                const currentChatId = parsed.chat_id;
-                                set((state) => {
-                                    const exists = state.chats.some(
-                                        (c) => c.id === currentChatId
-                                    );
-                                    const newChats = exists
-                                        ? state.chats.map((c) =>
-                                              c.id === currentChatId
-                                                  ? { ...c, messages: state.messages }
-                                                  : c
-                                          )
-                                        : [
-                                              {
-                                                  id: currentChatId,
-                                                  title: defaultTitle,
-                                                  messages: state.messages,
-                                              },
-                                              ...state.chats,
-                                          ];
-
-                                    return {
-                                        activeChatId: currentChatId,
-                                        chats: newChats,
-                                    };
-                                });
-                            }
-                            // Append streamed thoughts in real time
-                            else if (
+                                set({ activeChatId: parsed.chat_id });
+                            } else if (
                                 parsed.type === "thought" &&
                                 parsed.content
                             ) {
-                                set((state) => {
-                                    const updatedMessages = state.messages.map((msg) =>
+                                set((state) => ({
+                                    messages: state.messages.map((msg) =>
                                         msg.id === assistantMessageId
                                             ? {
                                                   ...msg,
@@ -210,31 +171,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
                                                       (msg.thought || "") +
                                                       parsed.content,
                                               }
-                                            : msg
-                                    );
-
-                                    const currentId = state.activeChatId;
-                                    const syncedChats = currentId
-                                        ? state.chats.map((c) =>
-                                              c.id === currentId
-                                                  ? { ...c, messages: updatedMessages }
-                                                  : c
-                                          )
-                                        : state.chats;
-
-                                    return {
-                                        messages: updatedMessages,
-                                        chats: syncedChats,
-                                    };
-                                });
-                            }
-                            // Append streamed chunks to assistant response
-                            else if (
+                                            : msg,
+                                    ),
+                                }));
+                            } else if (
                                 parsed.type === "chunk" &&
                                 parsed.content
                             ) {
-                                set((state) => {
-                                    const updatedMessages = state.messages.map((msg) =>
+                                set((state) => ({
+                                    messages: state.messages.map((msg) =>
                                         msg.id === assistantMessageId
                                             ? {
                                                   ...msg,
@@ -242,74 +187,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
                                                       msg.content +
                                                       parsed.content,
                                               }
-                                            : msg
-                                    );
-
-                                    const currentId = state.activeChatId;
-                                    const syncedChats = currentId
-                                        ? state.chats.map((c) =>
-                                              c.id === currentId
-                                                  ? { ...c, messages: updatedMessages }
-                                                  : c
-                                          )
-                                        : state.chats;
-
-                                    return {
-                                        messages: updatedMessages,
-                                        chats: syncedChats,
-                                    };
-                                });
+                                            : msg,
+                                    ),
+                                }));
                             }
-                        } catch (parseError) {
+                        } catch (err) {
                             console.warn(
-                                "Failed to parse SSE payload chunk:",
+                                "Failed to parse SSE line:",
                                 rawJson,
-                                parseError,
+                                err,
                             );
                         }
                     }
                 }
             }
         } catch (err: unknown) {
-            console.error("Chat execution error:", err);
-            const errorMessage =
-                err instanceof Error
-                    ? err.message
-                    : "Failed to communicate with chat backend.";
+            console.error("Chat streaming failed:", err);
+            const message =
+                err instanceof Error ? err.message : "Communication error";
 
-            // 3. Rollback assistant placeholder if empty and record error
             set((state) => {
-                const targetMsg = state.messages.find(
+                const msg = state.messages.find(
                     (m) => m.id === assistantMessageId,
                 );
-                const hasContent =
-                    targetMsg &&
-                    ((targetMsg.content && targetMsg.content.length > 0) ||
-                        (targetMsg.thought && targetMsg.thought.length > 0));
-
-                const finalMessages = hasContent
-                    ? state.messages
-                    : state.messages.filter(
-                          (m) => m.id !== assistantMessageId,
-                      );
-
-                const currentId = state.activeChatId;
-                const syncedChats = currentId
-                    ? state.chats.map((c) =>
-                          c.id === currentId
-                              ? { ...c, messages: finalMessages }
-                              : c
-                      )
-                    : state.chats;
-
                 return {
-                    error: errorMessage,
-                    messages: finalMessages,
-                    chats: syncedChats,
+                    error: message,
+                    messages: msg?.content
+                        ? state.messages
+                        : state.messages.filter(
+                              (m) => m.id !== assistantMessageId,
+                          ),
                 };
             });
         } finally {
-            set({ isLoading: false, sending: false });
+            set({ isLoading: false });
         }
     },
 }));
