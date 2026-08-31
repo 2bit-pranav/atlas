@@ -98,4 +98,4 @@ next-env.d.ts
 /agent/*.txt
 
 .vscode/
-/server/uploads/
+/server/uploads
