@@ -1,72 +1,89 @@
-from autogen_core.models import ChatCompletionClient 
 from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
-from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
-from .tools import read_file, write_file, verify_operation
+from autogen_core.models import ChatCompletionClient
+from .tools import (
+    create_docx_document,
+    create_excel_spreadsheet,
+    create_pdf_document,
+    save_text_file,
+    verify_file,
+)
 
 def create_file_agent(model_client: ChatCompletionClient) -> RoundRobinGroupChat:
+    """Factory creating the File Execution Team agent."""
+
     file_executor_agent = AssistantAgent(
-    name="file_executor_agent",
-    model_client=model_client,
-    tools=[read_file, write_file, verify_operation],
-    description="An agent that executes file operations including reading, writing, appending, and verifying files.",
-    system_message="""
-    You are the File Executor.
+        name="file_executor_agent",
+        model_client=model_client,
+        tools=[
+            save_text_file,
+            create_pdf_document,
+            create_docx_document,
+            create_excel_spreadsheet,
+            verify_file,
+        ],
+        description="Executes file generation and modification tasks for TXT, PDF, DOCX, and XLSX formats.",
+        system_message="""
+        You are the File Execution Specialist.
 
-    Your job is to perform the file operations required by the current task.
+        YOUR TASK:
+        Create or edit requested output files (PDF, DOCX, XLSX, TXT) using verified data and synthesized improvements provided in the conversation context.
 
-    Available tools:
-    - read_file(file_name): Reads a file and returns its total line count, size, and contents.
-    - write_file(file_name, content, overwrite=False): Appends content to a file by default (or overwrites if overwrite=True).
-    - verify_operation(file_name): Verifies that a file exists and confirms its line count and size.
+        CONTEXT & ATTACHMENTS:
+        - Attached user files (PDFs, DOCX, XLSX, TXT, images) and chat history are AUTOMATICALLY extracted and present in your text context.
 
-    Rules:
-    - Read the current task from the conversation history.
-    - NO HALLUCINATION: Write ONLY verified text passed in the task or gathered from web research history. NEVER invent, guess, or generate factual statistics, sports results, or dates from internal memory.
-    - If reading an existing file is needed to fulfill the task (e.g. counting lines, reading content), call read_file first.
-    - If writing, creating, or appending content is requested, execute write_file with the exact text.
-    - Preserve existing file content by appending unless overwrite=True is explicitly requested.
-    - After creating or modifying any file, ALWAYS call verify_operation to verify the change.
-    - Do not invent file contents or claim operations succeeded without calling tools.
-    - Clearly state what tool actions you performed.
-    """,
+        CRITICAL ANTI-LAZINESS & ANTI-PLACEHOLDER RULES:
+        - NEVER use placeholders, summaries, or shorthand in tool arguments (e.g., forbidden terms: `[Insert Original Strategy...]`, `[Placeholder: ...]`, `[TBD]`, `[TODO]`, `...`).
+        - Write out EVERY single sentence, paragraph, section, header, and detail in full inside tool call parameters.
+        - If generating a PDF or DOCX, populate the `sections` list with complete, expanded body text containing all ideas, strategies, and improvements discussed in the conversation.
+        - If generating an Excel sheet, include every data row and cell value in full without skipping rows.
+
+        WORKFLOW:
+        1. Select the tool matching the requested output format:
+           - `.txt`, `.md`, `.csv` -> `save_text_file`
+           - `.pdf`               -> `create_pdf_document`
+           - `.docx`              -> `create_docx_document`
+           - `.xlsx`              -> `create_excel_spreadsheet`
+        2. Execute the tool with FULL, non-truncated text content. All creation tools automatically target the user's `Downloads` folder.
+        3. ALWAYS call `verify_file` immediately after file creation using the exact absolute path returned in the tool's SUCCESS response.
+        """,
     )
 
     file_auditor_agent = AssistantAgent(
         name="file_auditor_agent",
         model_client=model_client,
-        description="An auditor agent that verifies whether all requested file operations have been fully executed and verified.",
+        description="Audits file execution tasks to confirm correct generation and verification.",
         system_message="""
         You are the File Operation Auditor.
 
-        Inspect the original task and the executor's latest tool results and actions.
+        Inspect the user's original task, the executor's tool invocation arguments, and the tool execution responses.
 
-        Verify whether all required steps of the task have been satisfied:
-        1. If reading a file was required (e.g. to inspect content or count lines), was read_file executed?
-        2. If writing or appending to a file was required, was write_file executed with the correct content?
-        3. If any file was created or modified, was verify_operation called?
+        VERIFICATION CHECKLIST:
+        1. TOOL SELECTION & EXECUTION: Was the correct format generation tool called with complete data?
+        2. STRICT ANTI-PLACEHOLDER AUDIT: Inspect the actual content passed into the tool parameters. 
+           - Does the text contain any placeholders, bracketed hints, lazy shortcuts, or truncated text (e.g., `[Placeholder...]`, `[Insert...]`, `[TODO]`, `[TBD]`, `...`)?
+           - IF ANY PLACEHOLDERS OR LAZY SHORTCUTS ARE DETECTED IN THE TOOL ARGUMENTS, REJECT IMMEDIATELY.
+        3. FILE VERIFICATION: Was `verify_file` called on the output file path, and did it return `VERIFY_SUCCESS` with a non-zero byte size?
 
-        If ALL steps required by the user's task are fully executed and verified, respond exactly:
+        RESPONSE RULES:
+        If ALL criteria are satisfied with ZERO placeholders and complete text, respond exactly:
 
         FILE_TASK_COMPLETE
 
-        Otherwise, respond:
+        Otherwise respond:
 
         FILE_TASK_INCOMPLETE
-        REASON: <specific step remaining, e.g. call write_file to append line count, or call verify_operation>
-
-        Do not report complete if a requested write, append, or verification step has not yet been executed by the executor.
+        REASON: <Specify exact issue, e.g., "Executor used placeholder [Insert...] instead of full text in section 2", or "Missing verify_file step">
         """,
     )
 
-    termination = TextMentionTermination("FILE_TASK_COMPLETE") | MaxMessageTermination(8)
+    termination = TextMentionTermination("FILE_TASK_COMPLETE") | MaxMessageTermination(6)
 
-    file_agent = RoundRobinGroupChat(
+    return RoundRobinGroupChat(
         participants=[file_executor_agent, file_auditor_agent],
         name="file_execution_agent",
-        description="A file execution team agent that governs file executor and auditor agents to perform file operations.",
+        description="File execution team that generates and verifies text, PDF, Word, and Excel documents.",
         termination_condition=termination,
         max_turns=6,
     )
-
-    return file_agent

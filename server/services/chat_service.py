@@ -76,14 +76,12 @@ class ChatService:
         name = display_name or path.name
         suffix = path.suffix.lower()
 
-        # 1. Images
         if suffix in IMAGE_EXTENSIONS:
             try:
                 return Image.from_file(str(path))
             except Exception as e:
                 return f"[Error loading image {name}: {e}]"
 
-        # 2. UTF-8 Text / Code
         if suffix in TEXT_EXTENSIONS:
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
@@ -91,7 +89,6 @@ class ChatService:
             except Exception as e:
                 return f"[Error reading text file {name}: {e}]"
 
-        # 3. PDF Documents
         if suffix in PDF_EXTENSIONS:
             try:
                 from pypdf import PdfReader
@@ -101,7 +98,6 @@ class ChatService:
             except Exception as e:
                 return f"[Error reading PDF {name}: {e}]"
 
-        # 4. Word Documents (.docx)
         if suffix in DOCX_EXTENSIONS:
             try:
                 import docx
@@ -115,7 +111,6 @@ class ChatService:
             except Exception as e:
                 return f"[Error reading DOCX {name}: {e}]"
 
-        # 5. Excel Spreadsheets (.xlsx, .xls)
         if suffix in EXCEL_EXTENSIONS:
             try:
                 import openpyxl
