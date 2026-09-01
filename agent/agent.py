@@ -10,15 +10,28 @@ from .file_agent.agent import create_file_agent
 from .browser_agent.agent import create_browser_agent
 
 # Suppress verbose internal AutoGen/events logging from polluting console/terminal
-for logger_name in [
+for _name in [
     "autogen_core",
     "autogen_core.events",
     "autogen_agentchat",
     "autogen_ext",
-    "browser_use",
     "asyncio",
 ]:
-    logging.getLogger(logger_name).setLevel(logging.WARNING)
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
+# Suppress noisy browser-use/CDP/bubus timeout warnings and screenshot errors.
+# These are known cross-loop timing artifacts on Windows and don't affect results.
+for _name in [
+    "browser_use",
+    "browser_use.browser",
+    "browser_use.browser.session",
+    "browser_use.browser.watchdog_base",
+    "browser_use.agent",
+    "bubus",
+    "cdp_use",
+    "cdp_use.client",
+]:
+    logging.getLogger(_name).setLevel(logging.ERROR)
 
 def create_atlas_agent(model_client: ChatCompletionClient) -> AssistantAgent:
     current_datetime = datetime.now().astimezone().strftime("%A, %B %d, %Y, %H:%M %Z")

@@ -127,7 +127,9 @@ async def _run_browser_task_impl(task: str) -> BrowserUseRuntimeResult:
         task=task,
         llm=llm,
         browser_profile=browser_profile,
-        use_vision=True,
+        # On Windows, vision causes CDP screenshot timeouts due to cross-loop WebSocket
+        # communication. Disable by default; set BROWSER_USE_VISION=true to re-enable.
+        use_vision=os.getenv("BROWSER_USE_VISION", "false").lower() == "true",
         max_failures=2,
         max_actions_per_step=5,
         enable_planning=True,

@@ -233,7 +233,11 @@ class ChatService:
         import asyncio
         from agent.browser_agent.tools import set_terminal_callback
 
+        # Sentinel value to signal stream completion
+        _STREAM_DONE = object()
+
         terminal_queue: asyncio.Queue[str] = asyncio.Queue()
+        msg_queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
         def terminal_cb(msg: str):
@@ -255,11 +259,36 @@ class ChatService:
         accumulated_thought = ""
         chunk_yielded = False
 
+        # Run atlas.run_stream() as a background task feeding msg_queue.
+        # This frees the generator to poll BOTH queues concurrently, so terminal
+        # step logs from the browser worker thread stream through in real-time
+        # instead of being batched until the browser tool returns.
+        async def _stream_to_queue():
+            try:
+                async for message in atlas.run_stream(task=task):
+                    await msg_queue.put(message)
+            finally:
+                await msg_queue.put(_STREAM_DONE)
+
+        stream_task = asyncio.create_task(_stream_to_queue())
+
         try:
-            async for message in atlas.run_stream(task=task):
+            while True:
+                # Drain any pending terminal logs first (non-blocking)
                 while not terminal_queue.empty():
                     log_item = terminal_queue.get_nowait()
                     yield {"type": "terminal", "content": log_item}
+
+                # Wait for next atlas message with a short timeout so we can
+                # re-check terminal_queue while the browser tool is running.
+                try:
+                    message = await asyncio.wait_for(msg_queue.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    # No atlas message yet; loop back to drain terminal logs
+                    continue
+
+                if message is _STREAM_DONE:
+                    break
 
                 if isinstance(message, ModelClientStreamingChunkEvent):
                     content = message.content
@@ -287,12 +316,19 @@ class ChatService:
                             yield {"type": "chunk", "content": msg.content}
                             break
 
+            # Drain any remaining terminal logs after stream ends
             while not terminal_queue.empty():
                 log_item = terminal_queue.get_nowait()
                 yield {"type": "terminal", "content": log_item}
 
         finally:
             set_terminal_callback(None)
+            if not stream_task.done():
+                stream_task.cancel()
+                try:
+                    await stream_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
         # Record Assistant Message
         assistant_msg = {
