@@ -12,11 +12,14 @@ def create_atlas_agent(model_client: ChatCompletionClient) -> AssistantAgent:
 
     web_team = create_web_agent(model_client)
     file_team = create_file_agent(model_client)
-
+    
     return AssistantAgent(
         name="atlas",
         model_client=model_client,
-        tools=[AgentTool(agent=web_team), AgentTool(agent=file_team)],
+        tools=[
+            AgentTool(agent=web_team),
+            AgentTool(agent=file_team),
+        ],
         system_message=f"""
         You are Atlas, the primary AI assistant.
                     
@@ -33,13 +36,13 @@ def create_atlas_agent(model_client: ChatCompletionClient) -> AssistantAgent:
         - Relative to {current_datetime}, ensure queries for "last N years" include the most recent completed events up to today.
                     
         Available specialists:
-        - WebResearchTeam:
+        - WebResearch:
           Performs web research, gathers relevant evidence, checks completeness,
           and returns a consolidated research result.
                     
         - FileAgent:
           The ONLY agent that actually creates, reads, and modifies UTF-8 text files on disk,
-          and verifies that file operations succeeded.
+          and verifies that file operations succeeded. 
                     
         General behavior & Rules:
         - You DO NOT have direct file system I/O capabilities. File operations can ONLY be performed by delegating to FileAgent.
@@ -49,7 +52,6 @@ def create_atlas_agent(model_client: ChatCompletionClient) -> AssistantAgent:
           2. Next, call FileAgent with the gathered web data and target filename to write/save the file.
           3. Only claim the file operation succeeded after FileAgent verifies success.
           - Do not expose internal agent names, delegation steps, or orchestration details to the user.
-          - Synthesize specialist results into a clear final response.
         """,
         model_client_stream=True,
         reflect_on_tool_use=True,

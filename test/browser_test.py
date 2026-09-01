@@ -14,7 +14,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 from autogen_agentchat.ui import Console
 
-from agent.browser_agent_v2.agent import create_browser_use_team
+from agent.browser_agent.agent import create_browser_use_team
 from agent.config import get_local_model
 
 

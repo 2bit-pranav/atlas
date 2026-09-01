@@ -3,9 +3,8 @@ from typing import Any
 
 from browser_use import Agent
 from browser_use.browser.profile import BrowserProfile
-from browser_use.llm.models import ChatGoogle
+from browser_use.llm.models import ChatGoogle, ChatOpenAI
 from pydantic import BaseModel, Field
-
 
 class BrowserUseRuntimeResult(BaseModel):
     success: bool = Field(..., description="Whether the browser task completed without an error.")
@@ -14,7 +13,6 @@ class BrowserUseRuntimeResult(BaseModel):
     steps: int = Field(default=0, description="Number of browser steps executed.")
     extracted_content: str | None = Field(default=None, description="Any raw extracted content from the browser runtime.")
     error: str | None = Field(default=None, description="Error message if the runtime failed.")
-
 
 def _get_browser_use_llm() -> ChatGoogle:
     api_key = os.getenv("CLOUD_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -25,7 +23,6 @@ def _get_browser_use_llm() -> ChatGoogle:
 
     model_name = os.getenv("CLOUD_MODEL_NAME", "gemini-3.5-flash-lite")
     return ChatGoogle(model=model_name, api_key=api_key)
-
 
 def _extract_browser_answer(history: Any) -> BrowserUseRuntimeResult:
     final_answer = ""
@@ -61,7 +58,6 @@ def _extract_browser_answer(history: Any) -> BrowserUseRuntimeResult:
         extracted_content=extracted_content,
     )
 
-
 async def run_browser_use_task(
     task: str,
 ) -> BrowserUseRuntimeResult:
@@ -74,7 +70,7 @@ async def run_browser_use_task(
         )
 
     llm = _get_browser_use_llm()
-    browser_profile = BrowserProfile(headless=True)
+    browser_profile = BrowserProfile(headless=False)
 
     max_steps = int(os.getenv("BROWSER_USE_MAX_STEPS", "10"))
 
