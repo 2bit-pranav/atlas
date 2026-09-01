@@ -14,13 +14,13 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 from autogen_agentchat.ui import Console
 
-from agent.browser_agent.agent import create_browser_use_team
+from agent.browser_agent.agent import create_browser_use_agent
 from agent.config import get_local_model
 
 
 async def main() -> None:
     model_client = get_local_model()
-    team = create_browser_use_team(model_client=model_client)
+    team = create_browser_use_agent(model_client=model_client)
 
     try:
         while True:

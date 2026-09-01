@@ -32,6 +32,7 @@ export interface ChatSessionMeta {
 export interface ChatState {
     messages: Message[];
     sessions: ChatSessionMeta[];
+    terminalLogs: string[];
     activeChatId: string | null;
     isLoading: boolean;
     error: string | null;
@@ -42,6 +43,7 @@ export interface ChatState {
     setThinkingBudget: (budget: number) => void;
     setActiveChatId: (chatId: string | null) => void;
     clearError: () => void;
+    clearTerminalLogs: () => void;
     resetChat: () => void;
     fetchSessions: () => Promise<void>;
     loadSession: (chatId: string) => Promise<void>;
@@ -55,6 +57,7 @@ export interface ChatState {
 export const useChatStore = create<ChatState>((set, get) => ({
     messages: [],
     sessions: [],
+    terminalLogs: [],
     activeChatId: null,
     isLoading: false,
     error: null,
@@ -65,10 +68,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     setThinkingBudget: (thinkingBudget) => set({ thinkingBudget }),
     setActiveChatId: (activeChatId) => set({ activeChatId }),
     clearError: () => set({ error: null }),
+    clearTerminalLogs: () => set({ terminalLogs: [] }),
 
     resetChat: () =>
         set({
             messages: [],
+            terminalLogs: [],
             activeChatId: null,
             error: null,
             isLoading: false,
@@ -219,6 +224,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
                             const parsed = JSON.parse(rawJson);
                             if (parsed.type === "meta" && parsed.chat_id) {
                                 set({ activeChatId: parsed.chat_id });
+                            } else if (
+                                parsed.type === "terminal" &&
+                                parsed.content
+                            ) {
+                                set((state) => ({
+                                    terminalLogs: [
+                                        ...state.terminalLogs,
+                                        parsed.content,
+                                    ],
+                                }));
                             } else if (
                                 parsed.type === "thought" &&
                                 parsed.content

@@ -1,13 +1,11 @@
 from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermination
-from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_core.models import ChatCompletionClient
 from autogen_core.tools import FunctionTool
 from .tools import run_browser_use_task
 
-def create_browser_use_agent(
+def create_browser_agent(
     model_client: ChatCompletionClient,
-    name: str = "browser_use_agent",
+    name: str = "BrowserAgent",
 ) -> AssistantAgent:
     """Create an AssistantAgent that delegates live browsing to the browser-use runtime."""
 
@@ -15,8 +13,9 @@ def create_browser_use_agent(
         run_browser_use_task,
         name="run_browser_use_task",
         description=(
-            "Open a browser, perform a live web task, and return a structured result with the final answer and URL. "
-            "Use this for current web tasks, browsing, form filling, and research that requires a live browser."
+            "Open a live web browser, perform interactive web tasks, search booking portals (e.g. IRCTC), "
+            "navigate pages, fill forms, and return structured answers. "
+            "Use this for interactive web automation and live browser navigation."
         ),
         strict=True,
     )
@@ -26,43 +25,17 @@ def create_browser_use_agent(
         model_client=model_client,
         tools=[tool],
         system_message=(
-            "You are a browser specialist agent. "
-            "Use the browser-use runtime tool for any live web task, page inspection, current-event lookup, or form-filling flow. "
-            "Do not claim you can access the web unless you invoke the browser-use tool. "
-            "After the tool returns a structured result, do not explain the browser steps. "
-            "Pass the result to the summarizer agent so it can provide a clean final answer."
+            "You are BrowserAgent, a specialized browser automation specialist. "
+            "Your sole function is to invoke the run_browser_use_task tool with the user's task. "
+            "Do not simulate browser actions without calling run_browser_use_task. "
+            "Once the tool returns the result, return the final_answer and relevant details back to Atlas."
         ),
-        reflect_on_tool_use=True,
-        max_tool_iterations=3,
+        reflect_on_tool_use=False,
+        max_tool_iterations=2,
     )
 
-def create_browser_use_answerer(
+def create_browser_use_agent(
     model_client: ChatCompletionClient,
-    name: str = "browser_use_answerer",
+    name: str = "BrowserAgent",
 ) -> AssistantAgent:
-    """Summarize the browser-use result into a clean final answer."""
-    return AssistantAgent(
-        name=name,
-        model_client=model_client,
-        system_message=(
-            "You are the browser result summarizer. "
-            "Use the browser-use tool output to answer the user's request in one short, clear sentence or paragraph. "
-            "Do not narrate browser actions or logs. "
-            "If the browser result contains a final_answer field, use that value. "
-            "If it failed, explain the failure briefly and clearly. "
-            "End your final response with the exact token FINAL_ANSWER."
-        ),
-    )
-
-def create_browser_use_team(
-    model_client: ChatCompletionClient,
-) -> RoundRobinGroupChat:
-    """Create a small browser-use team: executor + result formatter."""
-    browser_agent = create_browser_use_agent(model_client=model_client)
-    answerer = create_browser_use_answerer(model_client=model_client)
-    return RoundRobinGroupChat(
-        participants=[browser_agent, answerer],
-        termination_condition=(
-            TextMentionTermination("FINAL_ANSWER") | MaxMessageTermination(6)
-        ),
-    )
+    return create_browser_agent(model_client, name=name)

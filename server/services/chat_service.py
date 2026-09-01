@@ -230,6 +230,17 @@ class ChatService:
         }
         session["messages"].append(user_msg)
 
+        import asyncio
+        from agent.browser_agent.tools import set_terminal_callback
+
+        terminal_queue: asyncio.Queue[str] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def terminal_cb(msg: str):
+            loop.call_soon_threadsafe(terminal_queue.put_nowait, msg)
+
+        set_terminal_callback(terminal_cb)
+
         model_client = get_cloud_model() if use_cloud else get_local_model(thinking_budget=thinking_budget)
         atlas = create_atlas_agent(model_client=model_client)
 
@@ -244,32 +255,44 @@ class ChatService:
         accumulated_thought = ""
         chunk_yielded = False
 
-        async for message in atlas.run_stream(task=task):
-            if isinstance(message, ModelClientStreamingChunkEvent):
-                content = message.content
-                if not content:
-                    continue
-                chunk_yielded = True
-                if content.startswith(_THOUGHT_PREFIX):
-                    thought_text = content[len(_THOUGHT_PREFIX):]
-                    if thought_text:
-                        accumulated_thought += thought_text
-                        yield {"type": "thought", "content": thought_text}
-                else:
-                    accumulated_content += content
-                    yield {"type": "chunk", "content": content}
+        try:
+            async for message in atlas.run_stream(task=task):
+                while not terminal_queue.empty():
+                    log_item = terminal_queue.get_nowait()
+                    yield {"type": "terminal", "content": log_item}
 
-            elif isinstance(message, ThoughtEvent):
-                if message.content:
-                    accumulated_thought += message.content
-                    yield {"type": "thought", "content": message.content}
+                if isinstance(message, ModelClientStreamingChunkEvent):
+                    content = message.content
+                    if not content:
+                        continue
+                    chunk_yielded = True
+                    if content.startswith(_THOUGHT_PREFIX):
+                        thought_text = content[len(_THOUGHT_PREFIX):]
+                        if thought_text:
+                            accumulated_thought += thought_text
+                            yield {"type": "thought", "content": thought_text}
+                    else:
+                        accumulated_content += content
+                        yield {"type": "chunk", "content": content}
 
-            elif isinstance(message, TaskResult) and not chunk_yielded:
-                for msg in reversed(message.messages):
-                    if isinstance(msg, TextMessage) and msg.source != "user":
-                        accumulated_content += msg.content
-                        yield {"type": "chunk", "content": msg.content}
-                        break
+                elif isinstance(message, ThoughtEvent):
+                    if message.content:
+                        accumulated_thought += message.content
+                        yield {"type": "thought", "content": message.content}
+
+                elif isinstance(message, TaskResult) and not chunk_yielded:
+                    for msg in reversed(message.messages):
+                        if isinstance(msg, TextMessage) and msg.source != "user":
+                            accumulated_content += msg.content
+                            yield {"type": "chunk", "content": msg.content}
+                            break
+
+            while not terminal_queue.empty():
+                log_item = terminal_queue.get_nowait()
+                yield {"type": "terminal", "content": log_item}
+
+        finally:
+            set_terminal_callback(None)
 
         # Record Assistant Message
         assistant_msg = {

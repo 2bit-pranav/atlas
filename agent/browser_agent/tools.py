@@ -1,10 +1,27 @@
 import os
-from typing import Any
+import sys
+import asyncio
+import concurrent.futures
+from typing import Any, Callable, Optional
+from contextvars import ContextVar
 
 from browser_use import Agent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.llm.models import ChatGoogle, ChatOpenAI
 from pydantic import BaseModel, Field
+
+_terminal_callback_var: ContextVar[Optional[Callable[[str], None]]] = ContextVar("_terminal_callback_var", default=None)
+
+def set_terminal_callback(cb: Optional[Callable[[str], None]]) -> None:
+    _terminal_callback_var.set(cb)
+
+def log_terminal(message: str) -> None:
+    cb = _terminal_callback_var.get()
+    if cb:
+        try:
+            cb(message)
+        except Exception:
+            pass
 
 class BrowserUseRuntimeResult(BaseModel):
     success: bool = Field(..., description="Whether the browser task completed without an error.")
@@ -21,7 +38,7 @@ def _get_browser_use_llm() -> ChatGoogle:
             "Missing Google API key for browser-use. Set CLOUD_API_KEY or GOOGLE_API_KEY in the environment."
         )
 
-    model_name = os.getenv("CLOUD_MODEL_NAME", "gemini-3.5-flash-lite")
+    model_name = os.getenv("CLOUD_MODEL_NAME", "gemini-3.1-flash-lite")
     return ChatGoogle(model=model_name, api_key=api_key)
 
 def _extract_browser_answer(history: Any) -> BrowserUseRuntimeResult:
@@ -58,16 +75,48 @@ def _extract_browser_answer(history: Any) -> BrowserUseRuntimeResult:
         extracted_content=extracted_content,
     )
 
-async def run_browser_use_task(
-    task: str,
-) -> BrowserUseRuntimeResult:
-    """Execute a browser-use task and return a structured, assistant-friendly result."""
-    if not task or not task.strip():
-        return BrowserUseRuntimeResult(
-            success=False,
-            final_answer="No task provided.",
-            error="The browser-use tool requires a non-empty task string.",
-        )
+def _on_step_start(state: Any, output: Any, step: int):
+    parts = [f"📍 [Step {step}]"]
+
+    current_state = getattr(output, "current_state", None)
+    if current_state:
+        thought = getattr(current_state, "thought", None)
+        next_goal = getattr(current_state, "next_goal", None)
+        if next_goal:
+            parts.append(f"Goal: {next_goal}")
+        elif thought:
+            parts.append(f"Thought: {thought[:80]}...")
+
+    actions = getattr(output, "action", []) or []
+    action_strs = []
+    for act in actions:
+        if isinstance(act, dict):
+            for k, v in act.items():
+                if isinstance(v, dict):
+                    params = ", ".join(f"{pk}={pv}" for pk, pv in v.items() if pk not in ("screenshot", "image"))
+                    action_strs.append(f"{k}({params})" if params else f"{k}()")
+                else:
+                    action_strs.append(f"{k}:{v}")
+        else:
+            action_strs.append(str(act))
+
+    if action_strs:
+        parts.append(f"Action: {', '.join(action_strs)}")
+
+    log_line = " | ".join(parts)
+    log_terminal(log_line)
+
+def _is_proactor_loop() -> bool:
+    if sys.platform != "win32":
+        return True
+    try:
+        loop = asyncio.get_running_loop()
+        return hasattr(asyncio, "ProactorEventLoop") and isinstance(loop, asyncio.ProactorEventLoop)
+    except Exception:
+        return False
+
+async def _run_browser_task_impl(task: str) -> BrowserUseRuntimeResult:
+    log_terminal(f"🚀 Launching Browser Task: {task}")
 
     llm = _get_browser_use_llm()
     browser_profile = BrowserProfile(headless=False)
@@ -83,13 +132,16 @@ async def run_browser_use_task(
         max_actions_per_step=5,
         enable_planning=True,
         final_response_after_failure=True,
+        register_new_step_callback=_on_step_start,
     )
 
     try:
         history = await agent.run(max_steps=max_steps)
         result = _extract_browser_answer(history)
+        log_terminal(f"✅ Browser Task Finished ({result.steps} steps) | Result: {result.final_answer[:120]}")
         return result
-    except Exception as exc:  # pragma: no cover - runtime failure is surfaced to the assistant
+    except Exception as exc:
+        log_terminal(f"❌ Browser Task Failed: {exc}")
         return BrowserUseRuntimeResult(
             success=False,
             final_answer="Browser runtime failed.",
@@ -100,3 +152,44 @@ async def run_browser_use_task(
             await agent.close()
         except Exception:
             pass
+
+async def run_browser_use_task(
+    task: str,
+) -> BrowserUseRuntimeResult:
+    """Execute a browser-use task and return a structured, assistant-friendly result."""
+    if not task or not task.strip():
+        return BrowserUseRuntimeResult(
+            success=False,
+            final_answer="No task provided.",
+            error="The browser-use tool requires a non-empty task string.",
+        )
+
+    # On Windows, browser subprocess creation requires a ProactorEventLoop.
+    # If current loop is SelectorEventLoop, execute in a dedicated Proactor thread.
+    if sys.platform == "win32" and not _is_proactor_loop():
+        main_loop = asyncio.get_running_loop()
+        outer_cb = _terminal_callback_var.get()
+
+        def thread_runner():
+            proactor_loop = asyncio.WindowsProactorEventLoopPolicy().new_event_loop()
+            asyncio.set_event_loop(proactor_loop)
+
+            def threadsafe_cb(msg: str):
+                if outer_cb:
+                    main_loop.call_soon_threadsafe(outer_cb, msg)
+
+            set_terminal_callback(threadsafe_cb)
+            try:
+                return proactor_loop.run_until_complete(_run_browser_task_impl(task))
+            finally:
+                set_terminal_callback(None)
+                try:
+                    proactor_loop.close()
+                except Exception:
+                    pass
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(thread_runner)
+            return await asyncio.wrap_future(future)
+
+    return await _run_browser_task_impl(task)
