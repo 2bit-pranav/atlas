@@ -1,13 +1,17 @@
 import json
+import shutil
 import uuid
 from pathlib import Path
 from typing import Optional, List, Dict
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse
+
 from ..services.chat_service import ChatService
+from ..managers import chat_session_manager
 
 router = APIRouter(prefix="/api", tags=["Chat"])
 UPLOADS_BASE_DIR = Path(__file__).resolve().parent.parent / "uploads"
+
 
 @router.post("/chat")
 async def chat_endpoint(
@@ -58,22 +62,29 @@ async def chat_endpoint(
         },
     )
 
+
 @router.get("/sessions")
 async def get_sessions():
-    return ChatService.get_all_sessions()
+    return chat_session_manager.get_all_sessions()
+
 
 @router.get("/sessions/{chat_id}")
 async def get_session(chat_id: str):
-    session = ChatService.get_session(chat_id)
+    session = chat_session_manager.get_session(chat_id)
     if not session:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Session not found")
     return session
 
+
 @router.delete("/sessions/{chat_id}")
 async def delete_session(chat_id: str):
-    success = ChatService.delete_session(chat_id)
-    if not success:
-        from fastapi import HTTPException
+    # Delete session from manager
+    if not chat_session_manager.delete_session(chat_id):
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Clean up uploads directory
+    uploads_dir = UPLOADS_BASE_DIR / chat_id
+    if uploads_dir.exists():
+        shutil.rmtree(uploads_dir, ignore_errors=True)
+
     return {"status": "success", "chat_id": chat_id}

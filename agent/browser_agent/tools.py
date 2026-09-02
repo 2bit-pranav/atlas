@@ -119,7 +119,9 @@ async def _run_browser_task_impl(task: str) -> BrowserUseRuntimeResult:
     log_terminal(f"🚀 Launching Browser Task: {task}")
 
     llm = _get_browser_use_llm()
-    browser_profile = BrowserProfile(headless=False)
+    browser_profile = BrowserProfile(
+        headless=False,
+    )
 
     max_steps = int(os.getenv("BROWSER_USE_MAX_STEPS", "10"))
 

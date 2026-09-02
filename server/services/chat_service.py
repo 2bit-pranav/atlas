@@ -1,6 +1,7 @@
-import uuid
+import asyncio
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Union, Optional
+
 from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import (
     ModelClientStreamingChunkEvent,
@@ -9,59 +10,23 @@ from autogen_agentchat.messages import (
     ThoughtEvent,
 )
 from autogen_core import Image
+
 from agent.agent import create_atlas_agent
 from agent.config import get_cloud_model, get_local_model
+from ..managers import chat_session_manager
 
+# File type extensions
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 TEXT_EXTENSIONS = {".txt", ".md", ".py", ".json", ".csv", ".log", ".html", ".xml", ".yml", ".yaml", ".js", ".ts"}
 PDF_EXTENSIONS = {".pdf"}
 DOCX_EXTENSIONS = {".docx"}
 EXCEL_EXTENSIONS = {".xlsx", ".xls"}
 
-from datetime import datetime, timezone
-import shutil
-
-CHAT_DB: Dict[str, Dict[str, Any]] = {}
 _THOUGHT_PREFIX = "<|atlas_thought|>"
 
+
 class ChatService:
-
-    @classmethod
-    def get_all_sessions(cls) -> List[Dict[str, Any]]:
-        sessions = [
-            {
-                "id": s["id"],
-                "title": s.get("title", "Untitled Chat"),
-                "created_at": s.get("created_at", ""),
-                "updated_at": s.get("updated_at", ""),
-            }
-            for s in CHAT_DB.values()
-        ]
-        sessions.sort(key=lambda x: x["updated_at"], reverse=True)
-        return sessions
-
-    @classmethod
-    def get_session(cls, chat_id: str) -> Optional[Dict[str, Any]]:
-        s = CHAT_DB.get(chat_id)
-        if not s:
-            return None
-        return {
-            "id": s["id"],
-            "title": s.get("title", "Untitled Chat"),
-            "created_at": s.get("created_at", ""),
-            "updated_at": s.get("updated_at", ""),
-            "messages": s.get("messages", []),
-        }
-
-    @classmethod
-    def delete_session(cls, chat_id: str) -> bool:
-        if chat_id in CHAT_DB:
-            del CHAT_DB[chat_id]
-            uploads_dir = Path(__file__).resolve().parent.parent / "uploads" / chat_id
-            if uploads_dir.exists():
-                shutil.rmtree(uploads_dir, ignore_errors=True)
-            return True
-        return False
+    """Handles file operations, prompt construction, and chat orchestration."""
 
     @staticmethod
     def validate_path(path: str) -> Optional[Path]:
@@ -184,21 +149,13 @@ class ChatService:
         attachments: Optional[List[Union[str, Dict[str, str]]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
 
-        active_chat = chat_id or str(uuid.uuid4())
-        now_iso = datetime.now(timezone.utc).isoformat()
-
-        session = CHAT_DB.setdefault(active_chat, {
-            "id": active_chat,
-            "title": "New Chat",
-            "created_at": now_iso,
-            "updated_at": now_iso,
-            "messages": [],
-            "agent_state": None,
-        })
+        # Initialize or retrieve session
+        active_chat = chat_session_manager.create_session(chat_id)
+        session = chat_session_manager.get_session(active_chat)
 
         clean_prompt = prompt.strip()
 
-        # Derive chat title from first user prompt or attachment name if untitled
+        # Set chat title from first message
         if session.get("title") == "New Chat" or not session.get("messages"):
             if clean_prompt:
                 first_line = clean_prompt.split("\n")[0].strip()
@@ -209,9 +166,9 @@ class ChatService:
                 title = f"File: {fname}"
             else:
                 title = "Chat Session"
-            session["title"] = title
+            chat_session_manager.set_title(active_chat, title)
 
-        # Record User Message
+        # Build attachment metadata for user message
         user_attachment_meta = []
         if attachments:
             for a in attachments:
@@ -222,15 +179,14 @@ class ChatService:
                     "type": "image" if is_img else "document",
                 })
 
-        user_msg = {
-            "id": str(uuid.uuid4()),
-            "role": "user",
-            "content": clean_prompt,
-            "attachments": user_attachment_meta,
-        }
-        session["messages"].append(user_msg)
+        # Record user message
+        chat_session_manager.add_message(
+            active_chat,
+            role="user",
+            content=clean_prompt,
+            attachments=user_attachment_meta,
+        )
 
-        import asyncio
         from agent.browser_agent.tools import set_terminal_callback
 
         # Sentinel value to signal stream completion
@@ -248,8 +204,10 @@ class ChatService:
         model_client = get_cloud_model() if use_cloud else get_local_model(thinking_budget=thinking_budget)
         atlas = create_atlas_agent(model_client=model_client)
 
-        if session.get("agent_state"):
-            await atlas.load_state(session["agent_state"])
+        # Load previous agent state if available
+        agent_state = chat_session_manager.get_agent_state(active_chat)
+        if agent_state:
+            await atlas.load_state(agent_state)
 
         yield {"type": "meta", "chat_id": active_chat}
 
@@ -330,13 +288,14 @@ class ChatService:
                 except (asyncio.CancelledError, Exception):
                     pass
 
-        # Record Assistant Message
-        assistant_msg = {
-            "id": str(uuid.uuid4()),
-            "role": "assistant",
-            "content": accumulated_content,
-            "thought": accumulated_thought if accumulated_thought else None,
-        }
-        session["messages"].append(assistant_msg)
-        session["updated_at"] = datetime.now(timezone.utc).isoformat()
-        session["agent_state"] = await atlas.save_state()
+        # Record assistant message
+        chat_session_manager.add_message(
+            active_chat,
+            role="assistant",
+            content=accumulated_content,
+            thought=accumulated_thought if accumulated_thought else None,
+        )
+
+        # Save agent state for continued conversation
+        agent_state = await atlas.save_state()
+        chat_session_manager.set_agent_state(active_chat, agent_state)
