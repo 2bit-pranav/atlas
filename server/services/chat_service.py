@@ -13,7 +13,7 @@ from autogen_core import Image
 
 from agent.agent import create_atlas_agent
 from agent.config import get_cloud_model, get_local_model
-from ..managers import chat_session_manager
+from ..managers import chat_session_manager, skill_manager
 
 # File type extensions
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
@@ -106,6 +106,11 @@ class ChatService:
 
         content_items: List[Union[str, Image]] = []
         clean_prompt = prompt.strip()
+        skill_context = skill_manager.context_for_prompt(clean_prompt)
+        if skill_context:
+            content_items.append(
+                "Available or requested skill context:\n" + skill_context
+            )
 
         if clean_prompt:
             content_items.append(clean_prompt)
@@ -187,12 +192,12 @@ class ChatService:
             attachments=user_attachment_meta,
         )
 
-        from agent.browser_agent.tools import set_terminal_callback
+        from agent.browser_agent.tools import set_browser_chat_id, set_terminal_callback
 
         # Sentinel value to signal stream completion
         _STREAM_DONE = object()
 
-        terminal_queue: asyncio.Queue[str] = asyncio.Queue()
+        terminal_queue: asyncio.Queue[Any] = asyncio.Queue()
         msg_queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
@@ -200,6 +205,7 @@ class ChatService:
             loop.call_soon_threadsafe(terminal_queue.put_nowait, msg)
 
         set_terminal_callback(terminal_cb)
+        set_browser_chat_id(active_chat)
 
         model_client = get_cloud_model() if use_cloud else get_local_model(thinking_budget=thinking_budget)
         atlas = create_atlas_agent(model_client=model_client)
@@ -210,8 +216,10 @@ class ChatService:
             await atlas.load_state(agent_state)
 
         yield {"type": "meta", "chat_id": active_chat}
+        yield {"type": "status", "status": "running", "label": "Preparing prompt"}
 
         task = cls.build_task_payload(prompt, attachments, active_chat)
+        yield {"type": "status", "status": "running", "label": "Running Atlas"}
 
         accumulated_content = ""
         accumulated_thought = ""
@@ -235,7 +243,7 @@ class ChatService:
                 # Drain any pending terminal logs first (non-blocking)
                 while not terminal_queue.empty():
                     log_item = terminal_queue.get_nowait()
-                    yield {"type": "terminal", "content": log_item}
+                    yield {"type": "terminal", "content": str(log_item)}
 
                 # Wait for next atlas message with a short timeout so we can
                 # re-check terminal_queue while the browser tool is running.
@@ -277,16 +285,19 @@ class ChatService:
             # Drain any remaining terminal logs after stream ends
             while not terminal_queue.empty():
                 log_item = terminal_queue.get_nowait()
-                yield {"type": "terminal", "content": log_item}
+                yield {"type": "terminal", "content": str(log_item)}
 
         finally:
             set_terminal_callback(None)
+            set_browser_chat_id(None)
             if not stream_task.done():
                 stream_task.cancel()
                 try:
                     await stream_task
                 except (asyncio.CancelledError, Exception):
                     pass
+
+            yield {"type": "status", "status": "completed", "label": "Completed"}
 
         # Record assistant message
         chat_session_manager.add_message(

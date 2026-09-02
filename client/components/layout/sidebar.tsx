@@ -14,18 +14,21 @@ import {
     Trash2,
 } from "lucide-react";
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useUIStore } from "@/stores/ui-store";
 import { useChatStore } from "@/stores/chat-store";
+import Link from "next/link";
 
 const items = [
     { icon: PlusIcon, label: "New Chat", isNewChat: true },
-    { icon: Brain, label: "Manage Memory" },
-    { icon: Globe, label: "Browser Sessions" },
-    { icon: Lightbulb, label: "Manage Skills" },
-    { icon: Plug, label: "Integrations" },
+    { icon: Brain, label: "Manage Memory", href: "/memory" },
+    { icon: Globe, label: "Browser Sessions", href: "/browser-sessions" },
+    { icon: Lightbulb, label: "Manage Skills", href: "/skills" },
+    { icon: Plug, label: "Integrations", href: "/integrations" },
 ];
 
 export default function Sidebar() {
+    const router = useRouter();
     const open = useUIStore((s) => s.sidebarOpen);
     const toggle = useUIStore((s) => s.toggleSidebar);
     const theme = useUIStore((s) => s.theme);
@@ -85,12 +88,13 @@ export default function Sidebar() {
 
             <div className="flex flex-1 flex-col overflow-hidden p-2">
                 <div className="flex flex-col gap-1 shrink-0">
-                    {items.map(({ icon: Icon, label, isNewChat }) => (
-                        <button
+                    {items.map(({ icon: Icon, label, isNewChat, href }) => (
+                        isNewChat ? <button
                             key={label}
                             onClick={() => {
                                 if (isNewChat) {
                                     resetChat();
+                                    router.push("/");
                                 }
                             }}
                             className="flex h-10 items-center rounded-xl px-3 text-sm font-medium"
@@ -108,7 +112,14 @@ export default function Sidebar() {
                             <Icon size={18} className="shrink-0" />
 
                             {open && <span className="ml-3 truncate">{label}</span>}
-                        </button>
+                        </button> : <Link
+                            key={label}
+                            href={href || "#"}
+                            className="flex h-10 items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--surface-hover)]"
+                        >
+                            <Icon size={18} className="shrink-0" />
+                            {open && <span className="ml-3 truncate">{label}</span>}
+                        </Link>
                     ))}
                 </div>
 

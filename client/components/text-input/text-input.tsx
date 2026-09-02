@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AttachmentChip from "./attachment-chip";
 import PlusMenu from "./plus-menu";
 import TextArea from "./text-area";
@@ -14,7 +14,6 @@ import {
 import {
   useTextInputStore,
   buildAttachmentItems,
-  type MessageAttachment,
 } from "@/stores/text-input-store";
 import { useChatStore } from "@/stores/chat-store";
 
@@ -43,6 +42,20 @@ export default function TextInput() {
     const fileInput = useRef<HTMLInputElement>(null);
     const dragCounter = useRef(0);
     const [isDragging, setIsDragging] = useState(false);
+    const [skillNames, setSkillNames] = useState<string[]>([]);
+    const [skillIndex, setSkillIndex] = useState(0);
+
+    useEffect(() => {
+        void fetch("http://localhost:8001/api/skills/local")
+            .then((response) => response.json())
+            .then((data) => setSkillNames((data.skills || []).map((skill: { name: string }) => skill.name)))
+            .catch(() => setSkillNames([]));
+    }, []);
+
+    const skillMatch = text.match(/(?:^|\s)@([A-Za-z0-9._-]*)$/);
+    const skillSuggestions = skillMatch
+        ? skillNames.filter((name) => name.toLowerCase().startsWith(skillMatch[1].toLowerCase()))
+        : [];
 
     const canSend = useMemo(() => {
         return (text.trim().length > 0 || attachments.length > 0) && !isLoading;
@@ -76,6 +89,17 @@ export default function TextInput() {
     }
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+        if (skillSuggestions.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
+            e.preventDefault();
+            if (e.key === "ArrowDown") setSkillIndex((index) => (index + 1) % skillSuggestions.length);
+            if (e.key === "ArrowUp") setSkillIndex((index) => (index - 1 + skillSuggestions.length) % skillSuggestions.length);
+            if (e.key === "Enter") {
+                const prefix = text.slice(0, text.length - (skillMatch?.[1].length || 0));
+                setText(`${prefix}${skillSuggestions[skillIndex]} `);
+                setSkillIndex(0);
+            }
+            return;
+        }
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             send();
@@ -146,13 +170,21 @@ export default function TextInput() {
                 )}
 
                 <div className="relative">
+                    {skillSuggestions.length > 0 && (
+                        <div className="absolute bottom-full left-0 z-10 mb-2 min-w-40 rounded-lg border p-1 shadow-lg" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+                            {skillSuggestions.map((name, index) => (
+                                <button key={name} type="button" className="block w-full rounded px-2 py-1 text-left text-xs" style={{ background: index === skillIndex ? "var(--surface-hover)" : "transparent" }} onMouseDown={(event) => event.preventDefault()} onClick={() => { setText(`${text.slice(0, text.length - (skillMatch?.[1].length || 0))}${name} `); setSkillIndex(0); }}>
+                                    @{name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     <TextArea value={text} onChange={setText} onKeyDown={handleKeyDown} />
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                     <PlusMenu
                         onFiles={() => fileInput.current?.click()}
-                        onSkills={() => console.log("skills")}
                     />
 
                     <div className="flex items-center gap-1.5">
@@ -260,7 +292,7 @@ export default function TextInput() {
                 hidden
                 multiple
                 ref={fileInput}
-                accept="image/png,image/jpeg,image/webp,.pdf,.txt"
+                accept="image/*,.pdf,.docx,.xlsx,.xls,.txt,.md,.py,.json,.csv,.log,.html,.xml,.yml,.yaml,.js,.ts"
                 type="file"
                 onChange={(e) => {
                     void handleFiles(e.target.files);

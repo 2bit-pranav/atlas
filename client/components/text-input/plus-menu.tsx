@@ -1,41 +1,22 @@
 "use client";
 
-import { FileIcon, Plus, Sparkles } from "lucide-react";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Paperclip } from "lucide-react";
 
 interface Props {
     onFiles: () => void;
-    onSkills: () => void;
 }
 
-export default function PlusMenu({ onFiles, onSkills }: Props) {
+export default function PlusMenu({ onFiles }: Props) {
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger
-                className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
-                style={{
-                    background: "var(--surface-hover)",
-                }}
-            >
-                <Plus size={18} />
-            </DropdownMenuTrigger>
-
-            <DropdownMenuContent side="top" align="start">
-                <DropdownMenuItem onClick={onFiles}>
-                    <FileIcon size={16} />
-                    Files
-                </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={onSkills}>
-                    <Sparkles size={16} />
-                    Skills
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+        <button
+            type="button"
+            onClick={onFiles}
+            title="Attach files"
+            aria-label="Attach files"
+            className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:opacity-80"
+            style={{ background: "var(--surface-hover)" }}
+        >
+            <Paperclip size={18} />
+        </button>
     );
 }

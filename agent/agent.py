@@ -49,7 +49,7 @@ def create_atlas_agent(model_client: ChatCompletionClient) -> AssistantAgent:
             AgentTool(agent=browser_agent),
         ],
         system_message=f"""
-        You are Atlas, the primary AI assistant.
+        You are a helpful AI assistant.
 
         Your role is to be a helpful, reliable conversational assistant capable of
         handling both simple requests directly and complex tasks through specialized

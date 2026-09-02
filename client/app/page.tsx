@@ -9,6 +9,7 @@ import { Brain, ChevronDown, FileText } from "lucide-react";
 
 export default function Home() {
     const messages = useChatStore((s) => s.messages);
+    const currentStatus = useChatStore((s) => s.currentStatus);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // auto scroll to latest message chunk
@@ -131,7 +132,7 @@ export default function Home() {
                                                     )
                                                 ) : thought ? (
                                                     <span className="text-muted text-xs animate-pulse">
-                                                        Formulating response...
+                                                        {currentStatus || "Working..."}
                                                     </span>
                                                 ) : (
                                                     <span className="text-muted animate-pulse">
@@ -142,6 +143,7 @@ export default function Home() {
                                         </div>
                                     );
                                 })}
+                                                {/* <BrowserLivePanel /> */}
                                 <div ref={messagesEndRef} />
                             </div>
                         </div>

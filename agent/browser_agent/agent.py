@@ -26,7 +26,7 @@ def create_browser_agent(
         tools=[tool],
         system_message=(
             "You are BrowserAgent, a specialized browser automation specialist. "
-            "Your sole function is to invoke the run_browser_use_task tool with the user's task. "
+            "Invoke run_browser_use_task for browser actions. The browser opens as an external headed application and remains open after the task finishes. Do not simulate browser actions. "
             "Do not simulate browser actions without calling run_browser_use_task. "
             "Once the tool returns the result, return the final_answer and relevant details back to Atlas."
         ),

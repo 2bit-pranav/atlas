@@ -33,6 +33,7 @@ export interface ChatState {
     messages: Message[];
     sessions: ChatSessionMeta[];
     terminalLogs: string[];
+    currentStatus: string | null;
     activeChatId: string | null;
     isLoading: boolean;
     error: string | null;
@@ -58,6 +59,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     messages: [],
     sessions: [],
     terminalLogs: [],
+    currentStatus: null,
     activeChatId: null,
     isLoading: false,
     error: null,
@@ -74,6 +76,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({
             messages: [],
             terminalLogs: [],
+            currentStatus: null,
             activeChatId: null,
             error: null,
             isLoading: false,
@@ -224,6 +227,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                             const parsed = JSON.parse(rawJson);
                             if (parsed.type === "meta" && parsed.chat_id) {
                                 set({ activeChatId: parsed.chat_id });
+                            } else if (parsed.type === "status") {
+                                set({ currentStatus: parsed.label || null });
                             } else if (
                                 parsed.type === "terminal" &&
                                 parsed.content
