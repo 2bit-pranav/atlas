@@ -1,4 +1,4 @@
-from .agent import create_browser_use_agent
+from .agent import create_browser_agent
 from .tools import BrowserUseRuntimeResult, run_browser_use_task
 
 __all__ = [

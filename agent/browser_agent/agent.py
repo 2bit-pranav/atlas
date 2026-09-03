@@ -1,13 +1,15 @@
+from datetime import datetime
 from autogen_agentchat.agents import AssistantAgent
 from autogen_core.models import ChatCompletionClient
 from autogen_core.tools import FunctionTool
 from .tools import run_browser_use_task
-
+    
 def create_browser_agent(
     model_client: ChatCompletionClient,
     name: str = "BrowserAgent",
 ) -> AssistantAgent:
-    """Create an AssistantAgent that delegates live browsing to the browser-use runtime."""
+    current_datetime = datetime.now().astimezone().strftime("%A, %B %d, %Y, %H:%M %Z")
+
     tool = FunctionTool(
         run_browser_use_task,
         name="run_browser_use_task",
@@ -18,13 +20,16 @@ def create_browser_agent(
         ),
         strict=True,
     )
+    
     return AssistantAgent(
         name=name,
         model_client=model_client,
         tools=[tool],
         system_message=(
-            "You are BrowserAgent, a specialized browser automation specialist.\n"
-            "Invoke run_browser_use_task for browser actions. The browser opens as an external headed application and remains open after the task finishes. Do not simulate browser actions.\n\n"
+            f"You are BrowserAgent, a specialized browser automation specialist.\n"
+            f"CURRENT SYSTEM DATE/TIME: {current_datetime}\n\n"
+            "Invoke run_browser_use_task for browser actions. The browser opens as an external headed application and remains open after the task finishes. Do not simulate browser actions.\n"
+            "When forwarding user tasks containing relative dates (e.g., 'tomorrow', 'next Friday'), calculate and explicitly state the exact date (YYYY-MM-DD) in the task parameter sent to run_browser_use_task.\n\n"
             "CRITICAL ERROR HANDLING RULES:\n"
             "- Inspect tool output for [NETWORK_ERROR], [AUTH_ERROR], or [BROWSER_ERROR].\n"
             "- If run_browser_use_task returns a [NETWORK_ERROR] or [AUTH_ERROR], DO NOT RETRY.\n"
@@ -38,9 +43,3 @@ def create_browser_agent(
         reflect_on_tool_use=False,
         max_tool_iterations=2,
     )
-
-def create_browser_use_agent(
-    model_client: ChatCompletionClient,
-    name: str = "BrowserAgent",
-) -> AssistantAgent:
-    return create_browser_agent(model_client, name=name)

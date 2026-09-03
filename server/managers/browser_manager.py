@@ -1,12 +1,13 @@
 import asyncio
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
 from browser_use import Agent, Controller
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
-
+from agent.browser_agent.tools import _get_browser_use_llm
 
 @dataclass
 class BrowserRuntime:
@@ -19,7 +20,6 @@ class BrowserRuntime:
     handoff_future: Optional[asyncio.Future] = None
     handoff_prompt: Optional[str] = None
     handoff_id: Optional[str] = None
-
 
 class BrowserSessionManager:
     """Keeps one external headed browser session per chat."""
@@ -124,12 +124,13 @@ class BrowserSessionManager:
             return response
 
         emit(f"Launching Browser Agent: {task}")
+
+        current_datetime = datetime.now().astimezone().strftime("%A, %B %d, %Y, %H:%M %Z")
+        llm = _get_browser_use_llm(use_local=False)
+
         agent = Agent(
             task=task,
-            llm=__import__(
-                "agent.browser_agent.tools",
-                fromlist=["_get_browser_use_llm"],
-            )._get_browser_use_llm(),
+            llm=llm,
             browser_session=session,
             controller=controller,
             use_vision=False,
@@ -139,7 +140,9 @@ class BrowserSessionManager:
             final_response_after_failure=True,
             register_new_step_callback=on_step_start,
             keep_alive=True,
-            extend_system_message="""
+            extend_system_message=f"""
+            CURRENT DATETIME: {current_datetime}
+
             [CORE DIRECTIVE: AUTONOMOUS EXECUTION WITH MANDATORY HUMAN HANDOFF]
             You are an autonomous browser execution specialist. Your goal is to complete the user's request accurately while adhering strictly to security, data integrity, and privacy boundaries.
 
@@ -182,7 +185,7 @@ class BrowserSessionManager:
         )
         runtime.agent = agent
         try:
-            history = await agent.run(max_steps=10)
+            history = await agent.run(max_steps=15)
             final_answer = ""
             for item in reversed(getattr(history, "history", []) or []):
                 for result in reversed(getattr(item, "result", []) or []):

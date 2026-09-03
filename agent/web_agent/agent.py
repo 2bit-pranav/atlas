@@ -15,9 +15,11 @@ def create_web_agent(model_client: ChatCompletionClient) -> RoundRobinGroupChat:
         description="A web researcher/scraper agent that executes web searches.",
         system_message=f"""
         You are the Web Researcher.
+        CURRENT DATE/TIME: {current_datetime}
 
-        CURRENT DATE/TIME:
-        {current_datetime}
+        TEMPORAL SEARCH RULES:
+        - Use CURRENT DATE/TIME to resolve phrases like "latest", "recent", "this year", or "today".
+        - For time-sensitive queries, append explicit year/month keywords (e.g. "2026") to search queries when applicable.
 
         CRITICAL ERROR HANDLING RULES:
         - Inspect tool output for [NETWORK_ERROR], [AUTH_ERROR], or [API_ERROR].
@@ -38,16 +40,12 @@ def create_web_agent(model_client: ChatCompletionClient) -> RoundRobinGroupChat:
         description="An auditor agent that verifies the completeness of web research.",
         system_message=f"""
         You are the Research Auditor.
-
-        CURRENT DATE/TIME:
-        {current_datetime}
+        CURRENT DATE/TIME: {current_datetime}
 
         CRITICAL AUDIT RULES:
         - Check if the researcher's evidence contains [NETWORK_ERROR], [AUTH_ERROR], or "NETWORK_FAILURE".
         - IF ANY NETWORK/API FAILURE IS DETECTED, respond exactly:
-
           NETWORK_FAILURE
-
         - Do NOT request further search iterations if the network connection failed.
 
         Standard Verification Rules:
@@ -57,19 +55,16 @@ def create_web_agent(model_client: ChatCompletionClient) -> RoundRobinGroupChat:
         """,
     )
 
-    # Added NETWORK_FAILURE as an instant exit condition
     termination = (
         TextMentionTermination("DATA_COMPLETE")
         | TextMentionTermination("NETWORK_FAILURE")
         | MaxMessageTermination(6)
     )
 
-    web_agent = RoundRobinGroupChat(
+    return RoundRobinGroupChat(
         participants=[scraper_agent, auditor_agent],
         name="web_execution_agent",
         description="A web execution team agent that executes web searches with error-aware verification.",
         termination_condition=termination,
         max_turns=4,
     )
-
-    return web_agent

@@ -29,7 +29,16 @@ class BrowserUseRuntimeResult(BaseModel):
     extracted_content: str | None = Field(default=None, description="Any raw extracted content from the browser runtime.")
     error: str | None = Field(default=None, description="Error message if the runtime failed.")
 
-def _get_browser_use_llm():
+def _get_browser_use_llm(
+    use_local: bool = False
+):
+    if use_local:
+        from browser_use.llm.models import ChatOpenAI
+        return ChatOpenAI(
+            model=os.getenv("LOCAL_MODEL_NAME"),
+            base_url=os.getenv("LOCAL_BASE_URL")
+        )
+
     from browser_use.llm.models import ChatGoogle
     api_key = os.getenv("CLOUD_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
