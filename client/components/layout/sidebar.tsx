@@ -12,6 +12,7 @@ import {
     PanelRightOpen,
     MessageSquare,
     Trash2,
+    Settings,
 } from "lucide-react";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -35,6 +36,7 @@ export default function Sidebar() {
     const toggleTheme = useUIStore((s) => s.toggleTheme);
 
     const activeChatId = useChatStore((s) => s.activeChatId);
+    const isLoading = useChatStore((s) => s.isLoading);
     const sessions = useChatStore((s) => s.sessions);
     const fetchSessions = useChatStore((s) => s.fetchSessions);
     const loadSession = useChatStore((s) => s.loadSession);
@@ -143,7 +145,12 @@ export default function Sidebar() {
                                         : "transparent",
                                     color: "var(--text)",
                                 }}
-                                onClick={() => void loadSession(session.id)}
+                                onClick={() => {
+                                    router.push("/");
+                                    if (session.id !== activeChatId || !isLoading) {
+                                        void loadSession(session.id);
+                                    }
+                                }}
                             >
                                 <div className="flex items-center min-w-0 flex-1">
                                     <MessageSquare size={18} className="shrink-0 opacity-70" />
@@ -180,29 +187,37 @@ export default function Sidebar() {
                     borderTop: "1px solid var(--border)",
                 }}
             >
-                <button
-                    type="button"
-                    onClick={toggleTheme}
-                    className="flex h-10 w-full items-center rounded-xl px-3 text-sm"
-                    style={{
-                        background: "transparent",
-                    }}
-                    onMouseEnter={(e) =>
-                        (e.currentTarget.style.background =
-                            "var(--surface-hover)")
-                    }
-                    onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = "transparent")
-                    }
-                >
-                    {theme === "dark" ? (
-                        <SunIcon size={18} />
-                    ) : (
-                        <MoonIcon size={18} />
-                    )}
-
-                    {open && <span className="ml-3">Theme</span>}
-                </button>
+                <div className="flex gap-2">
+                    <Link
+                        href="/settings"
+                        className="flex h-10 flex-1 items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--surface-hover)]"
+                    >
+                        <Settings size={18} className="shrink-0" />
+                        {open && <span className="ml-3 truncate">Settings</span>}
+                    </Link>
+                    <button
+                        type="button"
+                        onClick={toggleTheme}
+                        className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0"
+                        style={{
+                            background: "transparent",
+                        }}
+                        onMouseEnter={(e) =>
+                            (e.currentTarget.style.background =
+                                "var(--surface-hover)")
+                        }
+                        onMouseLeave={(e) =>
+                            (e.currentTarget.style.background = "transparent")
+                        }
+                        title={theme === "dark" ? "Light mode" : "Dark mode"}
+                    >
+                        {theme === "dark" ? (
+                            <SunIcon size={18} />
+                        ) : (
+                            <MoonIcon size={18} />
+                        )}
+                    </button>
+                </div>
             </div>
         </aside>
     );

@@ -178,10 +178,35 @@ class SkillManager:
     def resolve_mentions(self, prompt: str) -> List[str]:
         return re.findall(r"@([A-Za-z0-9._-]+)", prompt)
 
+    # In server/managers/skill_manager.py
+
     def context_for_prompt(self, prompt: str) -> str:
         skills = [self.get_local(name) for name in self.resolve_mentions(prompt)]
         skills = [skill for skill in skills if skill]
-        return "\n\n".join(f"Skill: {skill['name']}\n{skill['metadata']}" for skill in skills)
+        if not skills:
+            return ""
+
+        formatted_sections = []
+        for skill in skills:
+            skill_path = Path(skill["path"])
+            scripts_dir = skill_path / "scripts"
+            bundled_files = []
+            if scripts_dir.exists():
+                bundled_files = [f"scripts/{p.name}" for p in scripts_dir.iterdir() if p.is_file()]
+
+            manifest = ""
+            if bundled_files:
+                manifest = "\nBUNDLED SCRIPTS:\n" + "\n".join(f"- {f}" for f in bundled_files)
+
+            formatted_sections.append(
+                f"=== ACTIVATED SKILL: {skill['name']} ===\n"
+                f"SKILL ROOT DIR: {skill_path.resolve()}\n"
+                f"{manifest}\n\n"
+                f"=== SKILL INSTRUCTIONS (SKILL.md) ===\n"
+                f"{skill['metadata']}"
+            )
+
+        return "\n\n".join(formatted_sections)
 
     async def run_script(self, name: str, script: str, args: Optional[List[str]] = None) -> Dict[str, Any]:
         skill = self.get_local(name)

@@ -29,6 +29,12 @@ export interface ChatSessionMeta {
     updated_at?: string;
 }
 
+export interface BrowserHandoff {
+    chatId: string;
+    handoffId: string;
+    question: string;
+}
+
 export interface ChatState {
     messages: Message[];
     sessions: ChatSessionMeta[];
@@ -39,9 +45,11 @@ export interface ChatState {
     error: string | null;
     useCloud: boolean;
     thinkingBudget: number;
+    browserHandoff: BrowserHandoff | null;
 
     setUseCloud: (useCloud: boolean) => void;
     setThinkingBudget: (budget: number) => void;
+    resolveBrowserHandoff: (response: string) => Promise<void>;
     setActiveChatId: (chatId: string | null) => void;
     clearError: () => void;
     clearTerminalLogs: () => void;
@@ -65,9 +73,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     error: null,
     useCloud: false,
     thinkingBudget: 0,
+    browserHandoff: null,
 
     setUseCloud: (useCloud) => set({ useCloud }),
     setThinkingBudget: (thinkingBudget) => set({ thinkingBudget }),
+    resolveBrowserHandoff: async (response) => {
+        const handoff = get().browserHandoff;
+        if (!handoff || !response.trim()) return;
+        const result = await fetch(`http://localhost:8001/api/browser/sessions/${handoff.chatId}/handoff`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ response }),
+        });
+        if (!result.ok) throw new Error("Could not resume browser task.");
+        set({ browserHandoff: null });
+    },
     setActiveChatId: (activeChatId) => set({ activeChatId }),
     clearError: () => set({ error: null }),
     clearTerminalLogs: () => set({ terminalLogs: [] }),
@@ -77,6 +97,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             messages: [],
             terminalLogs: [],
             currentStatus: null,
+            browserHandoff: null,
             activeChatId: null,
             error: null,
             isLoading: false,
@@ -229,6 +250,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
                                 set({ activeChatId: parsed.chat_id });
                             } else if (parsed.type === "status") {
                                 set({ currentStatus: parsed.label || null });
+                            } else if (parsed.type === "browser_handoff") {
+                                set({ browserHandoff: { chatId: parsed.chat_id, handoffId: parsed.handoff_id, question: parsed.question } });
+                            } else if (parsed.type === "browser_handoff_resumed") {
+                                set({ browserHandoff: null });
                             } else if (
                                 parsed.type === "terminal" &&
                                 parsed.content

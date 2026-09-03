@@ -3,6 +3,7 @@
 import ThemeProvider from "@/components/theme-provider";
 import Sidebar from "./sidebar";
 import TerminalPanel from "./terminal-panel";
+import HitlInput from "@/components/browser/hitl-input";
 
 interface AppLayoutProps {
     children: React.ReactNode;
@@ -18,7 +19,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 }}
             >
                 <Sidebar />
-                <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+                <main className="flex min-w-0 flex-1 flex-col"><div className="min-h-0 flex-1">{children}</div><HitlInput /></main>
                 <TerminalPanel />
             </div>
         </ThemeProvider>

@@ -1,7 +1,12 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from ..managers import browser_session_manager
 
 router = APIRouter(prefix="/api/browser", tags=["Browser"])
+
+
+class HandoffResponse(BaseModel):
+    response: str
 
 
 @router.get("/sessions")
@@ -15,6 +20,13 @@ def get_browser_session(chat_id: str):
     if not snapshot:
         raise HTTPException(status_code=404, detail="Browser session not found")
     return snapshot
+
+
+@router.post("/sessions/{chat_id}/handoff")
+async def resolve_handoff(chat_id: str, request: HandoffResponse):
+    if not await browser_session_manager.resolve_handoff(chat_id, request.response):
+        raise HTTPException(status_code=404, detail="No pending browser handoff")
+    return {"status": "resuming", "chat_id": chat_id}
 
 
 

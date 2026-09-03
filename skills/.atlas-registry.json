@@ -1,1 +1,6 @@
-{}
+{
+  "pdf": {
+    "source": "https://github.com/openai/skills",
+    "name": "pdf"
+  }
+}

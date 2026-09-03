@@ -18,7 +18,6 @@ def log_terminal(message: str) -> None:
         except Exception:
             pass
 
-
 def set_browser_chat_id(chat_id: Optional[str]) -> None:
     _browser_chat_id_var.set(chat_id)
 
@@ -37,43 +36,9 @@ def _get_browser_use_llm():
         raise ValueError(
             "Missing Google API key for browser-use. Set CLOUD_API_KEY or GOOGLE_API_KEY in the environment."
         )
-
-    model_name = os.getenv("CLOUD_MODEL_NAME", "gemini-3.1-flash-lite")
+    
+    model_name = os.getenv("CLOUD_MODEL_NAME", "gemini-3.5-flash-lite")
     return ChatGoogle(model=model_name, api_key=api_key)
-
-def _extract_browser_answer(history: Any) -> BrowserUseRuntimeResult:
-    final_answer = ""
-    extracted_content = None
-    last_url = None
-    step_count = 0
-
-    if history is not None:
-        step_count = len(getattr(history, "history", []) or [])
-        for item in reversed(getattr(history, "history", []) or []):
-            if getattr(item, "state", None) is not None and getattr(item.state, "current_url", None):
-                last_url = item.state.current_url
-            for result in reversed(getattr(item, "result", []) or []):
-                if getattr(result, "extracted_content", None):
-                    extracted_content = result.extracted_content
-                    final_answer = str(result.extracted_content)
-                    break
-            if final_answer:
-                break
-
-    if not final_answer:
-        last_history_item = (getattr(history, "history", []) or [])[-1] if getattr(history, "history", None) else None
-        if last_history_item is not None:
-            model_output = getattr(last_history_item, "model_output", None)
-            if model_output is not None and getattr(model_output, "final_output", None):
-                final_answer = str(model_output.final_output)
-
-    return BrowserUseRuntimeResult(
-        success=bool(final_answer or not history),
-        final_answer=final_answer or "No browser output was produced.",
-        url=last_url,
-        steps=step_count,
-        extracted_content=extracted_content,
-    )
 
 async def run_browser_use_task(
     task: str,
@@ -82,25 +47,41 @@ async def run_browser_use_task(
     if not task or not task.strip():
         return BrowserUseRuntimeResult(
             success=False,
-            final_answer="No task provided.",
+            final_answer="[BROWSER_ERROR]: No task provided.",
             error="The browser-use tool requires a non-empty task string.",
         )
-
     from server.managers import browser_session_manager
-
     chat_id = _browser_chat_id_var.get()
     if not chat_id:
         return BrowserUseRuntimeResult(
             success=False,
-            final_answer="Browser task requires an active chat session.",
+            final_answer="[BROWSER_ERROR]: Missing active browser chat session context.",
             error="Missing browser chat session context.",
         )
-
     outer_cb = _terminal_callback_var.get()
-
-    def emit(message: str) -> None:
+    def emit(message: Any) -> None:
         if outer_cb:
             outer_cb(message)
 
-    result = await browser_session_manager.run_task(chat_id, task, emit)
-    return BrowserUseRuntimeResult(**result)
+    try:
+        result = await browser_session_manager.run_task(chat_id, task, emit)
+        return BrowserUseRuntimeResult(**result)
+    except (TimeoutError, ConnectionError) as e:
+        return BrowserUseRuntimeResult(
+            success=False,
+            final_answer=f"[NETWORK_ERROR]: Browser connection dropped: {e}",
+            error=str(e),
+        )
+    except Exception as e:
+        err_str = str(e).lower()
+        if any(k in err_str for k in ["connect", "timeout", "dns", "unreachable", "net::err"]):
+            return BrowserUseRuntimeResult(
+                success=False,
+                final_answer=f"[NETWORK_ERROR]: Connection failed during browser execution: {e}",
+                error=str(e),
+            )
+        return BrowserUseRuntimeResult(
+            success=False,
+            final_answer=f"[BROWSER_ERROR]: Browser task execution failed: {e}",
+            error=str(e),
+        )

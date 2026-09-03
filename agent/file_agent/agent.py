@@ -6,13 +6,14 @@ from .tools import (
     create_docx_document,
     create_excel_spreadsheet,
     create_pdf_document,
+    run_python_code,
+    run_terminal_command,
     save_text_file,
     verify_file,
 )
+from agent.skill_tools import run_skill_script
 
 def create_file_agent(model_client: ChatCompletionClient) -> RoundRobinGroupChat:
-    """Factory creating the File Execution Team agent."""
-
     file_executor_agent = AssistantAgent(
         name="file_executor_agent",
         model_client=model_client,
@@ -21,69 +22,67 @@ def create_file_agent(model_client: ChatCompletionClient) -> RoundRobinGroupChat
             create_pdf_document,
             create_docx_document,
             create_excel_spreadsheet,
+            run_python_code,
+            run_terminal_command,
+            run_skill_script,
             verify_file,
         ],
-        description="Executes file generation and modification tasks for TXT, PDF, DOCX, and XLSX formats.",
+        description="Executes file creation, edits, dynamic Python code execution, and skill-based workflows.",
         system_message="""
         You are the File Execution Specialist.
 
         YOUR TASK:
-        Create or edit requested output files (PDF, DOCX, XLSX, TXT) using verified data and synthesized improvements provided in the conversation context.
+        Create, edit, or manipulate requested output files (PDF, DOCX, XLSX, TXT) using verified data, dynamic scripts, or `@skill` manuals provided in context.
 
-        CONTEXT & ATTACHMENTS:
-        - Attached user files (PDFs, DOCX, XLSX, TXT, images) and chat history are AUTOMATICALLY extracted and present in your text context.
+        DEPENDENCY & SKILL WORKFLOW:
+        1. Read any activated `@skill` instructions (`SKILL.md`) present in your prompt context.
+        2. Inspect the `## Dependencies` or setup sections listed in `SKILL.md`.
+        3. Resolve dependencies BEFORE executing main logic:
+        - Pass required library names directly into `run_python_code(code, dependencies=['package1', 'package2'])` so `uv run` handles isolated sandbox provisioning automatically.
+        - OR run pre-flight installation commands using `run_terminal_command("uv pip install <packages>")` or `run_terminal_command("pip install <packages>")`.
 
-        CRITICAL ANTI-LAZINESS & ANTI-PLACEHOLDER RULES:
-        - NEVER use placeholders, summaries, or shorthand in tool arguments (e.g., forbidden terms: `[Insert Original Strategy...]`, `[Placeholder: ...]`, `[TBD]`, `[TODO]`, `...`).
-        - Write out EVERY single sentence, paragraph, section, header, and detail in full inside tool call parameters.
-        - If generating a PDF or DOCX, populate the `sections` list with complete, expanded body text containing all ideas, strategies, and improvements discussed in the conversation.
-        - If generating an Excel sheet, include every data row and cell value in full without skipping rows.
+        SKILL & SCRIPT EXECUTION RULES:
+        1. To run allowlisted scripts bundled inside an installed skill directory, use `run_skill_script(skill_name, script, args)`.
+        2. To run dynamic custom scripts or Python logic described in a skill, use `run_python_code`.
 
-        WORKFLOW:
-        1. Select the tool matching the requested output format:
-           - `.txt`, `.md`, `.csv` -> `save_text_file`
-           - `.pdf`               -> `create_pdf_document`
-           - `.docx`              -> `create_docx_document`
-           - `.xlsx`              -> `create_excel_spreadsheet`
-        2. Execute the tool with FULL, non-truncated text content. All creation tools automatically target the user's `Downloads` folder.
-        3. ALWAYS call `verify_file` immediately after file creation using the exact absolute path returned in the tool's SUCCESS response.
+        ERROR HANDLING & RECOVERY RULES:
+        1. If execution tools return `[MISSING_DEPENDENCY_ERROR]`, `[SYNTAX_ERROR]`, `[PYTHON_RUNTIME_ERROR]`, `[TERMINAL_EXEC_ERROR]`, or `[FILE_ERROR]`:
+        - DO NOT swallow or suppress the error traceback.
+        - If it is a fixable code bug (e.g., syntax error, typo, or minor logic mistake), rewrite and retry execution ONCE via `run_python_code`.
+        - If a required system binary or environment dependency fails to install or run, IMMEDIATELY halt execution and output the exact error details, missing package name, and required install command so the auditor and Atlas can report it to the user.
+
+        FILE VERIFICATION RULE:
+        1. ALWAYS call `verify_file(file_path)` on the final produced file path in your `Downloads` directory to verify non-zero byte creation before completing your turn.
         """,
     )
 
     file_auditor_agent = AssistantAgent(
         name="file_auditor_agent",
         model_client=model_client,
-        description="Audits file execution tasks to confirm correct generation and verification.",
+        description="Audits file execution tasks and code executions.",
         system_message="""
         You are the File Operation Auditor.
-
-        Inspect the user's original task, the executor's tool invocation arguments, and the tool execution responses.
-
         VERIFICATION CHECKLIST:
-        1. TOOL SELECTION & EXECUTION: Was the correct format generation tool called with complete data?
-        2. STRICT ANTI-PLACEHOLDER AUDIT: Inspect the actual content passed into the tool parameters. 
-           - Does the text contain any placeholders, bracketed hints, lazy shortcuts, or truncated text (e.g., `[Placeholder...]`, `[Insert...]`, `[TODO]`, `[TBD]`, `...`)?
-           - IF ANY PLACEHOLDERS OR LAZY SHORTCUTS ARE DETECTED IN THE TOOL ARGUMENTS, REJECT IMMEDIATELY.
-        3. FILE VERIFICATION: Was `verify_file` called on the output file path, and did it return `VERIFY_SUCCESS` with a non-zero byte size?
+        1. Was the file/skill task executed successfully without unhandled errors?
+        2. If code execution returned `[MISSING_DEPENDENCY_ERROR]`, `[PYTHON_RUNTIME_ERROR]`, or `[FILE_ERROR]`, immediately mark the task INCOMPLETE and forward the exact traceback/message.
+        3. Was `verify_file` called on the output file, returning `VERIFY_SUCCESS`?
+        4. Check that no placeholder text (`[TODO]`, `[Insert...]`) remains in output parameters or files.
 
         RESPONSE RULES:
-        If ALL criteria are satisfied with ZERO placeholders and complete text, respond exactly:
-
+        If all criteria are satisfied and file output is verified, respond exactly:
         FILE_TASK_COMPLETE
 
-        Otherwise respond:
-
+        If execution failed, dependency was missing, or file creation failed, respond:
         FILE_TASK_INCOMPLETE
-        REASON: <Specify exact issue, e.g., "Executor used placeholder [Insert...] instead of full text in section 2", or "Missing verify_file step">
+        REASON: <Detailed breakdown of failure, exact traceback, or missing dependencies>
         """,
     )
 
     termination = TextMentionTermination("FILE_TASK_COMPLETE") | MaxMessageTermination(6)
-
     return RoundRobinGroupChat(
         participants=[file_executor_agent, file_auditor_agent],
         name="file_execution_agent",
-        description="File execution team that generates and verifies text, PDF, Word, and Excel documents.",
+        description="Executes file operations, dynamic Python scripts, and installed skills.",
         termination_condition=termination,
         max_turns=6,
     )

@@ -16,72 +16,60 @@ def create_web_agent(model_client: ChatCompletionClient) -> RoundRobinGroupChat:
         system_message=f"""
         You are the Web Researcher.
 
-        Your job is to gather information required by the current task.
-
         CURRENT DATE/TIME:
         {current_datetime}
 
-        Rules:
-        - Read the current task from the conversation.
-        - Formulate effective search queries rather than blindly searching the entire user prompt.
-        - Use web_search for general web research.
-        - Use web_fetch when a specific URL must be inspected.
-        - Prefer relevant, credible, recent sources.
-        - When asked for "latest" or "last N years/seasons", use the temporal reference ({current_datetime}) to select the correct range (e.g. for last 5 F1 seasons, search up to the most recent season like 2025/2026).
-        - Preserve important facts, numbers, dates, names, and source URLs.
-        - Do NOT simulate or pretend to perform file system operations (file writing/creation is handled separately by the File Agent).
-        - Return concise evidence that the auditor can inspect.
+        CRITICAL ERROR HANDLING RULES:
+        - Inspect tool output for [NETWORK_ERROR], [AUTH_ERROR], or [API_ERROR].
+        - If a tool returns a [NETWORK_ERROR] or [AUTH_ERROR], DO NOT RETRY searching.
+        - Immediately state: "NETWORK_FAILURE: Unable to perform web research due to network/connectivity issues." and pass this back.
+
+        Standard Rules:
+        - Read current task and execute targeted searches via web_search or web_fetch.
+        - Do NOT simulate or pretend to perform file or browser operations.
+        - Return concise evidence for auditor inspection.
         """,
-        max_tool_iterations=3,
+        max_tool_iterations=2,
     )
 
     auditor_agent = AssistantAgent(
         name="auditor_agent",
         model_client=model_client,
-        description="An auditor agent that verifies the completeness of the content provided by the scraper agent against the original user task.",
+        description="An auditor agent that verifies the completeness of web research.",
         system_message=f"""
         You are the Research Auditor.
 
         CURRENT DATE/TIME:
         {current_datetime}
 
-        Inspect the original task and the researcher's latest findings.
+        CRITICAL AUDIT RULES:
+        - Check if the researcher's evidence contains [NETWORK_ERROR], [AUTH_ERROR], or "NETWORK_FAILURE".
+        - IF ANY NETWORK/API FAILURE IS DETECTED, respond exactly:
 
-        Your job is NOT to fact-check using your own model knowledge.
+          NETWORK_FAILURE
 
-        Instead, check whether the collected web evidence is sufficient to satisfy
-        the explicit requirements of the task.
+        - Do NOT request further search iterations if the network connection failed.
 
-        Pay particular attention to:
-        - requested item counts
-        - missing fields
-        - missing entities
-        - incomplete lists
-        - missing dates, names, numbers, or other required attributes
-        - whether the available evidence is sufficient to answer the task
-
-        If the research is sufficient and complete, respond exactly:
-
-        DATA_COMPLETE
-
-        Otherwise respond:
-
-        DATA_INCOMPLETE
-        REASON: <specific missing information>
-
-        When incomplete, identify exactly what the researcher should search for next.
-        Do not rewrite the entire answer.
+        Standard Verification Rules:
+        - Check whether the collected evidence satisfies requirements (counts, fields, entities).
+        - If complete, respond exactly: DATA_COMPLETE
+        - Otherwise respond: DATA_INCOMPLETE\nREASON: <missing details>
         """,
     )
 
-    termination = TextMentionTermination("DATA_COMPLETE") | MaxMessageTermination(12)
+    # Added NETWORK_FAILURE as an instant exit condition
+    termination = (
+        TextMentionTermination("DATA_COMPLETE")
+        | TextMentionTermination("NETWORK_FAILURE")
+        | MaxMessageTermination(6)
+    )
 
     web_agent = RoundRobinGroupChat(
         participants=[scraper_agent, auditor_agent],
         name="web_execution_agent",
-        description="A web execution team agent that governs scraper and auditor agents to perform web searches.",
+        description="A web execution team agent that executes web searches with error-aware verification.",
         termination_condition=termination,
-        max_turns=6,
+        max_turns=4,
     )
 
     return web_agent

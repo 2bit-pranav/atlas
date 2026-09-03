@@ -40,57 +40,50 @@ class ChatService:
     def extract_file_content(cls, path: Path, display_name: Optional[str] = None) -> Union[str, Image, None]:
         name = display_name or path.name
         suffix = path.suffix.lower()
+        abs_path = str(path.resolve())
 
         if suffix in IMAGE_EXTENSIONS:
             try:
-                return Image.from_file(str(path))
+                return Image.from_file(abs_path)
             except Exception as e:
                 return f"[Error loading image {name}: {e}]"
 
         if suffix in TEXT_EXTENSIONS:
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
-                return f"[Attached File: {name}]\n{content}"
+                return f"[Attached Text File: {name}]\nFILE_PATH_ON_DISK: {abs_path}\n--- CONTENT ---\n{content}"
             except Exception as e:
                 return f"[Error reading text file {name}: {e}]"
 
         if suffix in PDF_EXTENSIONS:
             try:
                 from pypdf import PdfReader
-                reader = PdfReader(str(path))
+                reader = PdfReader(abs_path)
                 pages = [page.extract_text() or "" for page in reader.pages]
-                return f"[Attached PDF: {name}]\n" + "\n".join(pages).strip()
+                return f"[Attached PDF Document: {name}]\nFILE_PATH_ON_DISK: {abs_path}\n--- EXTRACTED TEXT ---\n" + "\n".join(pages).strip()
             except Exception as e:
                 return f"[Error reading PDF {name}: {e}]"
 
         if suffix in DOCX_EXTENSIONS:
             try:
                 import docx
-                doc = docx.Document(str(path))
+                doc = docx.Document(abs_path)
                 paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-                tables = [
-                    " | ".join(c.text.strip() for c in r.cells if c.text.strip())
-                    for t in doc.tables for r in t.rows
-                ]
-                return f"[Attached Word Document: {name}]\n" + "\n".join(paragraphs + tables)
+                return f"[Attached Word Document: {name}]\nFILE_PATH_ON_DISK: {abs_path}\n--- EXTRACTED TEXT ---\n" + "\n".join(paragraphs)
             except Exception as e:
                 return f"[Error reading DOCX {name}: {e}]"
 
         if suffix in EXCEL_EXTENSIONS:
             try:
                 import openpyxl
-                wb = openpyxl.load_workbook(str(path), data_only=True)
+                wb = openpyxl.load_workbook(abs_path, data_only=True)
                 sheets = []
                 for sheet_name in wb.sheetnames:
                     ws = wb[sheet_name]
-                    rows = [
-                        "\t".join(str(c) if c is not None else "" for c in r)
-                        for r in ws.iter_rows(values_only=True)
-                        if any(r)
-                    ]
+                    rows = ["\t".join(str(c) if c is not None else "" for c in r) for r in ws.iter_rows(values_only=True) if any(r)]
                     if rows:
                         sheets.append(f"--- Sheet: {sheet_name} ---\n" + "\n".join(rows))
-                return f"[Attached Excel Spreadsheet: {name}]\n" + "\n\n".join(sheets)
+                return f"[Attached Excel Spreadsheet: {name}]\nFILE_PATH_ON_DISK: {abs_path}\n" + "\n\n".join(sheets)
             except Exception as e:
                 return f"[Error reading Excel {name}: {e}]"
 
@@ -243,7 +236,15 @@ class ChatService:
                 # Drain any pending terminal logs first (non-blocking)
                 while not terminal_queue.empty():
                     log_item = terminal_queue.get_nowait()
-                    yield {"type": "terminal", "content": str(log_item)}
+                    if isinstance(log_item, dict):
+                        yield log_item
+                        if log_item.get("type") == "browser_handoff":
+                            yield {
+                                "type": "terminal",
+                                "content": f"USER HANDOFF REQUIRED: {log_item.get('question', 'Browser input required.')}",
+                            }
+                    else:
+                        yield {"type": "terminal", "content": str(log_item)}
 
                 # Wait for next atlas message with a short timeout so we can
                 # re-check terminal_queue while the browser tool is running.
@@ -285,7 +286,7 @@ class ChatService:
             # Drain any remaining terminal logs after stream ends
             while not terminal_queue.empty():
                 log_item = terminal_queue.get_nowait()
-                yield {"type": "terminal", "content": str(log_item)}
+                yield log_item if isinstance(log_item, dict) else {"type": "terminal", "content": str(log_item)}
 
         finally:
             set_terminal_callback(None)
