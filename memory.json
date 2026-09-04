@@ -1,0 +1,20 @@
+[
+  {
+    "id": "fact-1",
+    "text": "User prefers train travel over flights for domestic trips",
+    "category": "Preferences",
+    "created_at": "2026-09-01"
+  },
+  {
+    "id": "fact-2",
+    "text": "Target budget range for hardware/laptop recommendations is under ",
+    "category": "Budget",
+    "created_at": "2026-09-02"
+  },
+  {
+    "id": "fact-3",
+    "text": "Default UI color theme preference is Dark Mode",
+    "category": "UI Settings",
+    "created_at": "2026-09-03"
+  }
+]

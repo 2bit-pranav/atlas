@@ -1,6 +1,6 @@
 {
   "pdf": {
-    "source": "https://github.com/openai/skills",
+    "source": "https://github.com/anthropics/skills",
     "name": "pdf"
   }
 }

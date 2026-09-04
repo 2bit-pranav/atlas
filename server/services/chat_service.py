@@ -99,7 +99,20 @@ class ChatService:
 
         content_items: List[Union[str, Image]] = []
         clean_prompt = prompt.strip()
-        skill_context = skill_manager.context_for_prompt(clean_prompt)
+
+        # Resolve all attachment paths upfront so we can pass them into skill context
+        resolved_attachment_paths: List[str] = []
+        if attachments:
+            for item in attachments:
+                raw_path = item.get("path", "") if isinstance(item, dict) else str(item)
+                p = cls.validate_path(raw_path)
+                if p:
+                    resolved_attachment_paths.append(str(p.resolve()))
+
+        skill_context = skill_manager.context_for_prompt(
+            clean_prompt,
+            uploaded_file_paths=resolved_attachment_paths or None,
+        )
         if skill_context:
             content_items.append(
                 "Available or requested skill context:\n" + skill_context

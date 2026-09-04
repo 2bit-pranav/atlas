@@ -99,3 +99,4 @@ next-env.d.ts
 
 .vscode/
 /server/uploads
+/server/data_dir/

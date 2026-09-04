@@ -49,7 +49,7 @@ class SkillManager:
             "description": heading.group(1).strip() if heading else "Installed Atlas skill",
             "path": str(skill_file.parent),
             "installed": True,
-            "metadata": text[:2000],
+            "metadata": text[:30000],  # Full SKILL.md — never truncate early
             "source": self._registry().get(name, {}).get("source"),
         }
 
@@ -178,9 +178,7 @@ class SkillManager:
     def resolve_mentions(self, prompt: str) -> List[str]:
         return re.findall(r"@([A-Za-z0-9._-]+)", prompt)
 
-    # In server/managers/skill_manager.py
-
-    def context_for_prompt(self, prompt: str) -> str:
+    def context_for_prompt(self, prompt: str, uploaded_file_paths: list[str] | None = None) -> str:
         skills = [self.get_local(name) for name in self.resolve_mentions(prompt)]
         skills = [skill for skill in skills if skill]
         if not skills:
@@ -190,18 +188,38 @@ class SkillManager:
         for skill in skills:
             skill_path = Path(skill["path"])
             scripts_dir = skill_path / "scripts"
-            bundled_files = []
+            bundled_files: list[str] = []
             if scripts_dir.exists():
-                bundled_files = [f"scripts/{p.name}" for p in scripts_dir.iterdir() if p.is_file()]
+                bundled_files = [f"scripts/{p.name}" for p in sorted(scripts_dir.iterdir()) if p.is_file()]
 
             manifest = ""
             if bundled_files:
-                manifest = "\nBUNDLED SCRIPTS:\n" + "\n".join(f"- {f}" for f in bundled_files)
+                manifest = "\nBUNDLED SCRIPTS (run via run_skill_script):\n" + "\n".join(f"  - {f}" for f in bundled_files)
+
+            # Surface any uploaded file paths so the model can reference them by absolute path
+            files_block = ""
+            if uploaded_file_paths:
+                files_block = (
+                    "\nATTACHED INPUT FILES (use these exact absolute paths in any script you write):\n"
+                    + "\n".join(f"  INPUT_FILE: {p}" for p in uploaded_file_paths)
+                    + "\n"
+                )
+
+            # Concise scripting guide injected after every skill activation
+            scripting_guide = (
+                "\nSCRIPTING RULES (MUST FOLLOW):\n"
+                "1. Use the INPUT_FILE absolute path(s) listed above directly in any script — never use bare filenames.\n"
+                "2. Write output files as absolute paths too, e.g. str(Path.home() / 'Downloads' / 'result.pdf').\n"
+                "3. Pass required libraries in the `dependencies` list of run_python_code so uv auto-provisions them.\n"
+                "4. After the script finishes, call verify_file() on the output path.\n"
+            )
 
             formatted_sections.append(
                 f"=== ACTIVATED SKILL: {skill['name']} ===\n"
                 f"SKILL ROOT DIR: {skill_path.resolve()}\n"
-                f"{manifest}\n\n"
+                f"{manifest}\n"
+                f"{files_block}"
+                f"{scripting_guide}\n"
                 f"=== SKILL INSTRUCTIONS (SKILL.md) ===\n"
                 f"{skill['metadata']}"
             )

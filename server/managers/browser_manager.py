@@ -3,11 +3,16 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
+import os
+import difflib
 
 from browser_use import Agent, Controller
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from agent.browser_agent.tools import _get_browser_use_llm
+
+STORAGE_DIR = r"C:\Users\prana\Desktop\atlas\server\storage"
+USER_DATA_DIR = r"C:\Users\prana\Desktop\atlas\server\data_dir"
 
 @dataclass
 class BrowserRuntime:
@@ -63,7 +68,12 @@ class BrowserSessionManager:
         if runtime.session is None:
             runtime.session = BrowserSession(
                 id=runtime.chat_id,
-                browser_profile=BrowserProfile(headless=False, keep_alive=True, window_size={'width': 1280, 'height': 720}),
+                browser_profile=BrowserProfile(
+                    headless=False, 
+                    keep_alive=True, 
+                    window_size={'width': 1920, 'height': 1080},
+                    user_data_dir=USER_DATA_DIR,
+                ),
                 headless=False,
                 keep_alive=True,
             )
@@ -123,6 +133,36 @@ class BrowserSessionManager:
             })
             return response
 
+        @controller.action(
+            description=(
+                "Finds the full absolute path of a file in local storage using fuzzy matching. "
+                "Use this tool whenever you need to upload a file or locate a user document "
+                "even if the exact filename is slightly different (e.g. 'resume' vs 'Pranav_Resume.pdf')."
+            )
+        )
+        async def resolve_storage_file(filename_query: str) -> str:
+            if not os.path.exists(STORAGE_DIR):
+                return f"ERROR: Storage directory {STORAGE_DIR} does not exist."
+            
+            files = os.listdir(STORAGE_DIR)
+            if not files:
+                return f"ERROR: Storage directory {STORAGE_DIR} is empty."
+            
+            # 1. Direct exact or substring match (case-insensitive)
+            query_lower = filename_query.lower().strip()
+            for f in files:
+                if query_lower == f.lower() or query_lower in f.lower() or f.lower().startswith(query_lower):
+                    matched_path = os.path.join(STORAGE_DIR, f)
+                    return f"MATCH_FOUND: {matched_path}"
+                    
+            # 2. Fuzzy match fallback
+            close_matches = difflib.get_close_matches(filename_query, files, n=1, cutoff=0.3)
+            if close_matches:
+                matched_path = os.path.join(STORAGE_DIR, close_matches[0])
+                return f"MATCH_FOUND: {matched_path}"
+                
+            return f"FILE_NOT_FOUND: No file matching '{filename_query}' found in {STORAGE_DIR}. Available files: {files}"
+
         emit(f"Launching Browser Agent: {task}")
 
         current_datetime = datetime.now().astimezone().strftime("%A, %B %d, %Y, %H:%M %Z")
@@ -133,7 +173,7 @@ class BrowserSessionManager:
             llm=llm,
             browser_session=session,
             controller=controller,
-            use_vision=False,
+            use_vision=True,
             max_failures=2,
             max_actions_per_step=5,
             enable_planning=True,
@@ -141,17 +181,38 @@ class BrowserSessionManager:
             register_new_step_callback=on_step_start,
             keep_alive=True,
             extend_system_message=f"""
-            CURRENT DATETIME: {current_datetime}
+            CURRENT_DATETIME: {current_datetime}
 
             [CORE DIRECTIVE: AUTONOMOUS EXECUTION WITH MANDATORY HUMAN HANDOFF]
             You are an autonomous browser execution specialist. Your goal is to complete the user's request accurately while adhering strictly to security, data integrity, and privacy boundaries.
 
+            [LOCAL FILE UPLOAD & STORAGE RESOLUTION - MANDATORY EXECUTION ORDER]
+            - Storage Directory: `"C:\\Users\\prana\\Desktop\\atlas\\server\\storage"`
+            - RULE: File upload fields are NEVER considered "Missing Mandatory Data" on initial inspection.
+            - MANDATORY PROTOCOL FOR ANY FILE FIELD / UPLOAD BUTTON:
+              When you encounter ANY file upload input, "Add file" button, or document field (e.g., "Photograph", "Resume", "ID"):
+              1. DO NOT call `handle_handoff` immediately.
+              2. FIRST, call the `resolve_storage_file` tool using the field label as the query (e.g., `resolve_storage_file("photo")` or `resolve_storage_file("resume")`).
+              3. IF `MATCH_FOUND` is returned: Proceed to upload or attach that resolved file path.
+              4. ONLY IF `resolve_storage_file` returns `FILE_NOT_FOUND`: Call `handle_handoff` to ask the user for the missing file.
+
+            [GOOGLE FORMS & MODAL FILE UPLOAD WORKFLOW]
+            When interacting with Google Forms or modal-based file uploaders ("Add file" buttons):
+            1. CLICK "Add file" to open the Google Drive Picker modal overlay.
+            2. WAIT for the modal/iframe to load.
+            3. RESOLVE FILE: Call `resolve_storage_file("<field_name>")` to fetch the path from `C:\\Users\\prana\\Desktop\\repomix\\server\\uploads\\_storage`.
+            4. MODAL INTERACTION:
+               - Inside the popup/modal, click "Browse" or "Select files from your device" (or upload directly to the active file input inside the modal).
+               - Attach the resolved file path.
+            5. CONFIRM UPLOAD: Click the blue "Upload" button inside the modal overlay.
+            6. VERIFY: Wait for the progress bar to finish and ensure the uploaded file chip appears attached to the main form field before moving to the next question or clicking Submit.
+            
             [PRE-INPUT AUDIT ALGORITHM (MUST RUN BEFORE EVERY INPUT OR ACTION)]
             Before typing into ANY field, selecting ANY option, or clicking ANY submit button:
             1. IDENTIFY: Determine if the target field is required (has an asterisk '*', 'required' attribute, or is mandatory for form progression).
-            2. VERIFY: Check if the exact value for this field was provided in the user's initial prompt or previous conversation turns.
+            2. VERIFY: Check if the exact value for this field was provided in the user's initial prompt, local storage directory via `resolve_storage_file`, or previous conversation turns.
             3. DECIDE:
-            - IF PROVIDED: Input the value exactly as specified.
+            - IF PROVIDED / IN STORAGE: Input the value or file path exactly as resolved.
             - IF MISSING & REQUIRED: STOP IMMEDIATELY. DO NOT FABRICATE DATA. CALL `handle_handoff`.
             - IF MISSING & OPTIONAL: Leave blank or skip to the next required field.
 
@@ -163,7 +224,8 @@ class BrowserSessionManager:
             [STRICT HITL TRIGGER CONDITIONS]
             You MUST immediately execute the `handle_handoff` tool when encountering ANY of the following 5 conditions:
 
-            1. MISSING MANDATORY DATA: Any required form field or detail not specified in the user's prompt.
+            1. MISSING MANDATORY DATA: Any required form text field or detail not specified in the prompt.
+               (EXCEPTION: File upload fields MUST attempt `resolve_storage_file` before triggering handoff).
             2. SECURITY & AUTHENTICATION BARRIERS:
             - Login forms requiring user passwords.
             - 2FA / OTP verification codes (SMS, Email, Authenticator App).
@@ -185,7 +247,7 @@ class BrowserSessionManager:
         )
         runtime.agent = agent
         try:
-            history = await agent.run(max_steps=15)
+            history = await agent.run(max_steps=20)
             final_answer = ""
             for item in reversed(getattr(history, "history", []) or []):
                 for result in reversed(getattr(item, "result", []) or []):
