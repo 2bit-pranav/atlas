@@ -178,6 +178,26 @@ class SkillManager:
     def resolve_mentions(self, prompt: str) -> List[str]:
         return re.findall(r"@([A-Za-z0-9._-]+)", prompt)
 
+    @staticmethod
+    def _extract_script_usage(script_path: Path) -> str:
+        """Reads docstrings or usage headers from a python script."""
+        try:
+            text = script_path.read_text(encoding="utf-8", errors="replace")
+            doc_match = re.search(r'"""(.*?)"""', text, re.DOTALL)
+            if doc_match:
+                lines = [line.strip() for line in doc_match.group(1).splitlines() if line.strip()]
+                return "\n      ".join(lines[:12])
+            comments = []
+            for line in text.splitlines()[:15]:
+                s = line.strip()
+                if s.startswith("#") and not s.startswith("#!"):
+                    comments.append(s.lstrip("#").strip())
+            if comments:
+                return "\n      ".join(comments[:8])
+        except Exception:
+            pass
+        return ""
+
     def context_for_prompt(self, prompt: str, uploaded_file_paths: list[str] | None = None) -> str:
         skills = [self.get_local(name) for name in self.resolve_mentions(prompt)]
         skills = [skill for skill in skills if skill]
@@ -188,19 +208,26 @@ class SkillManager:
         for skill in skills:
             skill_path = Path(skill["path"])
             scripts_dir = skill_path / "scripts"
-            bundled_files: list[str] = []
+            script_entries: list[str] = []
             if scripts_dir.exists():
-                bundled_files = [f"scripts/{p.name}" for p in sorted(scripts_dir.iterdir()) if p.is_file()]
+                for p in sorted(scripts_dir.iterdir()):
+                    if p.is_file():
+                        rel = f"scripts/{p.name}"
+                        usage = self._extract_script_usage(p)
+                        if usage:
+                            script_entries.append(f"  - script: '{rel}'\n    usage:\n      {usage}")
+                        else:
+                            script_entries.append(f"  - script: '{rel}'")
 
             manifest = ""
-            if bundled_files:
-                manifest = "\nBUNDLED SCRIPTS (run via run_skill_script):\n" + "\n".join(f"  - {f}" for f in bundled_files)
+            if script_entries:
+                manifest = "\nBUNDLED SCRIPTS (run via run_skill_script(skill_name, script, args)):\n" + "\n\n".join(script_entries)
 
             # Surface any uploaded file paths so the model can reference them by absolute path
             files_block = ""
             if uploaded_file_paths:
                 files_block = (
-                    "\nATTACHED INPUT FILES (use these exact absolute paths in any script you write):\n"
+                    "\nATTACHED INPUT FILES (use these exact absolute paths in any script you write or pass to args):\n"
                     + "\n".join(f"  INPUT_FILE: {p}" for p in uploaded_file_paths)
                     + "\n"
                 )
@@ -208,10 +235,14 @@ class SkillManager:
             # Concise scripting guide injected after every skill activation
             scripting_guide = (
                 "\nSCRIPTING RULES (MUST FOLLOW):\n"
-                "1. Use the INPUT_FILE absolute path(s) listed above directly in any script — never use bare filenames.\n"
-                "2. Write output files as absolute paths too, e.g. str(Path.home() / 'Downloads' / 'result.pdf').\n"
-                "3. Pass required libraries in the `dependencies` list of run_python_code so uv auto-provisions them.\n"
-                "4. After the script finishes, call verify_file() on the output path.\n"
+                "1. To run a bundled script, call `run_skill_script(skill_name, script, args)`:\n"
+                "   - skill_name: Exact skill name string, e.g. 'pdf'.\n"
+                "   - script: Exact script path string relative to skill root, e.g. 'scripts/rotate_pdf.py'.\n"
+                "   - args: MUST BE A LIST OF STRINGS containing positional arguments in order, e.g. [input_file_path, output_file_path, '90', 'all']. NEVER pass a single string or flag string to args!\n"
+                "2. Use the INPUT_FILE absolute path(s) listed above directly in args or custom scripts — never use bare filenames.\n"
+                "3. Write output files as absolute paths in Downloads, e.g. str(Path.home() / 'Downloads' / 'result.pdf').\n"
+                "4. Alternatively, use `run_python_code(code, dependencies=['pypdf', ...])` to run a dynamic inline Python script.\n"
+                "5. After the script finishes, call `verify_file(file_path)` on the output path.\n"
             )
 
             formatted_sections.append(

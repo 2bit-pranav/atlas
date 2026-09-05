@@ -1,5 +1,141 @@
 # Atlas: A Model Harness for Reliable AI Capability
 
+## Setup & Configuration Guide (New PC Deployment)
+
+To configure and run this project on a new PC, follow this setup guide.
+
+### 1. Prerequisites
+
+* **Python**: Version 3.10 or 3.11 installed and added to PATH.
+* **Node.js**: Version 18+ and npm installed.
+* **llama-server** (llama.cpp): `llama-server.exe` executable available on PATH or placed in a known binary folder.
+
+---
+
+### 2. Dependency Installation
+
+1. **Python Virtual Environment**:
+```cmd
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+playwright install chromium
+
+```
+
+
+2. **Frontend Client Dependencies**:
+```cmd
+cd client
+npm install
+cd ..
+
+```
+
+
+
+---
+
+### 3. Local LLM Model Setup (`/llm`)
+
+Place your quantized `.gguf` model files and multimodal projection weights (`mmproj`) inside the `llm` folder at the root of the repository:
+
+```text
+atlas/
+├── llm/
+│   ├── google/
+│   │   ├── gemma-4-E2B_q4_0-it.gguf
+│   │   └── mmproj-model-f16.gguf
+│   └── unsloth/
+│       ├── model.gguf
+│       └── mmproj.gguf
+
+```
+
+---
+
+### 4. Portable Startup Scripts (`/ext`)
+
+The startup scripts inside the `ext/` folder launch `llama-server` on **port 8000**. To ensure portability across different PCs without hardcoded absolute paths, use relative path resolution via `%~dp0`:
+
+#### `ext/start_google_gemma.bat`
+
+```bat
+@echo off
+set ROOT_DIR=%~dp0..
+llama-server.exe -m "%ROOT_DIR%\llm\google\gemma-4-E2B_q4_0-it.gguf" --mmproj "%ROOT_DIR%\llm\google\mmproj-model-f16.gguf" --port 8000 -c 8192
+
+```
+
+#### `ext/start_unsloth_gemma.bat`
+
+```bat
+@echo off
+set ROOT_DIR=%~dp0..
+llama-server.exe -m "%ROOT_DIR%\llm\unsloth\gemma-4-E2B_q4_0-it.gguf" --mmproj "%ROOT_DIR%\llm\unsloth\mmproj-model-f16.gguf" --port 8000 -c 8192
+
+```
+
+---
+
+### 5. Environment Variables Configuration (`agent/.env`)
+
+Copy `agent/env.example` to `agent/.env` and update the values:
+
+```env
+# Local model server (llama-server on port 8000)
+LOCAL_MODEL_NAME=gemma-4-E2B_q4_0-it.gguf
+LOCAL_BASE_URL=http://127.0.0.1:8000/v1/
+
+# Cloud Model Credentials (Optional / Fallback)
+CLOUD_MODEL_NAME=gemini-3.5-flash-lite
+CLOUD_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+CLOUD_API_KEY=your-cloud-api-key
+
+# Web Research API
+EXA_API_KEY=your-exa-api-key
+
+# Browser Automation Settings
+HEADLESS=true
+
+```
+
+> **Note on File Storage:** Ensure local storage references in `server/managers/browser_manager.py` use relative directory paths or point to the local user environment directory (e.g., `./server/storage` and `./server/data_dir`).
+
+---
+
+### 6. Running the Application (3-Terminal Launch)
+
+Open **3 separate terminals** in the project root:
+
+* **Terminal 1: Local LLM Server**
+```cmd
+ext\start_google_gemma.bat
+
+```
+
+
+*(Starts `llama-server` listening on `[http://127.0.0.1:8000](http://127.0.0.1:8000)`)*
+* **Terminal 2: FastAPI Backend Server**
+```cmd
+.venv\Scripts\activate
+uvicorn server.app.main:app --port 8001 --reload
+
+```
+
+
+*(Runs backend API on `http://localhost:8001`. Uses port 8001 to avoid conflicting with port 8000 used by `llama-server`)*
+* **Terminal 3: Next.js Frontend Client**
+```cmd
+cd client
+npm run dev
+
+```
+
+
+*(Launches user interface on `http://localhost:3000`)*
+
+
 ## Project Vision
 
 **Atlas is a harness around language models** — both local (Llama.cpp) and cloud-based (Google Gemini, OpenAI) — designed to dramatically improve their practical usability, reliability, and success rates when operating as autonomous agents.

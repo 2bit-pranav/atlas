@@ -15,7 +15,7 @@ from agent.agent import create_atlas_agent
 from agent.config import get_cloud_model, get_local_model
 from ..managers import chat_session_manager, skill_manager
 
-# File type extensions
+
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 TEXT_EXTENSIONS = {".txt", ".md", ".py", ".json", ".csv", ".log", ".html", ".xml", ".yml", ".yaml", ".js", ".ts"}
 PDF_EXTENSIONS = {".pdf"}
