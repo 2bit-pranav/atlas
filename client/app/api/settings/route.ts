@@ -1,56 +1,76 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 
-// settings.json at project root (two levels up from client/app/api/settings)
-const rootPath = path.resolve(process.cwd(), "..", "settings.json");
+const FASTAPI_URL = "http://127.0.0.1:8001/settings";
 
 const defaultSettings = {
-    local_model_url: "http://127.0.0.1:8000/v1",
-    local_model_name: "gemma-4-E2B_q4_0-it.gguf",
-    cloud_provider: "google",
-    cloud_model_name: "gemini-3.5-flash-lite",
-    cloud_api_key: "",
-    exa_api_key: "",
-    web_search_enabled: true,
-    web_search_max_results: 5,
-    browser_headless: false,
-    browser_width: 1280,
-    browser_height: 720,
-    browser_max_steps: 10,
-    browser_max_failures: 2,
-    browser_enable_planning: true,
-    browser_wait_strategy: "smart",
-    browser_page_load_timeout: 30,
-    browser_use_vision: false,
-    agent_max_tool_iterations: 5,
-    agent_reflect_on_tool_use: true,
-    agent_stream_thoughts: true,
-    agent_thinking_budget: "off",
-    session_persist: true,
-    session_max_count: 50,
+    model: {
+        local: {
+            name: "gemma-4-E2B_q4_0-it.gguf",
+            base_url: "http://127.0.0.1:8000/v1",
+            temperature: 0.2,
+            top_p: 0.9,
+            top_k: 40,
+            context_window: 8192,
+        },
+        cloud: {
+            provider: "google",
+            name: "gemini-3.5-flash-lite",
+            api_key: "",
+            base_url: "https://generativelanguage.googleapis.com/v1beta/openai/",
+        },
+    },
+    agent_runtime: {
+        default_mode: "local",
+        max_tool_iterations: 5,
+        reflect_on_tool_use: true,
+        system_prompt_extra: "",
+    },
+    tools: {
+        exa: {
+            api_key: "",
+            max_results: 5,
+        },
+    },
+    system: {
+        download_directory: "",
+    },
 };
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
-        if (fs.existsSync(rootPath)) {
-            const content = fs.readFileSync(rootPath, "utf-8");
-            return NextResponse.json({ ...defaultSettings, ...JSON.parse(content) });
+        const { searchParams } = new URL(req.url);
+        const reveal = searchParams.get("reveal");
+        const targetUrl = reveal !== null ? `${FASTAPI_URL}?reveal=${reveal}` : FASTAPI_URL;
+
+        const res = await fetch(targetUrl, { cache: "no-store" });
+        if (res.ok) {
+            const data = await res.json();
+            return NextResponse.json(data);
         }
-    } catch (e) {
-        console.error("Error reading settings.json:", e);
+    } catch {
+        // FastAPI server not reachable or starting up; return default settings structure cleanly
     }
     return NextResponse.json(defaultSettings);
 }
 
 export async function POST(req: Request) {
     try {
+        const { searchParams } = new URL(req.url);
+        const reveal = searchParams.get("reveal");
+        const targetUrl = reveal !== null ? `${FASTAPI_URL}?reveal=${reveal}` : FASTAPI_URL;
         const body = await req.json();
-        const updated = { ...defaultSettings, ...body };
-        fs.writeFileSync(rootPath, JSON.stringify(updated, null, 2), "utf-8");
-        return NextResponse.json(updated);
-    } catch (e) {
-        console.error("Error writing settings.json:", e);
-        return NextResponse.json({ error: "Failed to write settings file" }, { status: 500 });
+
+        const res = await fetch(targetUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            return NextResponse.json(data);
+        }
+    } catch {
+        // Connection error
     }
+    return NextResponse.json({ error: "Could not connect to backend server on port 8001" }, { status: 503 });
 }

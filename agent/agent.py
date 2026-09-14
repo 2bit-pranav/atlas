@@ -92,3 +92,6 @@ def create_atlas_agent(model_client: ChatCompletionClient) -> AssistantAgent:
         reflect_on_tool_use=True,
         max_tool_iterations=5,
     )
+
+
+create_scoped_agent = create_atlas_agent

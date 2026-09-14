@@ -251,11 +251,6 @@ class ChatService:
                     log_item = terminal_queue.get_nowait()
                     if isinstance(log_item, dict):
                         yield log_item
-                        if log_item.get("type") == "browser_handoff":
-                            yield {
-                                "type": "terminal",
-                                "content": f"USER HANDOFF REQUIRED: {log_item.get('question', 'Browser input required.')}",
-                            }
                     else:
                         yield {"type": "terminal", "content": str(log_item)}
 

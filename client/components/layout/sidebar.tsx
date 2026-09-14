@@ -1,8 +1,7 @@
 "use client";
-
 import {
     Brain,
-    Globe,
+    // Globe,
     Lightbulb,
     Plug,
     SunIcon,
@@ -18,12 +17,13 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUIStore } from "@/stores/ui-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useSessionStore } from "@/stores/session-store";
 import Link from "next/link";
 
 const items = [
     { icon: PlusIcon, label: "New Chat", isNewChat: true },
     { icon: Brain, label: "Manage Memory", href: "/memory" },
-    { icon: Globe, label: "Browser Sessions", href: "/browser-sessions" },
+    // { icon: Globe, label: "Browser Sessions", href: "/browser-sessions" },
     { icon: Lightbulb, label: "Manage Skills", href: "/skills" },
     { icon: Plug, label: "Integrations", href: "/integrations" },
 ];
@@ -35,13 +35,16 @@ export default function Sidebar() {
     const theme = useUIStore((s) => s.theme);
     const toggleTheme = useUIStore((s) => s.toggleTheme);
 
-    const activeChatId = useChatStore((s) => s.activeChatId);
+    // Chat store: manages streaming turn state & chat reset
     const isLoading = useChatStore((s) => s.isLoading);
-    const sessions = useChatStore((s) => s.sessions);
-    const fetchSessions = useChatStore((s) => s.fetchSessions);
-    const loadSession = useChatStore((s) => s.loadSession);
-    const deleteSession = useChatStore((s) => s.deleteSession);
+    const loadSessionMessages = useChatStore((s) => s.loadSessionMessages);
     const resetChat = useChatStore((s) => s.resetChat);
+
+    // Session store: manages persistent session list & active selection
+    const sessions = useSessionStore((s) => s.sessions);
+    const activeChatId = useSessionStore((s) => s.activeChatId);
+    const fetchSessions = useSessionStore((s) => s.fetchSessions);
+    const deleteSession = useSessionStore((s) => s.deleteSession);
 
     useEffect(() => {
         void fetchSessions();
@@ -72,13 +75,10 @@ export default function Sidebar() {
                         Atlas
                     </h1>
                 )}
-
                 <button
                     onClick={toggle}
                     className="rounded-md p-1"
-                    style={{
-                        background: "transparent",
-                    }}
+                    style={{ background: "transparent" }}
                 >
                     {open ? (
                         <PanelRightOpen size={18} />
@@ -87,53 +87,43 @@ export default function Sidebar() {
                     )}
                 </button>
             </div>
-
             <div className="flex flex-1 flex-col overflow-hidden p-2">
                 <div className="flex flex-col gap-1 shrink-0">
                     {items.map(({ icon: Icon, label, isNewChat, href }) => (
-                        isNewChat ? <button
-                            key={label}
-                            onClick={() => {
-                                if (isNewChat) {
+                        isNewChat ? (
+                            <button
+                                key={label}
+                                onClick={() => {
                                     resetChat();
                                     router.push("/");
-                                }
-                            }}
-                            className="flex h-10 items-center rounded-xl px-3 text-sm font-medium"
-                            style={{
-                                background: "transparent",
-                            }}
-                            onMouseEnter={(e) =>
-                                (e.currentTarget.style.background =
-                                    "var(--surface-hover)")
-                            }
-                            onMouseLeave={(e) =>
-                                (e.currentTarget.style.background = "transparent")
-                            }
-                        >
-                            <Icon size={18} className="shrink-0" />
-
-                            {open && <span className="ml-3 truncate">{label}</span>}
-                        </button> : <Link
-                            key={label}
-                            href={href || "#"}
-                            className="flex h-10 items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--surface-hover)]"
-                        >
-                            <Icon size={18} className="shrink-0" />
-                            {open && <span className="ml-3 truncate">{label}</span>}
-                        </Link>
+                                }}
+                                className="flex h-10 items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--surface-hover)] transition-colors"
+                                style={{ background: "transparent" }}
+                            >
+                                <Icon size={18} className="shrink-0" />
+                                {open && <span className="ml-3 truncate">{label}</span>}
+                            </button>
+                        ) : (
+                            <Link
+                                key={label}
+                                href={href || "#"}
+                                className="flex h-10 items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--surface-hover)] transition-colors"
+                            >
+                                <Icon size={18} className="shrink-0" />
+                                {open && <span className="ml-3 truncate">{label}</span>}
+                            </Link>
+                        )
                     ))}
                 </div>
 
-                {/* Horizontal rule below options */}
                 <hr
                     className="my-2 border-t"
                     style={{ borderColor: "var(--border)" }}
                 />
 
-                {/* List of in-memory chat sessions */}
+                {/* Persisted Sessions List */}
                 <div className="flex flex-1 flex-col gap-1 overflow-y-auto min-h-0">
-                    {sessions.map((session) => {
+                    {(sessions ?? []).map((session) => {
                         const isActive = session.id === activeChatId;
                         return (
                             <div
@@ -148,20 +138,18 @@ export default function Sidebar() {
                                 onClick={() => {
                                     router.push("/");
                                     if (session.id !== activeChatId || !isLoading) {
-                                        void loadSession(session.id);
+                                        void loadSessionMessages(session.id);
                                     }
                                 }}
                             >
                                 <div className="flex items-center min-w-0 flex-1">
                                     <MessageSquare size={18} className="shrink-0 opacity-70" />
-
                                     {open && (
                                         <span className="ml-3 truncate font-normal text-xs" title={session.title}>
                                             {session.title}
                                         </span>
                                     )}
                                 </div>
-
                                 {open && (
                                     <button
                                         type="button"
@@ -180,12 +168,9 @@ export default function Sidebar() {
                     })}
                 </div>
             </div>
-
             <div
                 className="p-2 shrink-0"
-                style={{
-                    borderTop: "1px solid var(--border)",
-                }}
+                style={{ borderTop: "1px solid var(--border)" }}
             >
                 <div className="flex gap-2">
                     <Link
@@ -198,17 +183,7 @@ export default function Sidebar() {
                     <button
                         type="button"
                         onClick={toggleTheme}
-                        className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0"
-                        style={{
-                            background: "transparent",
-                        }}
-                        onMouseEnter={(e) =>
-                            (e.currentTarget.style.background =
-                                "var(--surface-hover)")
-                        }
-                        onMouseLeave={(e) =>
-                            (e.currentTarget.style.background = "transparent")
-                        }
+                        className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0 hover:bg-[var(--surface-hover)]"
                         title={theme === "dark" ? "Light mode" : "Dark mode"}
                     >
                         {theme === "dark" ? (

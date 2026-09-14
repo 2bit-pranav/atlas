@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useSessionStore } from "./session-store";
 
 export interface ChatAttachment {
     name: string;
@@ -14,320 +15,337 @@ export interface Message {
     attachments?: ChatAttachment[];
 }
 
-export interface ChatRequestPayload {
-    prompt: string;
-    chat_id?: string | null;
-    thinking_budget?: number;
-    use_cloud?: boolean;
-    attachments?: string[];
-}
-
-export interface ChatSessionMeta {
-    id: string;
-    title: string;
-    created_at?: string;
-    updated_at?: string;
-}
-
-export interface BrowserHandoff {
-    chatId: string;
-    handoffId: string;
-    question: string;
-}
-
 export interface ChatState {
     messages: Message[];
-    sessions: ChatSessionMeta[];
     terminalLogs: string[];
     currentStatus: string | null;
-    activeChatId: string | null;
     isLoading: boolean;
     error: string | null;
     useCloud: boolean;
     thinkingBudget: number;
-    browserHandoff: BrowserHandoff | null;
 
     setUseCloud: (useCloud: boolean) => void;
     setThinkingBudget: (budget: number) => void;
-    resolveBrowserHandoff: (response: string) => Promise<void>;
-    setActiveChatId: (chatId: string | null) => void;
     clearError: () => void;
     clearTerminalLogs: () => void;
     resetChat: () => void;
-    fetchSessions: () => Promise<void>;
-    loadSession: (chatId: string) => Promise<void>;
-    deleteSession: (chatId: string) => Promise<void>;
-    sendMessage: (
-        prompt: string,
-        attachmentFiles?: Array<string | File>,
-    ) => Promise<void>;
+
+    loadSessionMessages: (chatId: string) => Promise<void>;
+    sendMessage: (prompt: string, attachmentFiles?: Array<string | File>) => Promise<void>;
+    stopGeneration: () => Promise<void>;
+    editMessage: (messageId: string, newPrompt: string) => Promise<void>;
+    retryMessage: (messageId: string) => Promise<void>;
+}
+
+let activeAbortController: AbortController | null = null;
+const API_BASE = "http://localhost:8001/api";
+
+// Pure module-level SSE processor with strict typing
+async function processSSEStream(
+    response: Response,
+    assistantMessageId: string,
+    set: (fn: (state: ChatState) => Partial<ChatState>) => void,
+): Promise<void> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Response body is null");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("data: ")) {
+                const rawJson = trimmed.replace("data: ", "").trim();
+                if (!rawJson) continue;
+
+                try {
+                    const parsed = JSON.parse(rawJson) as Record<string, unknown>;
+                    const type = String(parsed.type || "");
+
+                    if (type === "meta" && typeof parsed.chat_id === "string") {
+                        useSessionStore.getState().setActiveChatId(parsed.chat_id);
+                    } else if (type === "status") {
+                        if (parsed.status === "stopped") {
+                            set((state) => ({
+                                currentStatus: null,
+                                messages: state.messages.map((m) =>
+                                    m.id === assistantMessageId
+                                        ? { ...m, content: m.content ? `${m.content}\n\n*[Stopped by user]*` : "*[Stopped by user]*" }
+                                        : m
+                                ),
+                            }));
+                        } else {
+                            set(() => ({ currentStatus: typeof parsed.label === "string" ? parsed.label : null }));
+                        }
+                    } else if (type === "thought" && typeof parsed.content === "string") {
+                        set((state) => ({
+                            messages: state.messages.map((msg) =>
+                                msg.id === assistantMessageId
+                                    ? { ...msg, thought: (msg.thought || "") + (parsed.content as string) }
+                                    : msg
+                            ),
+                        }));
+                    } else if (type === "chunk" && typeof parsed.content === "string") {
+                        set((state) => ({
+                            messages: state.messages.map((msg) =>
+                                msg.id === assistantMessageId
+                                    ? { ...msg, content: msg.content + (parsed.content as string) }
+                                    : msg
+                            ),
+                        }));
+                    } else if (type === "terminal" && typeof parsed.content === "string") {
+                        set((state) => ({
+                            terminalLogs: [...state.terminalLogs, parsed.content as string],
+                        }));
+                    }
+                } catch (err: unknown) {
+                    console.warn("Failed to parse SSE line:", rawJson, err);
+                }
+            }
+        }
+    }
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
     messages: [],
-    sessions: [],
     terminalLogs: [],
     currentStatus: null,
-    activeChatId: null,
     isLoading: false,
     error: null,
     useCloud: false,
     thinkingBudget: 0,
-    browserHandoff: null,
 
-    setUseCloud: (useCloud) => set({ useCloud }),
-    setThinkingBudget: (thinkingBudget) => set({ thinkingBudget }),
-    resolveBrowserHandoff: async (response) => {
-        const handoff = get().browserHandoff;
-        if (!handoff || !response.trim()) return;
-        const result = await fetch(`http://localhost:8001/api/browser/sessions/${handoff.chatId}/handoff`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ response }),
-        });
-        if (!result.ok) throw new Error("Could not resume browser task.");
-        set({ browserHandoff: null });
-    },
-    setActiveChatId: (activeChatId) => set({ activeChatId }),
-    clearError: () => set({ error: null }),
-    clearTerminalLogs: () => set({ terminalLogs: [] }),
+    setUseCloud: (useCloud) => set(() => ({ useCloud })),
+    setThinkingBudget: (thinkingBudget) => set(() => ({ thinkingBudget })),
 
-    resetChat: () =>
-        set({
+    clearError: () => set(() => ({ error: null })),
+    clearTerminalLogs: () => set(() => ({ terminalLogs: [] })),
+
+    resetChat: () => {
+        useSessionStore.getState().setActiveChatId(null);
+        set(() => ({
             messages: [],
             terminalLogs: [],
             currentStatus: null,
-            browserHandoff: null,
-            activeChatId: null,
             error: null,
             isLoading: false,
-        }),
-
-    fetchSessions: async () => {
-        try {
-            const res = await fetch("http://localhost:8001/api/sessions");
-            if (res.ok) {
-                const data = await res.json();
-                set({ sessions: data });
-            }
-        } catch (err) {
-            console.error("Failed to fetch sessions:", err);
-        }
+        }));
     },
 
-    loadSession: async (chatId: string) => {
-        set({ isLoading: true, error: null });
+    loadSessionMessages: async (chatId: string) => {
+        set(() => ({ isLoading: true, error: null }));
         try {
-            const res = await fetch(`http://localhost:8001/api/sessions/${chatId}`);
-            if (!res.ok) {
-                throw new Error("Failed to load chat session");
-            }
-            const data = await res.json();
-            set({
-                activeChatId: data.id,
-                messages: data.messages || [],
-            });
+            const res = await fetch(`${API_BASE}/sessions/${chatId}`);
+            if (!res.ok) throw new Error("Failed to load chat history");
+            const data = (await res.json()) as { id: string; messages?: Message[] };
+            useSessionStore.getState().setActiveChatId(data.id);
+            set(() => ({ messages: data.messages || [] }));
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Error loading session";
-            set({ error: msg });
+            const msg = err instanceof Error ? err.message : "Failed to load session";
+            set(() => ({ error: msg }));
         } finally {
-            set({ isLoading: false });
+            set(() => ({ isLoading: false }));
         }
     },
 
-    deleteSession: async (chatId: string) => {
-        try {
-            const res = await fetch(`http://localhost:8001/api/sessions/${chatId}`, {
-                method: "DELETE",
-            });
-            if (res.ok) {
-                const { activeChatId } = get();
-                if (activeChatId === chatId) {
-                    get().resetChat();
-                }
-                void get().fetchSessions();
-            }
-        } catch (err) {
-            console.error("Failed to delete session:", err);
+    stopGeneration: async () => {
+        const activeChatId = useSessionStore.getState().activeChatId;
+        if (activeAbortController) {
+            activeAbortController.abort();
+            activeAbortController = null;
         }
+        if (activeChatId) {
+            try {
+                await fetch(`${API_BASE}/chat/${activeChatId}/stop`, { method: "POST" });
+            } catch (err: unknown) {
+                console.warn("Failed to send stop signal:", err);
+            }
+        }
+        set(() => ({ isLoading: false, currentStatus: null }));
     },
 
-    sendMessage: async (
-        prompt: string,
-        attachmentFiles: Array<string | File> = [],
-    ) => {
-        const cleanPrompt = prompt.trim();
-        if (!cleanPrompt && attachmentFiles.length === 0) return;
+    sendMessage: async (prompt: string, attachmentFiles?: Array<string | File>) => {
+        const { useCloud, thinkingBudget } = get();
+        const activeChatId = useSessionStore.getState().activeChatId;
 
-        const { activeChatId, useCloud, thinkingBudget, messages } = get();
+        const userMessageId = `msg_${Date.now()}`;
+        const assistantMessageId = `msg_${Date.now() + 1}`;
 
-        const userAttachments: ChatAttachment[] = attachmentFiles.map((file) => {
-            if (file instanceof File) {
-                return {
-                    name: file.name,
-                    type: file.type.startsWith("image/") ? "image" : "document",
-                };
-            }
-            const strFile = String(file);
-            const isImg = /\.(png|jpe?g|webp|gif|bmp)$/i.test(strFile);
-            return {
-                name: strFile.split(/[\/\\]/).pop() || strFile,
-                type: isImg ? "image" : "document",
-            };
+        const attachmentsMeta: ChatAttachment[] = (attachmentFiles || []).map((f) => {
+            if (typeof f === "string") return { name: f.split(/[/\\]/).pop() || f, path: f, type: "document" };
+            return { name: f.name, type: f.type.startsWith("image/") ? "image" : "document" };
         });
 
         const userMessage: Message = {
-            id: crypto.randomUUID(),
+            id: userMessageId,
             role: "user",
-            content: cleanPrompt,
-            attachments: userAttachments,
+            content: prompt,
+            attachments: attachmentsMeta,
         };
 
-        const assistantMessageId = crypto.randomUUID();
-        const assistantMessage: Message = {
+        const assistantPlaceholder: Message = {
             id: assistantMessageId,
             role: "assistant",
             content: "",
             thought: "",
         };
 
-        set({
-            messages: [...messages, userMessage, assistantMessage],
+        set((state) => ({
+            messages: [...state.messages, userMessage, assistantPlaceholder],
             isLoading: true,
             error: null,
-        });
+            currentStatus: "Connecting...",
+        }));
+
+        activeAbortController = new AbortController();
 
         try {
             const formData = new FormData();
-            formData.append("prompt", cleanPrompt);
-            if (activeChatId) formData.append("chat_id", activeChatId);
-            formData.append("thinking_budget", String(thinkingBudget));
+            formData.append("prompt", prompt);
             formData.append("use_cloud", String(useCloud));
+            formData.append("thinking_budget", String(thinkingBudget));
+            if (activeChatId) {
+                formData.append("chat_id", activeChatId);
+            }
 
-            attachmentFiles.forEach((attachment) => {
-                if (attachment instanceof File) {
-                    formData.append("attachments", attachment, attachment.name);
-                    return;
-                }
-
-                if (attachment && attachment.trim()) {
-                    formData.append("attachments", attachment);
+            (attachmentFiles || []).forEach((file) => {
+                if (typeof file === "string") {
+                    formData.append("file_paths", file);
+                } else {
+                    formData.append("files", file);
                 }
             });
 
-            const response = await fetch("http://localhost:8001/api/chat", {
+            const response = await fetch(`${API_BASE}/chat`, {
                 method: "POST",
                 body: formData,
+                signal: activeAbortController.signal,
             });
 
-            if (!response.ok || !response.body) {
-                throw new Error(
-                    `HTTP ${response.status}: ${response.statusText}`,
-                );
+            if (!response.ok) {
+                const errorData = (await response.json().catch(() => ({}))) as { detail?: string };
+                throw new Error(errorData.detail || `Server error ${response.status}`);
             }
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (trimmed.startsWith("data: ")) {
-                        const rawJson = trimmed.replace("data: ", "").trim();
-                        if (!rawJson) continue;
-
-                        try {
-                            const parsed = JSON.parse(rawJson);
-                            if (parsed.type === "meta" && parsed.chat_id) {
-                                set({ activeChatId: parsed.chat_id });
-                            } else if (parsed.type === "status") {
-                                set({ currentStatus: parsed.label || null });
-                            } else if (parsed.type === "browser_handoff") {
-                                set({ browserHandoff: { chatId: parsed.chat_id, handoffId: parsed.handoff_id, question: parsed.question } });
-                            } else if (parsed.type === "browser_handoff_resumed") {
-                                set({ browserHandoff: null });
-                            } else if (
-                                parsed.type === "terminal" &&
-                                parsed.content
-                            ) {
-                                set((state) => ({
-                                    terminalLogs: [
-                                        ...state.terminalLogs,
-                                        parsed.content,
-                                    ],
-                                }));
-                            } else if (
-                                parsed.type === "thought" &&
-                                parsed.content
-                            ) {
-                                set((state) => ({
-                                    messages: state.messages.map((msg) =>
-                                        msg.id === assistantMessageId
-                                            ? {
-                                                  ...msg,
-                                                  thought:
-                                                      (msg.thought || "") +
-                                                      parsed.content,
-                                              }
-                                            : msg,
-                                    ),
-                                }));
-                            } else if (
-                                parsed.type === "chunk" &&
-                                parsed.content
-                            ) {
-                                set((state) => ({
-                                    messages: state.messages.map((msg) =>
-                                        msg.id === assistantMessageId
-                                            ? {
-                                                  ...msg,
-                                                  content:
-                                                      msg.content +
-                                                      parsed.content,
-                                              }
-                                            : msg,
-                                    ),
-                                }));
-                            }
-                        } catch (err) {
-                            console.warn(
-                                "Failed to parse SSE line:",
-                                rawJson,
-                                err,
-                            );
-                        }
-                    }
-                }
-            }
+            await processSSEStream(response, assistantMessageId, set);
+            void useSessionStore.getState().fetchSessions();
         } catch (err: unknown) {
-            console.error("Chat streaming failed:", err);
-            const message =
-                err instanceof Error ? err.message : "Communication error";
-
-            set((state) => {
-                const msg = state.messages.find(
-                    (m) => m.id === assistantMessageId,
-                );
-                return {
-                    error: message,
-                    messages: msg?.content
-                        ? state.messages
-                        : state.messages.filter(
-                              (m) => m.id !== assistantMessageId,
-                          ),
-                };
-            });
+            if (err instanceof Error && err.name === "AbortError") {
+                return;
+            }
+            const errMsg = err instanceof Error ? err.message : "Error sending message";
+            set((state) => ({
+                error: errMsg,
+                messages: state.messages.map((m) =>
+                    m.id === assistantMessageId
+                        ? { ...m, content: `⚠️ **Error:** ${errMsg}` }
+                        : m
+                ),
+            }));
         } finally {
-            set({ isLoading: false });
-            void get().fetchSessions();
+            activeAbortController = null;
+            set(() => ({ isLoading: false, currentStatus: null }));
+        }
+    },
+
+    editMessage: async (messageId: string, newPrompt: string) => {
+        const activeChatId = useSessionStore.getState().activeChatId;
+        if (!activeChatId) return;
+
+        const { useCloud, thinkingBudget } = get();
+        const assistantMessageId = `msg_${Date.now()}`;
+
+        set((state) => {
+            const targetIdx = state.messages.findIndex((m) => m.id === messageId);
+            if (targetIdx === -1) return state;
+            const updated = state.messages.slice(0, targetIdx);
+            return {
+                messages: [
+                    ...updated,
+                    { id: messageId, role: "user", content: newPrompt },
+                    { id: assistantMessageId, role: "assistant", content: "", thought: "" },
+                ],
+                isLoading: true,
+                error: null,
+                currentStatus: "Regenerating...",
+            };
+        });
+
+        activeAbortController = new AbortController();
+
+        try {
+            const response = await fetch(`${API_BASE}/chat/${activeChatId}/messages/${messageId}/edit`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    new_prompt: newPrompt,
+                    use_cloud: useCloud,
+                    thinking_budget: thinkingBudget,
+                }),
+                signal: activeAbortController.signal,
+            });
+
+            if (!response.ok) throw new Error("Failed to edit message");
+
+            await processSSEStream(response, assistantMessageId, set);
+            void useSessionStore.getState().fetchSessions();
+        } catch (err: unknown) {
+            if (err instanceof Error && err.name === "AbortError") return;
+            const errMsg = err instanceof Error ? err.message : "Error editing message";
+            set(() => ({ error: errMsg }));
+        } finally {
+            activeAbortController = null;
+            set(() => ({ isLoading: false, currentStatus: null }));
+        }
+    },
+
+    retryMessage: async (messageId: string) => {
+        const activeChatId = useSessionStore.getState().activeChatId;
+        if (!activeChatId) return;
+
+        const { useCloud, thinkingBudget } = get();
+
+        set((state) => ({
+            messages: state.messages.map((m) =>
+                m.id === messageId ? { ...m, content: "", thought: "" } : m
+            ),
+            isLoading: true,
+            error: null,
+            currentStatus: "Retrying...",
+        }));
+
+        activeAbortController = new AbortController();
+
+        try {
+            const response = await fetch(`${API_BASE}/chat/${activeChatId}/messages/${messageId}/retry`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    use_cloud: useCloud,
+                    thinking_budget: thinkingBudget,
+                }),
+                signal: activeAbortController.signal,
+            });
+
+            if (!response.ok) throw new Error("Failed to retry message");
+
+            await processSSEStream(response, messageId, set);
+            void useSessionStore.getState().fetchSessions();
+        } catch (err: unknown) {
+            if (err instanceof Error && err.name === "AbortError") return;
+            const errMsg = err instanceof Error ? err.message : "Error retrying message";
+            set(() => ({ error: errMsg }));
+        } finally {
+            activeAbortController = null;
+            set(() => ({ isLoading: false, currentStatus: null }));
         }
     },
 }));

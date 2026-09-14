@@ -1,0 +1,33 @@
+{
+  "model": {
+    "local": {
+      "name": "gemma-4-E2B_q4_0-it.gguf",
+      "base_url": "http://127.0.0.1:8000/v1",
+      "temperature": 0.2,
+      "top_p": 0.9,
+      "top_k": 40,
+      "context_window": 8192
+    },
+    "cloud": {
+      "provider": "google",
+      "name": "gemini-3.5-flash-lite",
+      "api_key": "ENC:AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAmBwSkR42zUmd2c97mV/l6wAAAAACAAAAAAAQZgAAAAEAACAAAAA4YTQG/XjTwPwW53188dwxQj4KwT7sOtoC9CYtG5AjkgAAAAAOgAAAAAIAACAAAACnIQOZkvsBkTq5R84DWOmbC70oju78PlJj7F58uzt63hAAAADSMyBdPD/iELTKHnO2LoJeQAAAACbJ3XHQM3V7r73wo0Zu0MZovWYOzAB6SdhUqIub+ieBP3icQIpN6EaqKajABUWpoMJD30K4vDdAvV5CMhLuilw=",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
+    }
+  },
+  "agent_runtime": {
+    "default_mode": "local",
+    "max_tool_iterations": 5,
+    "reflect_on_tool_use": true,
+    "system_prompt_extra": ""
+  },
+  "tools": {
+    "exa": {
+      "api_key": "",
+      "max_results": 5
+    }
+  },
+  "system": {
+    "download_directory": ""
+  }
+}

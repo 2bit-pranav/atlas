@@ -29,14 +29,12 @@ class BrowserUseRuntimeResult(BaseModel):
     extracted_content: str | None = Field(default=None, description="Any raw extracted content from the browser runtime.")
     error: str | None = Field(default=None, description="Error message if the runtime failed.")
 
-def _get_browser_use_llm(
-    use_local: bool = False
-):
+def _get_browser_use_llm(use_local: bool = False):
     if use_local:
         from browser_use.llm.models import ChatOpenAI
         return ChatOpenAI(
-            model=os.getenv("LOCAL_MODEL_NAME"),
-            base_url=os.getenv("LOCAL_BASE_URL")
+            model=os.getenv("LOCAL_MODEL_NAME", "gemma-4-E2B_q4_0-it.gguf"),
+            base_url=os.getenv("LOCAL_BASE_URL", "http://127.0.0.1:8000/v1")
         )
 
     from browser_use.llm.models import ChatGoogle
@@ -59,22 +57,29 @@ async def run_browser_use_task(
             final_answer="[BROWSER_ERROR]: No task provided.",
             error="The browser-use tool requires a non-empty task string.",
         )
-    from server.managers import browser_session_manager
-    chat_id = _browser_chat_id_var.get()
-    if not chat_id:
-        return BrowserUseRuntimeResult(
-            success=False,
-            final_answer="[BROWSER_ERROR]: Missing active browser chat session context.",
-            error="Missing browser chat session context.",
-        )
+    
     outer_cb = _terminal_callback_var.get()
-    def emit(message: Any) -> None:
+    def emit(message: str) -> None:
         if outer_cb:
-            outer_cb(message)
+            try:
+                outer_cb(message)
+            except Exception:
+                pass
 
     try:
-        result = await browser_session_manager.run_task(chat_id, task, emit)
-        return BrowserUseRuntimeResult(**result)
+        llm = _get_browser_use_llm(use_local=False)
+        from browser_use import Agent
+        emit(f"Executing browser task: {task[:80]}...")
+        agent = Agent(task=task, llm=llm)
+        history = await agent.run()
+        final_answer = history.final_result() or "Browser task executed."
+        steps_count = len(history.history) if hasattr(history, "history") and history.history else 1
+        emit(f"Browser task finished in {steps_count} steps.")
+        return BrowserUseRuntimeResult(
+            success=True,
+            final_answer=final_answer,
+            steps=steps_count,
+        )
     except (TimeoutError, ConnectionError) as e:
         return BrowserUseRuntimeResult(
             success=False,
