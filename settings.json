@@ -11,7 +11,7 @@
     "cloud": {
       "provider": "google",
       "name": "gemini-3.5-flash-lite",
-      "api_key": "ENC:AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAmBwSkR42zUmd2c97mV/l6wAAAAACAAAAAAAQZgAAAAEAACAAAAA4YTQG/XjTwPwW53188dwxQj4KwT7sOtoC9CYtG5AjkgAAAAAOgAAAAAIAACAAAACnIQOZkvsBkTq5R84DWOmbC70oju78PlJj7F58uzt63hAAAADSMyBdPD/iELTKHnO2LoJeQAAAACbJ3XHQM3V7r73wo0Zu0MZovWYOzAB6SdhUqIub+ieBP3icQIpN6EaqKajABUWpoMJD30K4vDdAvV5CMhLuilw=",
+      "api_key": "ENC:AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAmBwSkR42zUmd2c97mV/l6wAAAAACAAAAAAAQZgAAAAEAACAAAACzhkhpwEL9cqHveX3nCtPu7jB+i7SPkrxWj48jHtZlZgAAAAAOgAAAAAIAACAAAADbODLzXiGVFaaLoOuen69PpNNIXN9DsoMTT/b6/JWhbEAAAAAH+CfBsknwrTvYjRj8cqecZfg0dK6BrFMludXn5ZgqLqJiXDdj8ABGVfgAmnN3/8Jf5loLikqZN6gS7gGfMfFTQAAAANKsuRDuqpFvibWw5cXMmSdrcEze60xaaPByxbZkshiH3tTKQDNV44JN+L8K0/RIQJLr5rvT9NV1hrXhf5WUODc=",
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
     }
   },
@@ -23,7 +23,7 @@
   },
   "tools": {
     "exa": {
-      "api_key": "",
+      "api_key": "ENC:AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAmBwSkR42zUmd2c97mV/l6wAAAAACAAAAAAAQZgAAAAEAACAAAACiApNpY9bEIS3njm7oeADWQpq4QAzpOFSo/Ae9Mo6m+gAAAAAOgAAAAAIAACAAAACVFdW3o+z+PDf6Jd8Wtiisxm5ZuekDMKaubl31GWnNxjAAAADWoOJ3qb6RpXKZxLfvURqsPlj1JIu/cYc2RVdSatKjp+qMf3dCKG4xSI8I/GIoNxBAAAAA/XpcbctdTFdj2sKMOwJJVi5GZmhasLtnPJVq8hVKoRnt7Qp7uc/yngTXu1jW72EUtGcOS2FX5wCTtToNeBmN7w==",
       "max_results": 5
     }
   },

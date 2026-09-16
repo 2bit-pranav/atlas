@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AttachmentChip from "./attachment-chip";
 import PlusMenu from "./plus-menu";
 import TextArea from "./text-area";
-import { ArrowUp, ChevronDown, Check } from "lucide-react";
+import { ArrowUp, ChevronDown, Check, Square } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +38,7 @@ export default function TextInput() {
     const setUseCloud = useChatStore((s) => s.setUseCloud);
     const thinkingBudget = useChatStore((s) => s.thinkingBudget);
     const setThinkingBudget = useChatStore((s) => s.setThinkingBudget);
+    const stopGeneration = useChatStore((s) => s.stopGeneration);
 
     const fileInput = useRef<HTMLInputElement>(null);
     const dragCounter = useRef(0);
@@ -271,18 +272,28 @@ export default function TextInput() {
 
                     <div className="ml-auto flex gap-2">
                         <button
-                            disabled={!canSend}
-                            onClick={send}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg"
+                            type="button"
+                            disabled={!isLoading && !canSend}
+                            onClick={() => {
+                                if (isLoading) {
+                                    void stopGeneration();
+                                } else {
+                                    send();
+                                }
+                            }}
+                            aria-label={isLoading ? "Stop generating" : "Send message"}
+                            className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                                isLoading
+                                    ? "bg-red-500 text-white hover:bg-red-600"
+                                    : canSend
+                                        ? "bg-white text-[#111]"
+                                        : "bg-[var(--surface-hover)] text-[var(--muted)]"
+                            }`}
                             style={{
-                                background: canSend
-                                    ? "white"
-                                    : "var(--surface-hover)",
-
-                                color: canSend ? "#111" : "var(--muted)",
+                                cursor: !isLoading && !canSend ? "not-allowed" : "pointer",
                             }}
                         >
-                            <ArrowUp size={18} />
+                            {isLoading ? <Square size={14} fill="currentColor" /> : <ArrowUp size={18} />}
                         </button>
                     </div>
                 </div>

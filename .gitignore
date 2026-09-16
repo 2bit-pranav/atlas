@@ -100,3 +100,5 @@ next-env.d.ts
 .vscode/
 /server/uploads
 /server/data_dir/
+.storage/
+refactor_plan.md

@@ -210,6 +210,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             const formData = new FormData();
             formData.append("prompt", prompt);
+            formData.append("user_message_id", userMessageId);
+            formData.append("assistant_message_id", assistantMessageId);
             formData.append("use_cloud", String(useCloud));
             formData.append("thinking_budget", String(thinkingBudget));
             if (activeChatId) {

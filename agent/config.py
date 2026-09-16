@@ -3,7 +3,6 @@ import re
 import json
 from pathlib import Path
 from typing import Dict, Any, Tuple, List, Sequence, Optional, Mapping, AsyncGenerator
-from dotenv import load_dotenv
 import uuid
 
 from autogen_core import FunctionCall, CancellationToken
@@ -13,9 +12,8 @@ from autogen_core.models import (
     LLMMessage,
 )
 from autogen_ext.models.openai import OpenAIChatCompletionClient
-
-ENV_PATH = Path(__file__).resolve().parent / ".env"
-load_dotenv(ENV_PATH)
+from autogen_ext.models.anthropic import AnthropicChatCompletionClient
+from server.services.settings_service import CloudProvider, get_effective_settings
 
 try:
     import tiktoken
@@ -24,12 +22,6 @@ try:
     })
 except Exception:
     pass
-
-LOCAL_MODEL_NAME: str = os.getenv("LOCAL_MODEL_NAME", "gemma-4-E2B_q4_0-it.gguf")
-LOCAL_BASE_URL: str = os.getenv("LOCAL_BASE_URL", "http://127.0.0.1:8000/v1")
-CLOUD_MODEL_NAME: str = os.getenv("CLOUD_MODEL_NAME", "gemini-3.5-flash-lite")
-CLOUD_BASE_URL: str = os.getenv("CLOUD_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-CLOUD_API_KEY: str = os.getenv("CLOUD_API_KEY", "")
 
 MODEL_INFO: ModelInfo = ModelInfo(
     vision=True,
@@ -220,46 +212,57 @@ class GemmaOpenAIChatCompletionClient(OpenAIChatCompletionClient):
 
 def get_local_model(
     thinking_budget: int = 0,
-    temperature: float = 0.1,
+    temperature: Optional[float] = None,
     presence_penalty: float = 0.0,
     chat_id: Optional[str] = None,
 ) -> GemmaOpenAIChatCompletionClient:
-    extra_body: Dict[str, Any] = {}
+    settings = get_effective_settings()
+    local = settings.model.local
+    extra_body: Dict[str, Any] = {
+        "top_p": local.top_p,
+        "top_k": local.top_k,
+    }
 
     if thinking_budget > 0:
-        extra_body["reasoning_effort"] = "medium"
-        extra_body["thinking_budget_tokens"] = thinking_budget
-        extra_body["reasoning_budget"] = thinking_budget
+        extra_body["thinking_budget"] = thinking_budget
         extra_body["chat_template_kwargs"] = {"enable_thinking": True}
     else:
-        extra_body["reasoning_effort"] = "none"
-        extra_body["thinking_budget_tokens"] = 0
-        extra_body["reasoning_budget"] = 0
+        extra_body["thinking_budget"] = 0
         extra_body["chat_template_kwargs"] = {"enable_thinking": False}
 
     if chat_id:
         extra_body["id_slot"] = abs(hash(chat_id)) % 8
 
     return GemmaOpenAIChatCompletionClient(
-        model=LOCAL_MODEL_NAME,
-        base_url=LOCAL_BASE_URL,
+        model=local.name,
+        base_url=local.base_url,
         api_key="not-needed",
         model_info=MODEL_INFO,
-        temperature=temperature,
+        temperature=local.temperature if temperature is None else temperature,
         presence_penalty=presence_penalty,
         extra_create_args={"extra_body": extra_body},
     )
 
 
-def get_cloud_model(temperature: float = 0.2) -> OpenAIChatCompletionClient:
-    api_key = CLOUD_API_KEY or os.getenv("GOOGLE_API_KEY", "")
-    if not api_key:
-        raise ValueError("Missing CLOUD_API_KEY or GOOGLE_API_KEY.")
+def get_cloud_model(
+    temperature: float = 0.2,
+) -> OpenAIChatCompletionClient | AnthropicChatCompletionClient:
+    cloud = get_effective_settings().model.cloud
+    if not cloud.api_key:
+        raise ValueError("Cloud API key is not configured or could not be decrypted.")
+
+    if cloud.provider == CloudProvider.ANTHROPIC:
+        return AnthropicChatCompletionClient(
+            model=cloud.name,
+            api_key=cloud.api_key,
+            model_info=MODEL_INFO,
+            temperature=temperature,
+        )
 
     return OpenAIChatCompletionClient(
-        model=CLOUD_MODEL_NAME,
-        base_url=CLOUD_BASE_URL,
-        api_key=api_key,
+        model=cloud.name,
+        base_url=cloud.base_url,
+        api_key=cloud.api_key,
         model_info=MODEL_INFO,
         temperature=temperature,
     )

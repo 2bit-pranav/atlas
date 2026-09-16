@@ -1,5 +1,8 @@
-import inspect
+"""Bounded execution tools for a single Atlas chat session."""
+
 import ast
+import csv
+import inspect
 import re
 import shutil
 import subprocess
@@ -7,213 +10,169 @@ import sys
 from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Optional
 
-# ContextVar storing the active chat session's isolated workspace directory
-_active_workspace_var: ContextVar[Path] = ContextVar("_active_workspace_var")
+from server.services.settings_service import get_effective_settings
 
-
-def set_active_workspace(workspace_dir: Path) -> None:
-    """Sets the active execution sandbox for the current task context."""
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    _active_workspace_var.set(workspace_dir.resolve())
+_workspace_var: ContextVar[Path] = ContextVar("atlas_workspace")
+_DELIVERABLE_SUFFIXES = {".xlsx", ".pdf", ".docx", ".csv", ".png"}
+_FORBIDDEN = (r"system32", r"\bformat\s+[a-z]:", r"\brmdir\s+(?:/[sq]+\s+)?(?:[a-z]:\\?|\\)$", r"remove-item\b.*\b-recurse\b", r"\brm\s+-rf\s+(?:/|~|\$home)\b")
 
 
-def get_active_workspace() -> Path:
-    """Retrieves the active session workspace or falls back to a safe default."""
-    try:
-        return _active_workspace_var.get()
-    except LookupError:
-        fallback = Path.home() / "atlas_workspace"
-        fallback.mkdir(parents=True, exist_ok=True)
-        return fallback.resolve()
-
-
-def safe_tool_response(func: Callable) -> Callable:
-    """
-    CRITICAL to prevent autogen empty tool response runtime exception.
-    """
+def safe_tool_response(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Return textual tool failures instead of raising into AutoGen."""
     if inspect.iscoroutinefunction(func):
         @wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> str:
             try:
-                res = await func(*args, **kwargs)
-                if res is None or not str(res).strip():
-                    return "[TOOL_STATUS: SUCCESS] Action completed with no textual output."
-                return str(res).strip()
+                result = await func(*args, **kwargs)
+                return str(result).strip() or "[TOOL_STATUS: SUCCESS] Completed."
             except Exception as exc:
-                return f"[TOOL_STATUS: ERROR] {type(exc).__name__}: {str(exc)}"
+                return f"[TOOL_STATUS: ERROR] {type(exc).__name__}: {exc}"
         return async_wrapper
-    else:
-        @wraps(func)
-        def sync_wrapper(*args: Any, **kwargs: Any) -> str:
-            try:
-                res = func(*args, **kwargs)
-                if res is None or not str(res).strip():
-                    return "[TOOL_STATUS: SUCCESS] Action completed with no textual output."
-                return str(res).strip()
-            except Exception as exc:
-                return f"[TOOL_STATUS: ERROR] {type(exc).__name__}: {str(exc)}"
-        return sync_wrapper
+
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> str:
+        try:
+            result = func(*args, **kwargs)
+            return str(result).strip() or "[TOOL_STATUS: SUCCESS] Completed."
+        except Exception as exc:
+            return f"[TOOL_STATUS: ERROR] {type(exc).__name__}: {exc}"
+    return wrapper
 
 
-FORBIDDEN_PATTERNS = [
-    r"system32",
-    r"rmdir\s+/[sS]",
-    r"format\s+[a-zA-Z]:",
-    r"powershell.*remove-item.*-recurse",
-    r"shutil\.rmtree\(['\"]/[^'\"]*['\"]?\)",  # rmtree on root
-    r"os\.system\(",                           # Force structured subprocess or python primitives
-    r"__import__\(['\"]os['\"]\)\.system",
-]
+def set_active_workspace(workspace_dir: Path) -> None:
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    _workspace_var.set(workspace_dir.resolve())
 
-FORBIDDEN_CALLS = {
-    "os.system",
-    "posix.system",
-    "winreg",
-}
 
-def validate_code_safety(code: str) -> Optional[str]:
-    """Inspects the code for dangerous destructive calls or path traversal."""
-    code_lower = code.lower()
-    for pattern in FORBIDDEN_PATTERNS:
-        if re.search(pattern, code_lower):
-            return f"[SECURITY_VIOLATION]: Execution blocked. Detected dangerous system pattern: '{pattern}'."
-    
+def get_active_workspace() -> Path:
     try:
-        tree = ast.parse(code)
-        for node in ast.walk(tree):
-            # Block raw os.system calls
-            if isinstance(node, ast.Call):
-                func = node.func
-                if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-                    call_name = f"{func.value.id}.{func.attr}"
-                    if call_name in FORBIDDEN_CALLS:
-                        return f"[SECURITY_VIOLATION]: Calling '{call_name}' is disallowed."
-    except SyntaxError as e:
-        # Let python run and capture syntax errors naturally
-        pass
+        return _workspace_var.get()
+    except LookupError:
+        fallback = Path.cwd() / ".storage" / "unscoped-workspace"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback.resolve()
 
+
+def get_downloads_directory() -> Path:
+    configured = get_effective_settings().system.download_directory.strip()
+    downloads = Path(configured).expanduser() if configured else Path.home() / "Downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+    return downloads.resolve()
+
+
+def _safe_filename(file_name: str) -> Path:
+    name = Path(file_name).name
+    if not name or name in {".", ".."}:
+        raise ValueError("A plain file name is required.")
+    return Path(name)
+
+
+def _is_safe_command(command: str) -> Optional[str]:
+    normalized = command.lower().strip()
+    if not normalized:
+        return "Command must not be empty."
+    if any(re.search(expression, normalized) for expression in _FORBIDDEN):
+        return "Command was blocked by sandbox safety rules."
     return None
 
 
-@safe_tool_response
-def run_python_code(
-    code: str,
-    dependencies: Optional[List[str]] = None,
-) -> str:
-    """Executes Python code in the session's workspace sandbox."""
-    # 1. Run safety scan
-    violation = validate_code_safety(code)
-    if violation:
-        return violation
-
-    workspace = get_active_workspace()
-    script_path = workspace / "_task_runner.py"
-    script_path.write_text(code, encoding="utf-8")
-
-    uv_path = shutil.which("uv")
-    if dependencies and uv_path:
-        cmd = [uv_path, "run"]
-        for dep in dependencies:
-            cmd.extend(["--with", dep])
-        cmd.append(str(script_path))
-    else:
-        cmd = [sys.executable, str(script_path)]
-
+def _is_safe_python(code: str) -> Optional[str]:
+    blocked = _is_safe_command(code)
+    if blocked:
+        return blocked
     try:
-        res = subprocess.run(
-            cmd,
-            cwd=str(workspace),
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        stdout = res.stdout.strip()
-        stderr = res.stderr.strip()
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "os" and node.func.attr == "system":
+                return "Calling os.system is blocked; use a supported tool instead."
+    return None
 
-        # Clean up the runner file
-        if script_path.exists():
-            try:
-                script_path.unlink()
-            except Exception:
-                pass
 
-        if res.returncode == 0:
-            return f"[EXECUTION_SUCCESS]\nSTDOUT:\n{stdout}" if stdout else "[EXECUTION_SUCCESS] Completed with exit code 0."
-        
-        return f"[EXECUTION_ERROR (Exit Code {res.returncode})]\nSTDERR:\n{stderr}\nSTDOUT:\n{stdout}"
-    except subprocess.TimeoutExpired:
-        return "[EXECUTION_TIMEOUT]: Execution timed out after 60 seconds."
+def _sync_deliverables(workspace: Path, downloads: Path) -> list[Path]:
+    copied: list[Path] = []
+    for candidate in workspace.rglob("*"):
+        if not candidate.is_file() or candidate.suffix.lower() not in _DELIVERABLE_SUFFIXES:
+            continue
+        target = downloads / candidate.name
+        if candidate.resolve() != target.resolve():
+            shutil.copy2(candidate, target)
+        copied.append(target)
+    return copied
 
 
 @safe_tool_response
-def read_file(
-    file_path: str,
-    start_line: Optional[int] = None,
-    end_line: Optional[int] = None,
-) -> str:
-    """
-    Reads contents of a text/code file.
-    Supports optional line slicing (1-based index) to prevent context window overflow.
-    """
-    workspace = get_active_workspace()
-    path = Path(file_path)
-    if not path.is_absolute():
-        path = (workspace / path).resolve()
+def run_command(command: str) -> str:
+    """Run a non-destructive shell command inside this chat's workspace."""
+    if problem := _is_safe_command(command):
+        return f"[SECURITY_VIOLATION] {problem}"
+    result = subprocess.run(command, cwd=get_active_workspace(), shell=True, capture_output=True, text=True, timeout=120)
+    stdout, stderr = result.stdout.strip(), result.stderr.strip()
+    if result.returncode:
+        return f"[COMMAND_ERROR exit={result.returncode}]\nSTDERR:\n{stderr}\nSTDOUT:\n{stdout}"
+    return f"[COMMAND_SUCCESS]\nSTDOUT:\n{stdout}" if stdout else "[COMMAND_SUCCESS] Completed with exit code 0."
 
-    if not path.exists() or not path.is_file():
-        return f"[FILE_ERROR] File '{file_path}' does not exist."
 
+@safe_tool_response
+def run_python_code(code: str, dependencies: Optional[list[str]] = None) -> str:
+    """Execute Python in the workspace and copy generated deliverables to Downloads."""
+    if problem := _is_safe_python(code):
+        return f"[SECURITY_VIOLATION] {problem}"
+    workspace, downloads = get_active_workspace(), get_downloads_directory()
+    script = workspace / "_atlas_task.py"
+    script.write_text(f"from pathlib import Path\nDOWNLOADS_DIR = Path(r'{downloads}')\n" + code, encoding="utf-8")
+    command = [sys.executable, str(script)]
+    if dependencies:
+        uv = shutil.which("uv")
+        if not uv:
+            return "[DEPENDENCY_ERROR] The uv executable is required for dynamic dependencies."
+        command = [uv, "run", *[part for dependency in dependencies for part in ("--with", dependency)], str(script)]
     try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception as e:
-        return f"[FILE_ERROR] Failed to read '{file_path}': {e}"
-
-    total_lines = len(lines)
-    if start_line is not None or end_line is not None:
-        start = max(0, (start_line or 1) - 1)
-        end = min(total_lines, end_line or total_lines)
-        sliced = "\n".join(lines[start:end])
-        return f"[FILE: {path.name} (Lines {start + 1}-{end} of {total_lines})]\n{sliced}"
-
-    content = "\n".join(lines)
-
-    # cap at 25,000 characters
-    if len(content) > 25000:
-        return (
-            f"[FILE_TRUNCATED: Showing first 25k chars of {path.name} (Total: {len(content)} chars)]\n"
-            f"{content[:25000]}\n"
-            f"...[Use start_line and end_line parameters to inspect subsequent parts]"
-        )
-
-    return f"[FILE: {path.name}]\n{content}"
+        result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, timeout=120)
+    finally:
+        script.unlink(missing_ok=True)
+    copied = _sync_deliverables(workspace, downloads)
+    files = ", ".join(str(path) for path in copied) or "none"
+    if result.returncode:
+        return f"[PYTHON_ERROR exit={result.returncode}]\nSTDERR:\n{result.stderr.strip()}\nSTDOUT:\n{result.stdout.strip()}\nFILES: {files}"
+    return f"[PYTHON_SUCCESS]\nSTDOUT:\n{result.stdout.strip()}\nSTDERR:\n{result.stderr.strip()}\nFILES: {files}"
 
 
 @safe_tool_response
 def write_file(file_name: str, content: str) -> str:
-    """
-    Writes text, markdown, configuration, or code directly to a file in the workspace.
-    """
-    workspace = get_active_workspace()
-    target = workspace / Path(file_name).name
+    target = get_downloads_directory() / _safe_filename(file_name)
     target.write_text(content, encoding="utf-8")
-    return f"[WRITE_SUCCESS] Created '{target.name}' in session workspace ({target.stat().st_size} bytes)."
+    return f"[WRITE_SUCCESS] Created {target} ({target.stat().st_size} bytes)."
 
 
 @safe_tool_response
 def verify_file(file_name: str) -> str:
-    """
-    Verifies that a generated file exists in the workspace and has non-zero size.
-    Call this to confirm that a script successfully created an expected output file.
-    """
-    workspace = get_active_workspace()
-    target = workspace / Path(file_name).name
-    if not target.exists():
-        return f"[VERIFY_FAILED] File '{target.name}' does not exist in workspace."
-    
-    size = target.stat().st_size
-    if size == 0:
-        return f"[VERIFY_FAILED] File '{target.name}' exists but is empty (0 bytes)."
-    
-    return f"[VERIFY_SUCCESS] File '{target.name}' exists and is valid ({size} bytes)."
+    target = get_downloads_directory() / _safe_filename(file_name)
+    if not target.is_file():
+        return f"[VERIFY_FAILED] {target.name} does not exist in Downloads."
+    if target.stat().st_size == 0:
+        return f"[VERIFY_FAILED] {target.name} is empty."
+    if target.suffix.lower() == ".csv":
+        with target.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+            if len(list(csv.reader(handle))) < 2:
+                return f"[VERIFY_FAILED] {target.name} has no data rows."
+    elif target.suffix.lower() == ".xlsx":
+        import openpyxl
+        workbook = openpyxl.load_workbook(target, read_only=True, data_only=True)
+        rows = sum(1 for sheet in workbook.worksheets for row in sheet.iter_rows(values_only=True) if any(cell is not None for cell in row))
+        workbook.close()
+        if rows < 2:
+            return f"[VERIFY_FAILED] {target.name} has no data rows."
+    return f"[VERIFY_SUCCESS] {target} exists and is valid ({target.stat().st_size} bytes)."
+
+
+@safe_tool_response
+def finish(summary: str, files_created: list[str]) -> str:
+    failures = [name for name in files_created if not verify_file(name).startswith("[VERIFY_SUCCESS]")]
+    if failures:
+        return f"[FINISH_BLOCKED] Unverified files: {', '.join(failures)}"
+    return f"[FINISH_SUCCESS] {summary}\nVerified files: {', '.join(files_created) if files_created else 'none'}"

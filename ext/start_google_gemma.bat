@@ -4,9 +4,11 @@ title Atlas - Gemma Local Server
 echo Starting Gemma llama.cpp server...
 echo.
 
-llama-server ^
--m "C:\Users\prana\Desktop\atlas\llm\google\gemma-4-E2B_q4_0-it.gguf" ^
---mmproj "C:\Users\prana\Desktop\atlas\llm\google\gemma-4-E2B-it-mmproj.gguf" ^
+set ROOT_DIR=%~dp0..
+
+llama-server.exe ^
+-m "%ROOT_DIR%\llm\google\gemma-4-E2B_q4_0-it.gguf" ^
+--mmproj "%ROOT_DIR%\llm\google\gemma-4-E2B-it-mmproj.gguf" ^
 --port 8000 ^
 -ngl 99 ^
 -fa on ^

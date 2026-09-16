@@ -1,16 +1,11 @@
-import os
-from pathlib import Path
 import asyncio
 from typing import Annotated
-from dotenv import load_dotenv
 from exa_py import Exa
 from .sandbox import safe_tool_response
-
-ENV_PATH = Path(__file__).resolve().parent / ".env"
-load_dotenv(ENV_PATH)
+from server.services.settings_service import get_effective_settings
 
 def _get_exa_client() -> Exa:
-    api_key = os.getenv("EXA_API_KEY")
+    api_key = get_effective_settings().tools.exa.api_key
     if not api_key:
         raise ValueError("Missing EXA_API_KEY in environment variables.")
     return Exa(api_key=api_key)
@@ -28,7 +23,7 @@ async def web_search(
             query,
             type="auto",
             system_prompt="Prefer official sources and avoid duplicate results",
-            num_results=4,
+            num_results=get_effective_settings().tools.exa.max_results,
             contents={
                 "highlights": {"numSentences": 2, "highlightsPerUrl": 2},
                 "summary": {"query": query},
@@ -79,7 +74,7 @@ async def web_fetch(
         out = f"TITLE: {title}\nURL: {page.url}\n"
         if summary:
             out += f"SUMMARY: {summary}\n\n"
-        out += f"CONTENT:\n{text}"
+        out += f"CONTENT:\n{text[:3000]}"
         return out
     except Exception as e:
         return f"[FETCH_ERROR] Failed to fetch content from {url}: {e}"
