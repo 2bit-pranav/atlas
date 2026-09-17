@@ -78,7 +78,7 @@ async function processSSEStream(
                                 currentStatus: null,
                                 messages: state.messages.map((m) =>
                                     m.id === assistantMessageId
-                                        ? { ...m, content: m.content ? `${m.content}\n\n*[Stopped by user]*` : "*[Stopped by user]*" }
+                                        ? { ...m, content: m.content ? `${m.content}\n\n*Response was cancelled*` : "*Response was cancelled*" }
                                         : m
                                 ),
                             }));
@@ -169,7 +169,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 console.warn("Failed to send stop signal:", err);
             }
         }
-        set(() => ({ isLoading: false, currentStatus: null }));
+        set((state) => {
+            const lastAssistantIdx = state.messages.findLastIndex((m) => m.role === "assistant");
+            return {
+                isLoading: false,
+                currentStatus: null,
+                messages: state.messages.map((m, idx) =>
+                    idx === lastAssistantIdx
+                        ? {
+                              ...m,
+                              content: m.content.trim()
+                                  ? `${m.content.trim()}\n\n*Response was cancelled*`
+                                  : "*Response was cancelled*",
+                          }
+                        : m
+                ),
+            };
+        });
     },
 
     sendMessage: async (prompt: string, attachmentFiles?: Array<string | File>) => {
@@ -241,6 +257,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
             void useSessionStore.getState().fetchSessions();
         } catch (err: unknown) {
             if (err instanceof Error && err.name === "AbortError") {
+                set((state) => ({
+                    messages: state.messages.map((m) =>
+                        m.id === assistantMessageId
+                            ? {
+                                  ...m,
+                                  content: m.content.trim()
+                                      ? `${m.content.trim()}\n\n*Response was cancelled*`
+                                      : "*Response was cancelled*",
+                              }
+                            : m
+                    ),
+                }));
                 return;
             }
             const errMsg = err instanceof Error ? err.message : "Error sending message";
@@ -300,7 +328,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
             await processSSEStream(response, assistantMessageId, set);
             void useSessionStore.getState().fetchSessions();
         } catch (err: unknown) {
-            if (err instanceof Error && err.name === "AbortError") return;
+            if (err instanceof Error && err.name === "AbortError") {
+                set((state) => ({
+                    messages: state.messages.map((m) =>
+                        m.id === assistantMessageId
+                            ? {
+                                  ...m,
+                                  content: m.content.trim()
+                                      ? `${m.content.trim()}\n\n*Response was cancelled*`
+                                      : "*Response was cancelled*",
+                              }
+                            : m
+                    ),
+                }));
+                return;
+            }
             const errMsg = err instanceof Error ? err.message : "Error editing message";
             set(() => ({ error: errMsg }));
         } finally {
@@ -342,7 +384,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
             await processSSEStream(response, messageId, set);
             void useSessionStore.getState().fetchSessions();
         } catch (err: unknown) {
-            if (err instanceof Error && err.name === "AbortError") return;
+            if (err instanceof Error && err.name === "AbortError") {
+                set((state) => ({
+                    messages: state.messages.map((m) =>
+                        m.id === messageId
+                            ? {
+                                  ...m,
+                                  content: m.content.trim()
+                                      ? `${m.content.trim()}\n\n*Response was cancelled*`
+                                      : "*Response was cancelled*",
+                              }
+                            : m
+                    ),
+                }));
+                return;
+            }
             const errMsg = err instanceof Error ? err.message : "Error retrying message";
             set(() => ({ error: errMsg }));
         } finally {

@@ -10,23 +10,25 @@ from autogen_agentchat.messages import (
     ToolCallRequestEvent,
 )
 
-from agent.agent import create_atlas_agent
 from agent.config import get_cloud_model, get_local_model
+from agent.runtime import create_runtime_agent
 from agent.tools.sandbox import set_active_workspace
-from ..stores import cancellation_registry, session_store
+from ..stores import cancellation_registry, session_store, set_emit_fn, clear_emit_fn
 
 _THOUGHT_PREFIX = "<|agent_thought|>"
 
 
 def _tool_label(name: str) -> str:
     labels = {
-        "web_search": "Searching the web...",
-        "web_fetch": "Reading web source...",
-        "run_python_code": "Running script in sandbox...",
+        "search_web": "Searching the web...",
+        "read_url_content": "Reading web source...",
+        "run_python_code": "Running Python script in sandbox...",
         "run_command": "Running command in sandbox...",
-        "read_file": "Reading file...",
-        "write_file": "Writing deliverable...",
-        "verify_file": "Verifying deliverable...",
+        "view_file": "Reading file...",
+        "create_file": "Creating file...",
+        "edit_file": "Editing file...",
+        "list_directory": "Inspecting directory...",
+        "ask_question": "Waiting for user response...",
         "finish": "Finalizing task...",
     }
     return labels.get(name, f"Executing {name}...")
@@ -66,7 +68,7 @@ class ChatService:
         set_active_workspace(session_store.workspace_for(chat_id))
         token = cancellation_registry.create(chat_id)
         yield {"type": "meta", "chat_id": chat_id}
-        yield {"type": "status", "status": "running", "label": "Preparing prompt..."}
+        yield {"type": "status", "status": "running", "label": "Thinking..."}
         content, thought, did_stream, stopped = "", "", False, False
         atlas = None
         task = clean_prompt
@@ -75,6 +77,14 @@ class ChatService:
                 f"- {item['name']}: {item['path']}" for item in attachments
             )
             task = f"{clean_prompt}\n\nAttached files are available in the session workspace:\n{files}".strip()
+
+        # SSE emit helper — used by interaction_registry gates
+        emitted_events: list[dict] = []
+
+        async def _emit_to_stream(event: dict) -> None:
+            emitted_events.append(event)
+
+        set_emit_fn(_emit_to_stream)
         try:
             model_client = (
                 get_cloud_model(temperature or 0.2)
@@ -86,10 +96,13 @@ class ChatService:
                     chat_id=chat_id,
                 )
             )
-            atlas = create_atlas_agent(model_client)
+            atlas = create_runtime_agent(model_client)
             if previous_state := session_store.get_agent_state(chat_id):
                 await atlas.load_state(previous_state)
             async for message in atlas.run_stream(task=task, cancellation_token=token):
+                # Drain any pending gate events (permission / ask_user)
+                while emitted_events:
+                    yield emitted_events.pop(0)
                 if isinstance(message, ToolCallRequestEvent):
                     for call in message.content:
                         yield {
@@ -102,7 +115,7 @@ class ChatService:
                         continue
                     did_stream = True
                     if message.content.startswith(_THOUGHT_PREFIX):
-                        piece = message.content[len(_THOUGHT_PREFIX) :]
+                        piece = message.content[len(_THOUGHT_PREFIX):]
                         thought += piece
                         if piece:
                             yield {"type": "thought", "content": piece}
@@ -126,7 +139,14 @@ class ChatService:
                 content = content or f"Unable to complete this turn: {exc}"
                 yield {"type": "chunk", "content": content}
         finally:
+            clear_emit_fn()
             cancellation_registry.remove(chat_id, token)
+
+        if stopped:
+            if not content.strip():
+                content = "*Response was cancelled*"
+            elif "*Response was cancelled*" not in content:
+                content = f"{content.rstrip()}\n\n*Response was cancelled*"
 
         session_store.add_message(
             chat_id,

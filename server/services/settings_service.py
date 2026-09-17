@@ -5,6 +5,7 @@ import json
 import logging
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,9 @@ try:
     import win32crypt
 except ImportError:  # pragma: no cover - Windows deployment dependency
     win32crypt = None
+
+# In-memory cache of the fully-decrypted Settings object
+_settings_cache: Optional["Settings"] = None
 
 
 class CloudProvider(str, Enum):
@@ -118,15 +122,24 @@ def _load_raw_dict() -> dict:
         return {}
 
 
-def get_effective_settings() -> Settings:
-    """Return settings with secrets decrypted only in memory."""
+def _build_effective_settings() -> "Settings":
+    """Load settings from disk and decrypt secrets into memory."""
     settings = Settings.model_validate(_load_raw_dict())
+    # Only decrypt cloud key if cloud mode is configured
     settings.model.cloud.api_key = decrypt_secret(settings.model.cloud.api_key)
     settings.tools.exa.api_key = decrypt_secret(settings.tools.exa.api_key)
     return settings
 
 
-def get_public_settings(*, reveal: bool = False) -> Settings:
+def get_effective_settings() -> "Settings":
+    """Return cached settings with secrets decrypted only in memory."""
+    global _settings_cache
+    if _settings_cache is None:
+        _settings_cache = _build_effective_settings()
+    return _settings_cache
+
+
+def get_public_settings(*, reveal: bool = False) -> "Settings":
     settings = Settings.model_validate(_load_raw_dict())
     for secret in (settings.model.cloud, settings.tools.exa):
         secret.api_key = (
@@ -137,7 +150,8 @@ def get_public_settings(*, reveal: bool = False) -> Settings:
     return settings
 
 
-def save_settings(settings: Settings) -> None:
+def save_settings(settings: "Settings") -> None:
+    global _settings_cache
     current = _load_raw_dict()
     data = settings.model_dump(mode="json")
     for path in (("model", "cloud", "api_key"), ("tools", "exa", "api_key")):
@@ -153,3 +167,5 @@ def save_settings(settings: Settings) -> None:
         elif candidate and not candidate.startswith("ENC:"):
             target[key] = encrypt_secret(candidate)
     SETTINGS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # Invalidate cache so next call re-loads fresh settings
+    _settings_cache = None

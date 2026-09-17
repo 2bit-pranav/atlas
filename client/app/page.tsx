@@ -193,13 +193,13 @@ export default function Home() {
                                                             ) : (
                                                                 <MarkdownRenderer content={msg.content} />
                                                             )
-                                                        ) : thought ? (
+                                                        ) : isLoading ? (
                                                             <span className="text-muted text-xs animate-pulse">
-                                                                {currentStatus || "Working..."}
+                                                                {currentStatus || (thought ? "Reasoning..." : "Thinking...")}
                                                             </span>
                                                         ) : (
-                                                            <span className="text-muted animate-pulse">
-                                                                Thinking...
+                                                            <span className="text-muted text-xs italic opacity-80">
+                                                                Response was cancelled
                                                             </span>
                                                         )}
                                                     </div>

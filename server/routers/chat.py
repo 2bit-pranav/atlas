@@ -1,4 +1,4 @@
-"""Chat, stop, edit, and retry HTTP endpoints."""
+"""Chat, stop, edit, retry, permission, and answer HTTP endpoints."""
 
 import json
 import uuid
@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..services.chat_service import ChatService
-from ..stores import cancellation_registry, session_store
+from ..stores import cancellation_registry, session_store, resolve_permission, resolve_user_input
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
@@ -135,3 +135,27 @@ async def retry_message(chat_id: str, message_id: str, request: EditRequest):
             presence_penalty=0.2,
         )
     )
+
+
+class PermissionResponse(BaseModel):
+    request_id: str
+    allow: bool
+
+
+@router.post("/{chat_id}/permission")
+async def resolve_permission_endpoint(chat_id: str, body: PermissionResponse):
+    """Resolve a pending list_directory permission gate."""
+    resolved = resolve_permission(body.request_id, body.allow)
+    return {"resolved": resolved, "request_id": body.request_id, "allow": body.allow}
+
+
+class AnswerResponse(BaseModel):
+    question_id: str
+    answer: str
+
+
+@router.post("/{chat_id}/answer")
+async def resolve_answer_endpoint(chat_id: str, body: AnswerResponse):
+    """Resolve a pending ask_question user-input gate."""
+    resolved = resolve_user_input(body.question_id, body.answer)
+    return {"resolved": resolved, "question_id": body.question_id}

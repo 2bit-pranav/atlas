@@ -1,8 +1,8 @@
 """Bounded execution tools for a single Atlas chat session."""
 
 import ast
-import csv
 import inspect
+import os
 import re
 import shutil
 import subprocess
@@ -15,7 +15,6 @@ from typing import Any, Callable, Optional
 from server.services.settings_service import get_effective_settings
 
 _workspace_var: ContextVar[Path] = ContextVar("atlas_workspace")
-_DELIVERABLE_SUFFIXES = {".xlsx", ".pdf", ".docx", ".csv", ".png"}
 _FORBIDDEN = (
     r"system32",
     r"\bformat\s+[a-z]:",
@@ -73,13 +72,6 @@ def get_downloads_directory() -> Path:
     return downloads.resolve()
 
 
-def _safe_filename(file_name: str) -> Path:
-    name = Path(file_name).name
-    if not name or name in {".", ".."}:
-        raise ValueError("A plain file name is required.")
-    return Path(name)
-
-
 def _is_safe_command(command: str) -> Optional[str]:
     normalized = command.lower().strip()
     if not normalized:
@@ -108,21 +100,6 @@ def _is_safe_python(code: str) -> Optional[str]:
     return None
 
 
-def _sync_deliverables(workspace: Path, downloads: Path) -> list[Path]:
-    copied: list[Path] = []
-    for candidate in workspace.rglob("*"):
-        if (
-            not candidate.is_file()
-            or candidate.suffix.lower() not in _DELIVERABLE_SUFFIXES
-        ):
-            continue
-        target = downloads / candidate.name
-        if candidate.resolve() != target.resolve():
-            shutil.copy2(candidate, target)
-        copied.append(target)
-    return copied
-
-
 @safe_tool_response
 def run_command(command: str) -> str:
     """Run a non-destructive shell command inside this chat's workspace."""
@@ -148,82 +125,86 @@ def run_command(command: str) -> str:
 
 @safe_tool_response
 def run_python_code(code: str, dependencies: Optional[list[str]] = None) -> str:
-    """Execute Python in the workspace and copy generated deliverables to Downloads."""
+    """Execute Python code in the workspace sandbox. Write deliverables to DOWNLOADS_DIR."""
     if problem := _is_safe_python(code):
         return f"[SECURITY_VIOLATION] {problem}"
     workspace, downloads = get_active_workspace(), get_downloads_directory()
-    script = workspace / "_atlas_task.py"
-    script.write_text(
-        f"from pathlib import Path\nDOWNLOADS_DIR = Path(r'{downloads}')\n" + code,
-        encoding="utf-8",
+    preamble = (
+        f"from pathlib import Path\n"
+        f"DOWNLOADS_DIR = Path(r'{downloads}')\n"
+        f"WORKSPACE_DIR = Path(r'{workspace}')\n"
     )
-    command = [sys.executable, str(script)]
+    script = workspace / "_atlas_task.py"
+    script.write_text(preamble + code, encoding="utf-8")
     if dependencies:
         uv = shutil.which("uv")
         if not uv:
+            script.unlink(missing_ok=True)
             return "[DEPENDENCY_ERROR] The uv executable is required for dynamic dependencies."
         command = [
             uv,
             "run",
-            *[part for dependency in dependencies for part in ("--with", dependency)],
+            *[part for dep in dependencies for part in ("--with", dep)],
             str(script),
         ]
+    else:
+        command = [sys.executable, str(script)]
+    env = {
+        **os.environ,
+        "DOWNLOADS_DIR": str(downloads),
+        "WORKSPACE_DIR": str(workspace),
+    }
     try:
         result = subprocess.run(
-            command, cwd=workspace, capture_output=True, text=True, timeout=120
+            command,
+            cwd=workspace,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
     finally:
         script.unlink(missing_ok=True)
-    copied = _sync_deliverables(workspace, downloads)
-    files = ", ".join(str(path) for path in copied) or "none"
+    stdout = result.stdout.strip()
+    stderr = result.stderr.strip()
     if result.returncode:
-        return f"[PYTHON_ERROR exit={result.returncode}]\nSTDERR:\n{result.stderr.strip()}\nSTDOUT:\n{result.stdout.strip()}\nFILES: {files}"
-    return f"[PYTHON_SUCCESS]\nSTDOUT:\n{result.stdout.strip()}\nSTDERR:\n{result.stderr.strip()}\nFILES: {files}"
+        return f"[PYTHON_ERROR exit={result.returncode}]\nSTDERR:\n{stderr}\nSTDOUT:\n{stdout}"
+    return f"[PYTHON_SUCCESS]\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
 
 
 @safe_tool_response
-def write_file(file_name: str, content: str) -> str:
-    target = get_downloads_directory() / _safe_filename(file_name)
-    target.write_text(content, encoding="utf-8")
-    return f"[WRITE_SUCCESS] Created {target} ({target.stat().st_size} bytes)."
+async def ask_question(question: str) -> str:
+    """Ask the user a clarification question and await their answer."""
+    from server.stores.interaction_registry import request_user_input
 
-
-@safe_tool_response
-def verify_file(file_name: str) -> str:
-    target = get_downloads_directory() / _safe_filename(file_name)
-    if not target.is_file():
-        return f"[VERIFY_FAILED] {target.name} does not exist in Downloads."
-    if target.stat().st_size == 0:
-        return f"[VERIFY_FAILED] {target.name} is empty."
-    if target.suffix.lower() == ".csv":
-        with target.open(
-            "r", encoding="utf-8-sig", errors="replace", newline=""
-        ) as handle:
-            if len(list(csv.reader(handle))) < 2:
-                return f"[VERIFY_FAILED] {target.name} has no data rows."
-    elif target.suffix.lower() == ".xlsx":
-        import openpyxl
-
-        workbook = openpyxl.load_workbook(target, read_only=True, data_only=True)
-        rows = sum(
-            1
-            for sheet in workbook.worksheets
-            for row in sheet.iter_rows(values_only=True)
-            if any(cell is not None for cell in row)
-        )
-        workbook.close()
-        if rows < 2:
-            return f"[VERIFY_FAILED] {target.name} has no data rows."
-    return f"[VERIFY_SUCCESS] {target} exists and is valid ({target.stat().st_size} bytes)."
+    answer = await request_user_input(question)
+    return f"[USER_RESPONSE]: {answer}"
 
 
 @safe_tool_response
 def finish(summary: str, files_created: list[str]) -> str:
-    failures = [
-        name
-        for name in files_created
-        if not verify_file(name).startswith("[VERIFY_SUCCESS]")
-    ]
+    """Mandatory completion gate. Verifies all listed files exist and are non-empty."""
+    workspace, downloads = get_active_workspace(), get_downloads_directory()
+    failures: list[str] = []
+    verified: list[str] = []
+    for name in files_created:
+        p = Path(name)
+        candidates = []
+        if p.is_absolute():
+            candidates = [p]
+        else:
+            candidates = [downloads / p.name, workspace / p]
+        found = next((c for c in candidates if c.is_file() and c.stat().st_size > 0), None)
+        if found:
+            # If the deliverable is in workspace, ensure a copy is placed in Downloads for the user
+            if found.is_relative_to(workspace) and not (downloads / found.name).is_file():
+                dest = downloads / found.name
+                shutil.copy2(found, dest)
+                verified.append(str(dest))
+            else:
+                verified.append(str(found))
+        else:
+            failures.append(name)
     if failures:
-        return f"[FINISH_BLOCKED] Unverified files: {', '.join(failures)}"
-    return f"[FINISH_SUCCESS] {summary}\nVerified files: {', '.join(files_created) if files_created else 'none'}"
+        return f"[FINISH_REJECTED] Files missing or empty: {', '.join(failures)}"
+    return f"[FINISH_SUCCESS] {summary}\nVerified files: {', '.join(verified) if verified else 'none'}"
