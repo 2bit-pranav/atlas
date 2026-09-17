@@ -547,9 +547,6 @@ export default function SettingsPage() {
                                                 {showExaKey ? <EyeOff size={14} /> : <Eye size={14} />}
                                             </button>
                                         </div>
-                                        <p className="mt-1 text-[10px] opacity-60 font-mono">
-                                            Safely stored with Windows DPAPI encryption (win32crypt).
-                                        </p>
                                     </div>
 
                                     <div>

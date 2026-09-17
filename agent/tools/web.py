@@ -4,6 +4,7 @@ from exa_py import Exa
 from .sandbox import safe_tool_response
 from server.services.settings_service import get_effective_settings
 
+
 def _get_exa_client() -> Exa:
     api_key = get_effective_settings().tools.exa.api_key
     if not api_key:

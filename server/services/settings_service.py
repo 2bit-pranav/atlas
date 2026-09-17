@@ -82,8 +82,12 @@ def encrypt_secret(value: str) -> str:
     if not value or value.startswith("ENC:") or value == "********":
         return value
     if win32crypt is None:
-        raise RuntimeError("DPAPI is unavailable; refusing to persist an unencrypted secret.")
-    protected = win32crypt.CryptProtectData(value.encode("utf-8"), None, None, None, None, 0)
+        raise RuntimeError(
+            "DPAPI is unavailable; refusing to persist an unencrypted secret."
+        )
+    protected = win32crypt.CryptProtectData(
+        value.encode("utf-8"), None, None, None, None, 0
+    )
     return "ENC:" + base64.b64encode(protected).decode("ascii")
 
 
@@ -94,7 +98,9 @@ def decrypt_secret(value: str) -> str:
         logger.warning("DPAPI is unavailable; encrypted setting cannot be used.")
         return ""
     try:
-        _, plain = win32crypt.CryptUnprotectData(base64.b64decode(value[4:]), None, None, None, 0)
+        _, plain = win32crypt.CryptUnprotectData(
+            base64.b64decode(value[4:]), None, None, None, 0
+        )
         return plain.decode("utf-8")
     except Exception as exc:
         logger.warning("Unable to decrypt a DPAPI-protected setting: %s", exc)
@@ -123,7 +129,11 @@ def get_effective_settings() -> Settings:
 def get_public_settings(*, reveal: bool = False) -> Settings:
     settings = Settings.model_validate(_load_raw_dict())
     for secret in (settings.model.cloud, settings.tools.exa):
-        secret.api_key = decrypt_secret(secret.api_key) if reveal else ("********" if secret.api_key else "")
+        secret.api_key = (
+            decrypt_secret(secret.api_key)
+            if reveal
+            else ("********" if secret.api_key else "")
+        )
     return settings
 
 

@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from ..routers.chat import router as chat_router
 from ..routers.sessions import router as sessions_router
-from ..routers.browser_stub import router as browser_router
-from ..routers.skills_stub import router as skills_router
+from ..routers.browser import router as browser_router
+from ..routers.skills import router as skills_router
 from ..routers.settings import router as settings_router
 
 app = FastAPI(title="Atlas API")

@@ -16,12 +16,19 @@ from server.services.settings_service import get_effective_settings
 
 _workspace_var: ContextVar[Path] = ContextVar("atlas_workspace")
 _DELIVERABLE_SUFFIXES = {".xlsx", ".pdf", ".docx", ".csv", ".png"}
-_FORBIDDEN = (r"system32", r"\bformat\s+[a-z]:", r"\brmdir\s+(?:/[sq]+\s+)?(?:[a-z]:\\?|\\)$", r"remove-item\b.*\b-recurse\b", r"\brm\s+-rf\s+(?:/|~|\$home)\b")
+_FORBIDDEN = (
+    r"system32",
+    r"\bformat\s+[a-z]:",
+    r"\brmdir\s+(?:/[sq]+\s+)?(?:[a-z]:\\?|\\)$",
+    r"remove-item\b.*\b-recurse\b",
+    r"\brm\s+-rf\s+(?:/|~|\$home)\b",
+)
 
 
 def safe_tool_response(func: Callable[..., Any]) -> Callable[..., Any]:
     """Return textual tool failures instead of raising into AutoGen."""
     if inspect.iscoroutinefunction(func):
+
         @wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> str:
             try:
@@ -29,6 +36,7 @@ def safe_tool_response(func: Callable[..., Any]) -> Callable[..., Any]:
                 return str(result).strip() or "[TOOL_STATUS: SUCCESS] Completed."
             except Exception as exc:
                 return f"[TOOL_STATUS: ERROR] {type(exc).__name__}: {exc}"
+
         return async_wrapper
 
     @wraps(func)
@@ -38,6 +46,7 @@ def safe_tool_response(func: Callable[..., Any]) -> Callable[..., Any]:
             return str(result).strip() or "[TOOL_STATUS: SUCCESS] Completed."
         except Exception as exc:
             return f"[TOOL_STATUS: ERROR] {type(exc).__name__}: {exc}"
+
     return wrapper
 
 
@@ -57,7 +66,9 @@ def get_active_workspace() -> Path:
 
 def get_downloads_directory() -> Path:
     configured = get_effective_settings().system.download_directory.strip()
-    downloads = Path(configured).expanduser() if configured else Path.home() / "Downloads"
+    downloads = (
+        Path(configured).expanduser() if configured else Path.home() / "Downloads"
+    )
     downloads.mkdir(parents=True, exist_ok=True)
     return downloads.resolve()
 
@@ -88,7 +99,11 @@ def _is_safe_python(code: str) -> Optional[str]:
         return None
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name) and node.func.value.id == "os" and node.func.attr == "system":
+            if (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "os"
+                and node.func.attr == "system"
+            ):
                 return "Calling os.system is blocked; use a supported tool instead."
     return None
 
@@ -96,7 +111,10 @@ def _is_safe_python(code: str) -> Optional[str]:
 def _sync_deliverables(workspace: Path, downloads: Path) -> list[Path]:
     copied: list[Path] = []
     for candidate in workspace.rglob("*"):
-        if not candidate.is_file() or candidate.suffix.lower() not in _DELIVERABLE_SUFFIXES:
+        if (
+            not candidate.is_file()
+            or candidate.suffix.lower() not in _DELIVERABLE_SUFFIXES
+        ):
             continue
         target = downloads / candidate.name
         if candidate.resolve() != target.resolve():
@@ -110,11 +128,22 @@ def run_command(command: str) -> str:
     """Run a non-destructive shell command inside this chat's workspace."""
     if problem := _is_safe_command(command):
         return f"[SECURITY_VIOLATION] {problem}"
-    result = subprocess.run(command, cwd=get_active_workspace(), shell=True, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(
+        command,
+        cwd=get_active_workspace(),
+        shell=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     stdout, stderr = result.stdout.strip(), result.stderr.strip()
     if result.returncode:
         return f"[COMMAND_ERROR exit={result.returncode}]\nSTDERR:\n{stderr}\nSTDOUT:\n{stdout}"
-    return f"[COMMAND_SUCCESS]\nSTDOUT:\n{stdout}" if stdout else "[COMMAND_SUCCESS] Completed with exit code 0."
+    return (
+        f"[COMMAND_SUCCESS]\nSTDOUT:\n{stdout}"
+        if stdout
+        else "[COMMAND_SUCCESS] Completed with exit code 0."
+    )
 
 
 @safe_tool_response
@@ -124,15 +153,25 @@ def run_python_code(code: str, dependencies: Optional[list[str]] = None) -> str:
         return f"[SECURITY_VIOLATION] {problem}"
     workspace, downloads = get_active_workspace(), get_downloads_directory()
     script = workspace / "_atlas_task.py"
-    script.write_text(f"from pathlib import Path\nDOWNLOADS_DIR = Path(r'{downloads}')\n" + code, encoding="utf-8")
+    script.write_text(
+        f"from pathlib import Path\nDOWNLOADS_DIR = Path(r'{downloads}')\n" + code,
+        encoding="utf-8",
+    )
     command = [sys.executable, str(script)]
     if dependencies:
         uv = shutil.which("uv")
         if not uv:
             return "[DEPENDENCY_ERROR] The uv executable is required for dynamic dependencies."
-        command = [uv, "run", *[part for dependency in dependencies for part in ("--with", dependency)], str(script)]
+        command = [
+            uv,
+            "run",
+            *[part for dependency in dependencies for part in ("--with", dependency)],
+            str(script),
+        ]
     try:
-        result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            command, cwd=workspace, capture_output=True, text=True, timeout=120
+        )
     finally:
         script.unlink(missing_ok=True)
     copied = _sync_deliverables(workspace, downloads)
@@ -157,13 +196,21 @@ def verify_file(file_name: str) -> str:
     if target.stat().st_size == 0:
         return f"[VERIFY_FAILED] {target.name} is empty."
     if target.suffix.lower() == ".csv":
-        with target.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        with target.open(
+            "r", encoding="utf-8-sig", errors="replace", newline=""
+        ) as handle:
             if len(list(csv.reader(handle))) < 2:
                 return f"[VERIFY_FAILED] {target.name} has no data rows."
     elif target.suffix.lower() == ".xlsx":
         import openpyxl
+
         workbook = openpyxl.load_workbook(target, read_only=True, data_only=True)
-        rows = sum(1 for sheet in workbook.worksheets for row in sheet.iter_rows(values_only=True) if any(cell is not None for cell in row))
+        rows = sum(
+            1
+            for sheet in workbook.worksheets
+            for row in sheet.iter_rows(values_only=True)
+            if any(cell is not None for cell in row)
+        )
         workbook.close()
         if rows < 2:
             return f"[VERIFY_FAILED] {target.name} has no data rows."
@@ -172,7 +219,11 @@ def verify_file(file_name: str) -> str:
 
 @safe_tool_response
 def finish(summary: str, files_created: list[str]) -> str:
-    failures = [name for name in files_created if not verify_file(name).startswith("[VERIFY_SUCCESS]")]
+    failures = [
+        name
+        for name in files_created
+        if not verify_file(name).startswith("[VERIFY_SUCCESS]")
+    ]
     if failures:
         return f"[FINISH_BLOCKED] Unverified files: {', '.join(failures)}"
     return f"[FINISH_SUCCESS] {summary}\nVerified files: {', '.join(files_created) if files_created else 'none'}"
