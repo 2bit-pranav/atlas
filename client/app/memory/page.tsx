@@ -20,7 +20,7 @@ const DEFAULT_FACTS: MemoryFact[] = [
     },
     {
         id: "fact-2",
-        text: "Target budget range for hardware/laptop recommendations is under ",
+        text: "Target budget range for hardware/laptop recommendations is under ₹35000",
         category: "Budget",
         created_at: "2026-09-02",
     },

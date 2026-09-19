@@ -1,19 +1,30 @@
 import os
 import re
-import json
+import uuid
 from pathlib import Path
 from typing import Dict, Any, Tuple, List, Sequence, Optional, Mapping, AsyncGenerator
-import uuid
-
 from autogen_core import FunctionCall, CancellationToken
-from autogen_core.models import (
-    ModelInfo,
-    CreateResult,
-    LLMMessage,
-)
+from autogen_core.models import ModelInfo, CreateResult, LLMMessage
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_ext.models.anthropic import AnthropicChatCompletionClient
 from server.services.settings_service import CloudProvider, get_effective_settings
+
+try:
+    import orjson
+
+    def _json_loads(s: str | bytes):
+        return orjson.loads(s)
+
+    def _json_dumps(obj: Any) -> str:
+        return orjson.dumps(obj).decode("utf-8")
+except ImportError:
+    import json
+
+    def _json_loads(s: str | bytes):
+        return json.loads(s)
+
+    def _json_dumps(obj: Any) -> str:
+        return json.dumps(obj)
 
 try:
     import tiktoken
@@ -23,15 +34,24 @@ try:
 except Exception:
     pass
 
-MODEL_INFO: ModelInfo = ModelInfo(
+MODEL_INFO = ModelInfo(
     vision=True,
     function_calling=True,
     structured_output=True,
     json_output=True,
     family="unknown",
 )
-
 _THOUGHT_PREFIX = "<|agent_thought|>"
+_TAG_CLEANER_RE = re.compile(
+    r"<think>.*?</think>|<\|?channel\|?>\s*thought.*?<\|?channel\|?>|</?(?:think|tool_call|tool_response|channel)\|?>?",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+_DANGLING_TAG_RE = re.compile(
+    r"<think>.*|<\|?channel\|?>\s*thought.*",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+_CALL_PATTERN_RE = re.compile(r"(?:<\|?tool_call\|?>?)?\s*call:([a-zA-Z0-9_]+)\s*\{")
+_KV_PATTERN_RE = re.compile(r'([a-zA-Z_]\w*)\s*:\s*(?:<\|"\|>|")?(.*?)(?:<\|"\|>|"|\s*(?:,|$))', re.DOTALL)
 
 
 def parse_gemma_args_string(raw_args: str) -> Dict[str, Any]:
@@ -39,21 +59,20 @@ def parse_gemma_args_string(raw_args: str) -> Dict[str, Any]:
         return {}
     cleaned = raw_args.replace('<|"', '"').replace('"|>', '"').replace('<|', '').replace('|>', '')
     try:
-        return json.loads(f"{{{cleaned}}}")
+        return _json_loads(f"{{{cleaned}}}")
     except Exception:
         pass
     result = {}
-    kv_pattern = r'([a-zA-Z_]\w*)\s*:\s*(?:<\|"\|>|")?(.*?)(?:<\|"\|>|"|\s*(?:,|$))'
-    for k, v in re.findall(kv_pattern, raw_args, re.DOTALL):
-        k = k.strip()
-        v = v.strip().replace('<|"', '"').replace('"|>', '"').strip()
-        if v.lower() == "true":
+    for k, v in _KV_PATTERN_RE.findall(raw_args):
+        k, v = k.strip(), v.strip().replace('<|"', '"').replace('"|>', '"').strip()
+        v_lower = v.lower()
+        if v_lower == "true":
             result[k] = True
-        elif v.lower() == "false":
+        elif v_lower == "false":
             result[k] = False
         else:
             try:
-                result[k] = json.loads(v)
+                result[k] = _json_loads(v)
             except Exception:
                 result[k] = v
     return result
@@ -62,23 +81,18 @@ def parse_gemma_args_string(raw_args: str) -> Dict[str, Any]:
 def strip_thinking_tags(text: str) -> str:
     if not text:
         return ""
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    cleaned = re.sub(r"<\|?channel\|?>\s*thought.*?<\|?channel\|?>", "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r"<think>.*", "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r"<\|?channel\|?>\s*thought.*", "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r"</?(?:think|tool_call|tool_response|channel)\|?>?", "", cleaned)
-    cleaned = re.sub(r"<\|?/?(?:think|tool_call|tool_response|channel)\|?>?", "", cleaned)
+    cleaned = _TAG_CLEANER_RE.sub("", text)
+    cleaned = _DANGLING_TAG_RE.sub("", cleaned)
     return cleaned.strip()
 
 
-def extract_gemma_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+def extract_gemma_tool_calls(text: str) -> Tuple[List[FunctionCall], Optional[str]]:
     if not text:
         return [], text
     tool_calls = []
     clean_text = text
-    call_pattern = r"(?:<\|?tool_call\|?>?)?\s*call:([a-zA-Z0-9_]+)\s*\{"
-    matches = list(re.finditer(call_pattern, clean_text))
-    for match in matches:
+    matches = list(_CALL_PATTERN_RE.finditer(clean_text))
+    for match in reversed(matches):
         func_name = match.group(1)
         start_brace_idx = match.end() - 1
         brace_count = 0
@@ -103,20 +117,72 @@ def extract_gemma_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], Optional[
                         end_brace_idx = i
                         break
         if end_brace_idx != -1:
-            full_raw_call = clean_text[match.start():end_brace_idx + 1]
             raw_args_body = clean_text[start_brace_idx + 1:end_brace_idx].strip()
-            after_call = clean_text[end_brace_idx + 1:]
+            end_pos = end_brace_idx + 1
+            after_call = clean_text[end_pos:]
             tag_match = re.match(r"\s*(?:<\|?/?tool_call\|?>?)", after_call)
             if tag_match:
-                full_raw_call += tag_match.group(0)
+                end_pos += tag_match.end()
             args_dict = parse_gemma_args_string(raw_args_body)
-            tool_calls.append({
-                "name": func_name,
-                "arguments": args_dict
-            })
-            clean_text = clean_text.replace(full_raw_call, "").strip()
+            tool_calls.append(
+                FunctionCall(
+                    id=f"call_{uuid.uuid4().hex[:8]}",
+                    name=func_name,
+                    arguments=_json_dumps(args_dict),
+                )
+            )
+            clean_text = clean_text[:match.start()] + clean_text[end_pos:]
+    tool_calls.reverse()
     cleaned = strip_thinking_tags(clean_text)
     return tool_calls, (cleaned if cleaned else None)
+
+
+class GemmaStreamInterceptor:
+    __slots__ = ("has_tools", "in_think", "is_buffering_tool", "tool_buffer")
+
+    def __init__(self, has_tools: bool = False):
+        self.has_tools = has_tools
+        self.in_think = False
+        self.is_buffering_tool = False
+        self.tool_buffer = ""
+
+    def process_chunk(self, chunk: str) -> List[str]:
+        if not self.tool_buffer and not self.in_think and "<" not in chunk and "call:" not in chunk:
+            return [chunk]
+        if "<think>" in chunk:
+            self.in_think = True
+            chunk = chunk.replace("<think>", "")
+        if "</think>" in chunk:
+            self.in_think = False
+            chunk = chunk.replace("</think>", "")
+        if self.in_think:
+            return [f"{_THOUGHT_PREFIX}{chunk}"]
+        if self.has_tools:
+            combined = self.tool_buffer + chunk
+            if any(marker in combined for marker in ("<|tool_call", "<tool_call", "call:")):
+                self.is_buffering_tool = True
+                self.tool_buffer += chunk
+                return []
+        if self.is_buffering_tool:
+            self.tool_buffer += chunk
+            return []
+        clean_chunk = strip_thinking_tags(chunk)
+        return [clean_chunk] if clean_chunk else []
+
+    def flush(self) -> List[Any]:
+        if self.tool_buffer:
+            calls, cleaned = extract_gemma_tool_calls(self.tool_buffer)
+            self.tool_buffer = ""
+            if calls:
+                return [
+                    CreateResult(
+                        finish_reason="function_calls",
+                        content=calls,
+                    )
+                ]
+            if cleaned:
+                return [cleaned]
+        return []
 
 
 class GemmaOpenAIChatCompletionClient(OpenAIChatCompletionClient):
@@ -139,33 +205,30 @@ class GemmaOpenAIChatCompletionClient(OpenAIChatCompletionClient):
     async def create(
         self,
         messages: Sequence[LLMMessage],
+        *,
         tools: Sequence[Any] = [],
+        tool_choice: Any = "auto",
         json_output: Optional[bool] = None,
         extra_create_args: Mapping[str, Any] = {},
         cancellation_token: Optional[CancellationToken] = None,
+        **kwargs: Any,
     ) -> CreateResult:
         merged_args = self._merge_extra_create_args(extra_create_args)
         result = await super().create(
             messages=messages,
             tools=tools,
+            tool_choice=tool_choice,
             json_output=json_output,
             extra_create_args=merged_args,
             cancellation_token=cancellation_token,
+            **kwargs,
         )
         if isinstance(result.content, str):
             extracted_calls, cleaned = extract_gemma_tool_calls(result.content)
             if extracted_calls:
-                function_calls = [
-                    FunctionCall(
-                        id=f"call_{uuid.uuid4().hex[:8]}",
-                        name=tc["name"],
-                        arguments=json.dumps(tc["arguments"]),
-                    )
-                    for tc in extracted_calls
-                ]
                 return CreateResult(
                     finish_reason="function_calls",
-                    content=function_calls,
+                    content=extracted_calls,
                     usage=result.usage,
                     cached=result.cached,
                     logprobs=result.logprobs,
@@ -173,41 +236,45 @@ class GemmaOpenAIChatCompletionClient(OpenAIChatCompletionClient):
                 )
             if not cleaned and not tools:
                 cleaned = "[Empty response generated by model]"
-            result.content = cleaned or ""
+            return CreateResult(
+                finish_reason=result.finish_reason,
+                content=cleaned or "",
+                usage=result.usage,
+                cached=result.cached,
+                logprobs=result.logprobs,
+                thought=result.thought,
+            )
         return result
 
     async def create_stream(
         self,
         messages: Sequence[LLMMessage],
+        *,
         tools: Sequence[Any] = [],
+        tool_choice: Any = "auto",
         json_output: Optional[bool] = None,
         extra_create_args: Mapping[str, Any] = {},
         cancellation_token: Optional[CancellationToken] = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
         merged_args = self._merge_extra_create_args(extra_create_args)
-        in_think_block = False
+        interceptor = GemmaStreamInterceptor(has_tools=bool(tools))
         async for chunk in super().create_stream(
             messages=messages,
             tools=tools,
+            tool_choice=tool_choice,
             json_output=json_output,
             extra_create_args=merged_args,
             cancellation_token=cancellation_token,
+            **kwargs,
         ):
             if isinstance(chunk, str):
-                text = chunk
-                if "<think>" in text:
-                    in_think_block = True
-                    text = text.replace("<think>", "")
-                if "</think>" in text:
-                    in_think_block = False
-                    text = text.replace("</think>", "")
-
-                if in_think_block:
-                    yield f"{_THOUGHT_PREFIX}{text}"
-                else:
-                    yield text
+                for clean_text in interceptor.process_chunk(chunk):
+                    yield clean_text
             else:
                 yield chunk
+        for flushed_item in interceptor.flush():
+            yield flushed_item
 
 
 def get_local_model(
@@ -218,21 +285,15 @@ def get_local_model(
 ) -> GemmaOpenAIChatCompletionClient:
     settings = get_effective_settings()
     local = settings.model.local
+    is_thinking = thinking_budget > 0
     extra_body: Dict[str, Any] = {
         "top_p": local.top_p,
         "top_k": local.top_k,
+        "thinking_budget": thinking_budget if is_thinking else 0,
+        "chat_template_kwargs": {"enable_thinking": is_thinking},
     }
-
-    if thinking_budget > 0:
-        extra_body["thinking_budget"] = thinking_budget
-        extra_body["chat_template_kwargs"] = {"enable_thinking": True}
-    else:
-        extra_body["thinking_budget"] = 0
-        extra_body["chat_template_kwargs"] = {"enable_thinking": False}
-
     if chat_id:
         extra_body["id_slot"] = abs(hash(chat_id)) % 8
-
     return GemmaOpenAIChatCompletionClient(
         model=local.name,
         base_url=local.base_url,
@@ -250,7 +311,6 @@ def get_cloud_model(
     cloud = get_effective_settings().model.cloud
     if not cloud.api_key:
         raise ValueError("Cloud API key is not configured or could not be decrypted.")
-
     if cloud.provider == CloudProvider.ANTHROPIC:
         return AnthropicChatCompletionClient(
             model=cloud.name,
@@ -258,7 +318,6 @@ def get_cloud_model(
             model_info=MODEL_INFO,
             temperature=temperature,
         )
-
     return OpenAIChatCompletionClient(
         model=cloud.name,
         base_url=cloud.base_url,

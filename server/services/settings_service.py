@@ -10,7 +10,9 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-SETTINGS_PATH = Path(__file__).resolve().parents[2] / "settings.json"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+STORAGE_DIR = PROJECT_ROOT / ".storage"
+SETTINGS_PATH = STORAGE_DIR / "settings.json"
 
 try:
     import win32crypt
@@ -166,6 +168,8 @@ def save_settings(settings: "Settings") -> None:
             target[key] = source.get(key, "")
         elif candidate and not candidate.startswith("ENC:"):
             target[key] = encrypt_secret(candidate)
+
+    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     SETTINGS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
     # Invalidate cache so next call re-loads fresh settings
     _settings_cache = None

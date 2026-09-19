@@ -1,5 +1,4 @@
 "use client";
-
 import { useRouter } from "next/navigation";
 import { ChevronDown, Globe, Plus } from "lucide-react";
 import {
@@ -36,7 +35,6 @@ export default function ProfileDropdown() {
                 <span>{current.name}</span>
                 <ChevronDown size={15} />
             </DropdownMenuTrigger>
-
             <DropdownMenuContent side="top" align="start">
                 {profiles.map((profile) => (
                     <DropdownMenuItem
@@ -46,14 +44,12 @@ export default function ProfileDropdown() {
                         {profile.name}
                     </DropdownMenuItem>
                 ))}
-
                 <DropdownMenuSeparator />
-
                 <DropdownMenuItem
-                    onClick={() => router.push("/browser-profiles")}
+                    onClick={() => router.push("/settings")}
                 >
                     <Plus size={15} />
-                    New Profile
+                    Manage Profiles
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

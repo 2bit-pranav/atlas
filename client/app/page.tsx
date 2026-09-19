@@ -19,13 +19,15 @@ export default function Home() {
     const messages = useChatStore((s) => s.messages);
     const currentStatus = useChatStore((s) => s.currentStatus);
     const isLoading = useChatStore((s) => s.isLoading);
+    const lastUserMsg = messages.findLast((m) => m.role === "user");
+    const lastAssistantMsg = messages.findLast((m) => m.role === "assistant");
+
     const editMessage = useChatStore((s) => s.editMessage);
     const retryMessage = useChatStore((s) => s.retryMessage);
 
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
     const [copiedId, setCopiedId] = useState<string | null>(null);
-
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -76,15 +78,20 @@ export default function Home() {
                                     const thought = msg.role === "assistant" ? msg.thought : undefined;
                                     const attachments = msg.role === "user" ? msg.attachments ?? [] : [];
                                     const isEditingThis = editingMessageId === msg.id;
+                                    const isLastUser = msg.id === lastUserMsg?.id;
+                                    const isLastAssistant = msg.id === lastAssistantMsg?.id;
+                                    const isCancelled = msg.status === "cancelled";
+                                    const isRunning = msg.status === "running";
 
                                     return (
                                         <div
                                             key={msg.id}
                                             className={`group relative flex flex-col ${
-                                                msg.role === "user" ? "items-end" : "items-start"
+                                                msg.role === "user"
+                                                    ? "items-end"
+                                                    : "items-start"
                                             }`}
                                         >
-                                            {/* USER EDIT VIEW */}
                                             {msg.role === "user" && isEditingThis ? (
                                                 <div
                                                     className="w-full max-w-[85%] rounded-2xl p-3"
@@ -118,11 +125,12 @@ export default function Home() {
                                                     </div>
                                                 </div>
                                             ) : (
-                                                /* REGULAR MESSAGE BUBBLE */
                                                 <div className="relative max-w-[85%]">
                                                     <div
                                                         className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                                                            msg.role === "user" ? "whitespace-pre-wrap" : ""
+                                                            msg.role === "user"
+                                                                ? "whitespace-pre-wrap"
+                                                                : ""
                                                         }`}
                                                         style={{
                                                             background:
@@ -133,7 +141,7 @@ export default function Home() {
                                                             border: "1px solid var(--border)",
                                                         }}
                                                     >
-                                                        {/* Collapsible Thinking Process */}
+                                                        {/* Thinking Process */}
                                                         {msg.role === "assistant" && thought && (
                                                             <details
                                                                 open={!msg.content}
@@ -179,72 +187,101 @@ export default function Home() {
                                                                             color: "var(--text)",
                                                                         }}
                                                                     >
-                                                                        <FileText size={12} className="shrink-0 opacity-70" />
-                                                                        <span className="max-w-[180px] truncate">{att.name}</span>
+                                                                        <FileText
+                                                                            size={12}
+                                                                            className="shrink-0 opacity-70"
+                                                                        />
+                                                                        <span className="max-w-[180px] truncate">
+                                                                            {att.name}
+                                                                        </span>
                                                                     </span>
                                                                 ))}
                                                             </div>
                                                         )}
 
-                                                        {/* Text Body / Status */}
+                                                        {/* Message Markdown Content */}
                                                         {msg.content ? (
                                                             msg.role === "user" ? (
                                                                 msg.content
                                                             ) : (
                                                                 <MarkdownRenderer content={msg.content} />
                                                             )
-                                                        ) : isLoading ? (
-                                                            <span className="text-muted text-xs animate-pulse">
-                                                                {currentStatus || (thought ? "Reasoning..." : "Thinking...")}
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-muted text-xs italic opacity-80">
-                                                                Response was cancelled
-                                                            </span>
+                                                        ) : null}
+
+                                                        {/* Status Badge Area */}
+                                                        {msg.role === "assistant" && (
+                                                            <>
+                                                                {isRunning && isLoading && (
+                                                                    <div className="flex items-center gap-2 text-xs text-[var(--muted)] animate-pulse mt-1">
+                                                                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                                                                        {currentStatus || (thought ? "Reasoning..." : "Thinking...")}
+                                                                    </div>
+                                                                )}
+                                                                {isCancelled && (
+                                                                    <div className="mt-2.5 flex items-center gap-1.5 text-xs text-amber-400/90 font-mono">
+                                                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                                                        <span>Response was cancelled</span>
+                                                                    </div>
+                                                                )}
+                                                            </>
                                                         )}
                                                     </div>
 
-                                                    {/* HOVER ACTION BAR: USER (Edit & Copy) */}
+                                                    {/* USER ACTION BAR: Only the latest user prompt can be edited */}
                                                     {msg.role === "user" && !isLoading && (
                                                         <div className="absolute -left-16 top-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => startEditing(msg.id, msg.content)}
-                                                                className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
-                                                                title="Edit message"
-                                                            >
-                                                                <Pencil size={13} />
-                                                            </button>
+                                                            {isLastUser && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => startEditing(msg.id, msg.content)}
+                                                                    className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
+                                                                    title="Edit message"
+                                                                >
+                                                                    <Pencil size={13} />
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleCopy(msg.id, msg.content)}
                                                                 className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
                                                                 title="Copy prompt"
                                                             >
-                                                                {copiedId === msg.id ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                                                                {copiedId === msg.id ? (
+                                                                    <Check size={13} className="text-emerald-400" />
+                                                                ) : (
+                                                                    <Copy size={13} />
+                                                                )}
                                                             </button>
                                                         </div>
                                                     )}
 
-                                                    {/* HOVER ACTION BAR: ASSISTANT (Retry & Copy) */}
-                                                    {msg.role === "assistant" && msg.content && !isLoading && (
+                                                    {/* ASSISTANT ACTION BAR: Retry only on latest uncancelled assistant message */}
+                                                    {msg.role === "assistant" && !isLoading && (
                                                         <div className="mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => void retryMessage(msg.id)}
-                                                                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
-                                                                title="Regenerate alternative response"
-                                                            >
-                                                                <RotateCcw size={12} /> Retry
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleCopy(msg.id, msg.content)}
-                                                                className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
-                                                                title="Copy response"
-                                                            >
-                                                                {copiedId === msg.id ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                                                            </button>
+                                                            {isLastAssistant && !isCancelled && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void retryMessage(msg.id)}
+                                                                    className="flex items-center gap-1 rounded px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
+                                                                    title="Regenerate response"
+                                                                >
+                                                                    <RotateCcw size={12} /> Retry
+                                                                </button>
+                                                            )}
+                                                            {msg.content && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleCopy(msg.id, msg.content)}
+                                                                    className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
+                                                                    title="Copy response"
+                                                                >
+                                                                    {copiedId === msg.id ? (
+                                                                        <Check size={12} className="text-emerald-400" />
+                                                                    ) : (
+                                                                        <Copy size={12} />
+                                                                    )}
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>

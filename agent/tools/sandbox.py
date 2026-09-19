@@ -1,17 +1,14 @@
 """Bounded execution tools for a single Atlas chat session."""
-
 import ast
 import inspect
 import os
 import re
-import shutil
 import subprocess
 import sys
 from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Optional
-
 from server.services.settings_service import get_effective_settings
 
 _workspace_var: ContextVar[Path] = ContextVar("atlas_workspace")
@@ -27,7 +24,6 @@ _FORBIDDEN = (
 def safe_tool_response(func: Callable[..., Any]) -> Callable[..., Any]:
     """Return textual tool failures instead of raising into AutoGen."""
     if inspect.iscoroutinefunction(func):
-
         @wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> str:
             try:
@@ -35,7 +31,6 @@ def safe_tool_response(func: Callable[..., Any]) -> Callable[..., Any]:
                 return str(result).strip() or "[TOOL_STATUS: SUCCESS] Completed."
             except Exception as exc:
                 return f"[TOOL_STATUS: ERROR] {type(exc).__name__}: {exc}"
-
         return async_wrapper
 
     @wraps(func)
@@ -45,7 +40,6 @@ def safe_tool_response(func: Callable[..., Any]) -> Callable[..., Any]:
             return str(result).strip() or "[TOOL_STATUS: SUCCESS] Completed."
         except Exception as exc:
             return f"[TOOL_STATUS: ERROR] {type(exc).__name__}: {exc}"
-
     return wrapper
 
 
@@ -137,6 +131,7 @@ def run_python_code(code: str, dependencies: Optional[list[str]] = None) -> str:
     script = workspace / "_atlas_task.py"
     script.write_text(preamble + code, encoding="utf-8")
     if dependencies:
+        import shutil
         uv = shutil.which("uv")
         if not uv:
             script.unlink(missing_ok=True)
@@ -176,35 +171,34 @@ def run_python_code(code: str, dependencies: Optional[list[str]] = None) -> str:
 async def ask_question(question: str) -> str:
     """Ask the user a clarification question and await their answer."""
     from server.stores.interaction_registry import request_user_input
-
     answer = await request_user_input(question)
     return f"[USER_RESPONSE]: {answer}"
 
 
 @safe_tool_response
 def finish(summary: str, files_created: list[str]) -> str:
-    """Mandatory completion gate. Verifies all listed files exist and are non-empty."""
+    """Mandatory completion gate. Verifies all deliverables exist in Downloads."""
     workspace, downloads = get_active_workspace(), get_downloads_directory()
     failures: list[str] = []
     verified: list[str] = []
+
     for name in files_created:
         p = Path(name)
-        candidates = []
-        if p.is_absolute():
-            candidates = [p]
+        target = p.resolve() if p.is_absolute() else (downloads / p.name).resolve()
+
+        if target.is_file() and target.stat().st_size > 0:
+            verified.append(str(target))
         else:
-            candidates = [downloads / p.name, workspace / p]
-        found = next((c for c in candidates if c.is_file() and c.stat().st_size > 0), None)
-        if found:
-            # If the deliverable is in workspace, ensure a copy is placed in Downloads for the user
-            if found.is_relative_to(workspace) and not (downloads / found.name).is_file():
-                dest = downloads / found.name
-                shutil.copy2(found, dest)
-                verified.append(str(dest))
+            ws_target = (workspace / p.name).resolve()
+            if ws_target.is_file() and ws_target.stat().st_size > 0:
+                failures.append(
+                    f"'{p.name}' was created in internal workspace instead of Downloads. "
+                    f"Write deliverables to DOWNLOADS_DIR directly (e.g. DOWNLOADS_DIR / '{p.name}')."
+                )
             else:
-                verified.append(str(found))
-        else:
-            failures.append(name)
+                failures.append(f"'{name}' is missing or empty")
+
     if failures:
-        return f"[FINISH_REJECTED] Files missing or empty: {', '.join(failures)}"
-    return f"[FINISH_SUCCESS] {summary}\nVerified files: {', '.join(verified) if verified else 'none'}"
+        return f"[FINISH_REJECTED] Deliverable validation failed:\n- " + "\n- ".join(failures)
+
+    return f"[FINISH_SUCCESS] {summary}\nVerified deliverables in Downloads: {', '.join(verified) if verified else 'none'}"

@@ -1,5 +1,4 @@
 """Canonical on-disk chat sessions, isolated per chat identifier."""
-
 import json
 import re
 import shutil
@@ -7,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
-
+from .cancellation_registry import cancellation_registry
 
 _CHAT_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
@@ -102,6 +101,7 @@ class SessionStore:
         message_id: Optional[str] = None,
         attachments: Optional[list[dict[str, str]]] = None,
         thought: Optional[str] = None,
+        status: str = "completed",
     ) -> dict[str, Any]:
         session = self._require_session(chat_id)
         record = {
@@ -109,6 +109,7 @@ class SessionStore:
             "role": role,
             "content": content,
             "attachments": attachments or [],
+            "status": status,
             "timestamp": self._now(),
         }
         if thought:
@@ -135,7 +136,14 @@ class SessionStore:
         except (OSError, json.JSONDecodeError):
             return None
 
-    def truncate_to_message(self, chat_id: str, message_id: str, *, include: bool = True) -> bool:
+    def truncate_to_message(
+        self,
+        chat_id: str,
+        message_id: str,
+        *,
+        include: bool = True,
+        clear_state: bool = True,
+    ) -> bool:
         session = self.get_session(chat_id)
         if session is None:
             return False
@@ -145,14 +153,16 @@ class SessionStore:
             return False
         session["messages"] = messages[: index + 1 if include else index]
         self._save_session(session)
-        (self._directory(chat_id) / "agent_state.json").unlink(missing_ok=True)
+        if clear_state:
+            (self._directory(chat_id) / "agent_state.json").unlink(missing_ok=True)
         return True
 
     def delete_session(self, chat_id: str) -> bool:
+        cancellation_registry.cancel(chat_id)
         directory = self._directory(chat_id)
         if not directory.exists():
             return False
-        shutil.rmtree(directory)
+        shutil.rmtree(directory, ignore_errors=True)
         return True
 
 

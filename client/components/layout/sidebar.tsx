@@ -42,6 +42,8 @@ export default function Sidebar() {
 
     // Session store: manages persistent session list & active selection
     const sessions = useSessionStore((s) => s.sessions);
+    const sessionsError = useSessionStore((s) => s.sessionsError);
+    const isLoadingSessions = useSessionStore((s) => s.isLoadingSessions);
     const activeChatId = useSessionStore((s) => s.activeChatId);
     const fetchSessions = useSessionStore((s) => s.fetchSessions);
     const deleteSession = useSessionStore((s) => s.deleteSession);
@@ -123,6 +125,23 @@ export default function Sidebar() {
 
                 {/* Persisted Sessions List */}
                 <div className="flex flex-1 flex-col gap-1 overflow-y-auto min-h-0">
+                    {sessionsError && open && (
+                        <div className="mx-2 my-1 rounded-lg text-sm">
+                            <p>{sessionsError}</p>
+                            <button
+                                type="button"
+                                onClick={() => void fetchSessions()}
+                                className="mt-1 font-medium underline hover:cursor-pointer"
+                            >
+                                Retry connection
+                            </button>
+                        </div>
+                    )}
+
+                    {!sessionsError && sessions.length === 0 && open && !isLoadingSessions && (
+                        <p className="px-3 py-2 text-xs text-neutral-500 italic">No chat history yet</p>
+                    )}
+
                     {(sessions ?? []).map((session) => {
                         const isActive = session.id === activeChatId;
                         return (

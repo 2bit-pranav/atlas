@@ -17,6 +17,5 @@ llama-server.exe ^
 -c 32768 ^
 -t 6 ^
 --jinja ^
---reasoning auto ^
---tools all
+--reasoning auto 
 pause

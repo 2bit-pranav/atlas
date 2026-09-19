@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useChatStore } from "./chat-store";
 
 export interface ChatSessionMeta {
     id: string;
@@ -12,33 +13,32 @@ interface SessionState {
     sessions: ChatSessionMeta[];
     activeChatId: string | null;
     isLoadingSessions: boolean;
+    sessionsError: string | null;
     setActiveChatId: (chatId: string | null) => void;
     fetchSessions: () => Promise<void>;
     deleteSession: (chatId: string) => Promise<void>;
     updateSessionTitle: (chatId: string, title: string) => Promise<void>;
 }
 
-const API_BASE = "http://localhost:8001/api/sessions";
+const API_BASE = "/api/sessions";
 
 export const useSessionStore = create<SessionState>((set, get) => ({
     sessions: [],
     activeChatId: null,
     isLoadingSessions: false,
+    sessionsError: null,
 
     setActiveChatId: (activeChatId) => set({ activeChatId }),
 
     fetchSessions: async () => {
-        set({ isLoadingSessions: true });
+        set({ isLoadingSessions: true, sessionsError: null });
         try {
             const res = await fetch(API_BASE);
-            if (res.ok) {
-                const data = await res.json();
-                set({ sessions: Array.isArray(data) ? data : [] });
-            } else {
-                set({ sessions: [] });
-            }
+            if (!res.ok) throw new Error(`Server returned ${res.status}`);
+            const data = await res.json();
+            set({ sessions: Array.isArray(data) ? data : [], sessionsError: null });
         } catch {
-            set({ sessions: [] });
+            set({ sessionsError: "Unable to load chats" });
         } finally {
             set({ isLoadingSessions: false });
         }
@@ -51,11 +51,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 const { activeChatId } = get();
                 if (activeChatId === chatId) {
                     set({ activeChatId: null });
+                    useChatStore.getState().resetChat();
                 }
                 void get().fetchSessions();
             }
         } catch {
-            // Fail silently if offline
+            // Handled gracefully
         }
     },
 
@@ -70,7 +71,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 void get().fetchSessions();
             }
         } catch {
-            // Fail silently if offline
+            // Handled gracefully
         }
     },
 }));

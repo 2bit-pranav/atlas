@@ -3,14 +3,17 @@ import { useSessionStore } from "./session-store";
 
 export interface ChatAttachment {
     name: string;
+    type: "image" | "document";
     path?: string;
-    type?: "image" | "document";
 }
+
+export type MessageStatus = "running" | "completed" | "cancelled" | "error";
 
 export interface Message {
     id: string;
     role: "user" | "assistant";
     content: string;
+    status: MessageStatus;
     thought?: string;
     attachments?: ChatAttachment[];
 }
@@ -38,10 +41,9 @@ export interface ChatState {
 }
 
 let activeAbortController: AbortController | null = null;
-const API_BASE = "http://localhost:8001/api";
+const API_BASE = "/api";
 
-// Pure module-level SSE processor with strict typing
-async function processSSEStream(
+async function processStream(
     response: Response,
     assistantMessageId: string,
     set: (fn: (state: ChatState) => Partial<ChatState>) => void,
@@ -63,7 +65,7 @@ async function processSSEStream(
         for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed.startsWith("data: ")) {
-                const rawJson = trimmed.replace("data: ", "").trim();
+                const rawJson = trimmed.slice(6).trim();
                 if (!rawJson) continue;
 
                 try {
@@ -77,9 +79,14 @@ async function processSSEStream(
                             set((state) => ({
                                 currentStatus: null,
                                 messages: state.messages.map((m) =>
-                                    m.id === assistantMessageId
-                                        ? { ...m, content: m.content ? `${m.content}\n\n*Response was cancelled*` : "*Response was cancelled*" }
-                                        : m
+                                    m.id === assistantMessageId ? { ...m, status: "cancelled" } : m
+                                ),
+                            }));
+                        } else if (parsed.status === "completed") {
+                            set((state) => ({
+                                currentStatus: null,
+                                messages: state.messages.map((m) =>
+                                    m.id === assistantMessageId ? { ...m, status: "completed" } : m
                                 ),
                             }));
                         } else {
@@ -99,6 +106,15 @@ async function processSSEStream(
                                 msg.id === assistantMessageId
                                     ? { ...msg, content: msg.content + (parsed.content as string) }
                                     : msg
+                            ),
+                        }));
+                    } else if (type === "error" && typeof parsed.detail === "string") {
+                        set((state) => ({
+                            error: parsed.detail as string,
+                            messages: state.messages.map((m) =>
+                                m.id === assistantMessageId
+                                    ? { ...m, status: "error", content: m.content || `⚠️ **Error:** ${parsed.detail}` }
+                                    : m
                             ),
                         }));
                     } else if (type === "terminal" && typeof parsed.content === "string") {
@@ -125,7 +141,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     setUseCloud: (useCloud) => set(() => ({ useCloud })),
     setThinkingBudget: (thinkingBudget) => set(() => ({ thinkingBudget })),
-
     clearError: () => set(() => ({ error: null })),
     clearTerminalLogs: () => set(() => ({ terminalLogs: [] })),
 
@@ -145,12 +160,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             const res = await fetch(`${API_BASE}/sessions/${chatId}`);
             if (!res.ok) throw new Error("Failed to load chat history");
-            const data = (await res.json()) as { id: string; messages?: Message[] };
+            const data = await res.json();
+            const normalizedMessages: Message[] = (data.messages || []).map((m: Partial<Message>) => ({
+                ...m,
+                status: m.status || (m.content?.includes("*Response was cancelled*") ? "cancelled" : "completed"),
+            }));
             useSessionStore.getState().setActiveChatId(data.id);
-            set(() => ({ messages: data.messages || [] }));
+            set(() => ({ messages: normalizedMessages }));
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Failed to load session";
-            set(() => ({ error: msg }));
+            set(() => ({ error: err instanceof Error ? err.message : "Failed to load session" }));
         } finally {
             set(() => ({ isLoading: false }));
         }
@@ -175,14 +193,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 isLoading: false,
                 currentStatus: null,
                 messages: state.messages.map((m, idx) =>
-                    idx === lastAssistantIdx
-                        ? {
-                              ...m,
-                              content: m.content.trim()
-                                  ? `${m.content.trim()}\n\n*Response was cancelled*`
-                                  : "*Response was cancelled*",
-                          }
-                        : m
+                    idx === lastAssistantIdx ? { ...m, status: "cancelled" } : m
                 ),
             };
         });
@@ -196,8 +207,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const assistantMessageId = `msg_${Date.now() + 1}`;
 
         const attachmentsMeta: ChatAttachment[] = (attachmentFiles || []).map((f) => {
-            if (typeof f === "string") return { name: f.split(/[/\\]/).pop() || f, path: f, type: "document" };
-            return { name: f.name, type: f.type.startsWith("image/") ? "image" : "document" };
+            if (typeof f === "string")
+                return {
+                    name: f.split(/[/\\]/).pop() || f,
+                    path: f,
+                    type: "document",
+                };
+            return {
+                name: f.name,
+                type: f.type.startsWith("image/") ? "image" : "document",
+            };
         });
 
         const userMessage: Message = {
@@ -205,6 +224,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             role: "user",
             content: prompt,
             attachments: attachmentsMeta,
+            status: "completed",
         };
 
         const assistantPlaceholder: Message = {
@@ -212,6 +232,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             role: "assistant",
             content: "",
             thought: "",
+            status: "running",
         };
 
         set((state) => ({
@@ -253,22 +274,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 throw new Error(errorData.detail || `Server error ${response.status}`);
             }
 
-            await processSSEStream(response, assistantMessageId, set);
+            await processStream(response, assistantMessageId, set);
+
+            set((state) => ({
+                messages: state.messages.map((m) =>
+                    m.id === assistantMessageId && m.status === "running"
+                        ? { ...m, status: "completed" }
+                        : m
+                ),
+            }));
             void useSessionStore.getState().fetchSessions();
         } catch (err: unknown) {
             if (err instanceof Error && err.name === "AbortError") {
-                set((state) => ({
-                    messages: state.messages.map((m) =>
-                        m.id === assistantMessageId
-                            ? {
-                                  ...m,
-                                  content: m.content.trim()
-                                      ? `${m.content.trim()}\n\n*Response was cancelled*`
-                                      : "*Response was cancelled*",
-                              }
-                            : m
-                    ),
-                }));
                 return;
             }
             const errMsg = err instanceof Error ? err.message : "Error sending message";
@@ -276,7 +293,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 error: errMsg,
                 messages: state.messages.map((m) =>
                     m.id === assistantMessageId
-                        ? { ...m, content: `⚠️ **Error:** ${errMsg}` }
+                        ? { ...m, status: "error", content: `⚠️ **Error:** ${errMsg}` }
                         : m
                 ),
             }));
@@ -288,20 +305,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     editMessage: async (messageId: string, newPrompt: string) => {
         const activeChatId = useSessionStore.getState().activeChatId;
-        if (!activeChatId) return;
-
         const { useCloud, thinkingBudget } = get();
         const assistantMessageId = `msg_${Date.now()}`;
 
+        let targetAttachments: ChatAttachment[] = [];
         set((state) => {
             const targetIdx = state.messages.findIndex((m) => m.id === messageId);
             if (targetIdx === -1) return state;
+            const existingMsg = state.messages[targetIdx];
+            targetAttachments = existingMsg.attachments || [];
             const updated = state.messages.slice(0, targetIdx);
+
             return {
                 messages: [
                     ...updated,
-                    { id: messageId, role: "user", content: newPrompt },
-                    { id: assistantMessageId, role: "assistant", content: "", thought: "" },
+                    {
+                        id: messageId,
+                        role: "user",
+                        content: newPrompt,
+                        attachments: targetAttachments,
+                        status: "completed",
+                    },
+                    {
+                        id: assistantMessageId,
+                        role: "assistant",
+                        content: "",
+                        thought: "",
+                        status: "running",
+                    },
                 ],
                 isLoading: true,
                 error: null,
@@ -309,42 +340,53 @@ export const useChatStore = create<ChatState>((set, get) => ({
             };
         });
 
+        if (!activeChatId) {
+            set(() => ({ error: "Active session not found. Please refresh." }));
+            return;
+        }
+
         activeAbortController = new AbortController();
 
         try {
-            const response = await fetch(`${API_BASE}/chat/${activeChatId}/messages/${messageId}/edit`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    new_prompt: newPrompt,
-                    use_cloud: useCloud,
-                    thinking_budget: thinkingBudget,
-                }),
-                signal: activeAbortController.signal,
-            });
+            const response = await fetch(
+                `${API_BASE}/chat/${activeChatId}/messages/${messageId}/edit`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        new_prompt: newPrompt,
+                        use_cloud: useCloud,
+                        thinking_budget: thinkingBudget,
+                    }),
+                    signal: activeAbortController.signal,
+                },
+            );
 
             if (!response.ok) throw new Error("Failed to edit message");
 
-            await processSSEStream(response, assistantMessageId, set);
+            await processStream(response, assistantMessageId, set);
+
+            set((state) => ({
+                messages: state.messages.map((m) =>
+                    m.id === assistantMessageId && m.status === "running"
+                        ? { ...m, status: "completed" }
+                        : m
+                ),
+            }));
             void useSessionStore.getState().fetchSessions();
         } catch (err: unknown) {
             if (err instanceof Error && err.name === "AbortError") {
-                set((state) => ({
-                    messages: state.messages.map((m) =>
-                        m.id === assistantMessageId
-                            ? {
-                                  ...m,
-                                  content: m.content.trim()
-                                      ? `${m.content.trim()}\n\n*Response was cancelled*`
-                                      : "*Response was cancelled*",
-                              }
-                            : m
-                    ),
-                }));
                 return;
             }
             const errMsg = err instanceof Error ? err.message : "Error editing message";
-            set(() => ({ error: errMsg }));
+            set((state) => ({
+                error: errMsg,
+                messages: state.messages.map((m) =>
+                    m.id === assistantMessageId
+                        ? { ...m, status: "error", content: `⚠️ **Error:** ${errMsg}` }
+                        : m
+                ),
+            }));
         } finally {
             activeAbortController = null;
             set(() => ({ isLoading: false, currentStatus: null }));
@@ -353,13 +395,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     retryMessage: async (messageId: string) => {
         const activeChatId = useSessionStore.getState().activeChatId;
-        if (!activeChatId) return;
+        if (!activeChatId) {
+            set(() => ({ error: "Active session not found. Please refresh." }));
+            return;
+        }
 
         const { useCloud, thinkingBudget } = get();
 
         set((state) => ({
             messages: state.messages.map((m) =>
-                m.id === messageId ? { ...m, content: "", thought: "" } : m
+                m.id === messageId
+                    ? { ...m, content: "", thought: "", status: "running" }
+                    : m
             ),
             isLoading: true,
             error: null,
@@ -369,38 +416,47 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeAbortController = new AbortController();
 
         try {
-            const response = await fetch(`${API_BASE}/chat/${activeChatId}/messages/${messageId}/retry`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    use_cloud: useCloud,
-                    thinking_budget: thinkingBudget,
-                }),
-                signal: activeAbortController.signal,
-            });
+            const response = await fetch(
+                `${API_BASE}/chat/${activeChatId}/messages/${messageId}/retry`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        use_cloud: useCloud,
+                        thinking_budget: thinkingBudget,
+                    }),
+                    signal: activeAbortController.signal,
+                },
+            );
 
-            if (!response.ok) throw new Error("Failed to retry message");
+            if (!response.ok) {
+                const errorData = (await response.json().catch(() => ({}))) as { detail?: string };
+                throw new Error(errorData.detail || `Server error ${response.status}`);
+            }
 
-            await processSSEStream(response, messageId, set);
+            await processStream(response, messageId, set);
+
+            set((state) => ({
+                messages: state.messages.map((m) =>
+                    m.id === messageId && m.status === "running"
+                        ? { ...m, status: "completed" }
+                        : m
+                ),
+            }));
             void useSessionStore.getState().fetchSessions();
         } catch (err: unknown) {
             if (err instanceof Error && err.name === "AbortError") {
-                set((state) => ({
-                    messages: state.messages.map((m) =>
-                        m.id === messageId
-                            ? {
-                                  ...m,
-                                  content: m.content.trim()
-                                      ? `${m.content.trim()}\n\n*Response was cancelled*`
-                                      : "*Response was cancelled*",
-                              }
-                            : m
-                    ),
-                }));
                 return;
             }
             const errMsg = err instanceof Error ? err.message : "Error retrying message";
-            set(() => ({ error: errMsg }));
+            set((state) => ({
+                error: errMsg,
+                messages: state.messages.map((m) =>
+                    m.id === messageId
+                        ? { ...m, status: "error", content: `⚠️ **Error:** ${errMsg}` }
+                        : m
+                ),
+            }));
         } finally {
             activeAbortController = null;
             set(() => ({ isLoading: false, currentStatus: null }));

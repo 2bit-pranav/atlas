@@ -1,19 +1,15 @@
 """Live web search and URL content retrieval using the Exa API."""
-
 import asyncio
-from typing import Annotated
-
+from typing import Annotated, Optional
 from exa_py import Exa
-
 from server.services.settings_service import get_effective_settings
-
 from .sandbox import safe_tool_response
 
 
-def _get_exa_client() -> Exa:
+def _get_exa_client() -> Optional[Exa]:
     api_key = get_effective_settings().tools.exa.api_key
     if not api_key:
-        raise ValueError("Missing EXA_API_KEY in environment variables.")
+        return None
     return Exa(api_key=api_key)
 
 
@@ -23,6 +19,9 @@ async def search_web(
 ) -> str:
     """Search the live web for real-time information, documentation, and facts."""
     exa = _get_exa_client()
+    if exa is None:
+        return "[TOOL_ERROR] EXA_API_KEY is not configured in Settings. Proceed without web search."
+
     results = await asyncio.to_thread(
         exa.search,
         query,
@@ -36,7 +35,6 @@ async def search_web(
     )
     if not results.results:
         return f"[SEARCH_RESULT] No relevant sources found for query: '{query}'."
-
     formatted = []
     for i, r in enumerate(results.results, 1):
         title = getattr(r, "title", "Untitled")
@@ -49,7 +47,6 @@ async def search_web(
         if highlights:
             snippet += f"\nKey points: {' '.join(h.strip() for h in highlights)}"
         formatted.append(snippet)
-
     return "\n\n---\n\n".join(formatted)
 
 
@@ -59,6 +56,9 @@ async def read_url_content(
 ) -> str:
     """Extract clean text content from a target URL (capped at 3,000 characters)."""
     exa = _get_exa_client()
+    if exa is None:
+        return "[TOOL_ERROR] EXA_API_KEY is not configured in Settings. Unable to fetch URL content."
+
     results = await asyncio.to_thread(
         exa.get_contents,
         urls=[url],
@@ -67,12 +67,10 @@ async def read_url_content(
     )
     if not results.results:
         return f"[FETCH_FAILED] Unable to extract content from {url}."
-
     page = results.results[0]
     title = getattr(page, "title", "Untitled")
     summary = getattr(page, "summary", "").strip()
     text = getattr(page, "text", "").strip()
-
     out = f"TITLE: {title}\nURL: {page.url}\n"
     if summary:
         out += f"SUMMARY: {summary}\n\n"

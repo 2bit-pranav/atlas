@@ -9,7 +9,7 @@ interface Skill {
     description?: string;
 }
 
-const API = "http://localhost:8001/api/skills";
+const API = "/api/skills";
 
 export default function SkillsPage() {
     const [installed, setInstalled] = useState<Skill[]>([]);

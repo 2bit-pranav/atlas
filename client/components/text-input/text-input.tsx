@@ -47,7 +47,7 @@ export default function TextInput() {
     const [skillIndex, setSkillIndex] = useState(0);
 
     useEffect(() => {
-        void fetch("http://localhost:8001/api/skills/local")
+        void fetch("/api/skills/local")
             .then((response) => response.json())
             .then((data) => setSkillNames((data.skills || []).map((skill: { name: string }) => skill.name)))
             .catch(() => setSkillNames([]));
