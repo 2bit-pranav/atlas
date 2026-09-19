@@ -73,7 +73,7 @@ class ChatService:
         set_active_workspace(session_store.workspace_for(chat_id))
         token = cancellation_registry.create(chat_id)
         yield {"type": "meta", "chat_id": chat_id}
-        yield {"type": "status", "status": "running", "label": "Thinking..."}
+        yield {"type": "status", "status": "running"}
 
         content, thought, did_stream, stopped = "", "", False, False
         atlas = None
@@ -130,8 +130,9 @@ class ChatService:
                         content += message.content
                         yield {"type": "chunk", "content": message.content}
                 elif isinstance(message, ThoughtEvent) and message.content:
-                    thought += message.content
-                    yield {"type": "thought", "content": message.content}
+                    if not thought:
+                        thought += message.content
+                        yield {"type": "thought", "content": message.content}
                 elif isinstance(message, TaskResult) and not did_stream:
                     for item in reversed(message.messages):
                         if isinstance(item, TextMessage) and item.source != "user":

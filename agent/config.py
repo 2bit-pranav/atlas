@@ -78,12 +78,16 @@ def parse_gemma_args_string(raw_args: str) -> Dict[str, Any]:
     return result
 
 
-def strip_thinking_tags(text: str) -> str:
+def clean_chunk_tags(text: str) -> str:
     if not text:
         return ""
     cleaned = _TAG_CLEANER_RE.sub("", text)
     cleaned = _DANGLING_TAG_RE.sub("", cleaned)
-    return cleaned.strip()
+    return cleaned
+
+
+def strip_thinking_tags(text: str) -> str:
+    return clean_chunk_tags(text).strip()
 
 
 def extract_gemma_tool_calls(text: str) -> Tuple[List[FunctionCall], Optional[str]]:
@@ -146,17 +150,7 @@ class GemmaStreamInterceptor:
         self.is_buffering_tool = False
         self.tool_buffer = ""
 
-    def process_chunk(self, chunk: str) -> List[str]:
-        if not self.tool_buffer and not self.in_think and "<" not in chunk and "call:" not in chunk:
-            return [chunk]
-        if "<think>" in chunk:
-            self.in_think = True
-            chunk = chunk.replace("<think>", "")
-        if "</think>" in chunk:
-            self.in_think = False
-            chunk = chunk.replace("</think>", "")
-        if self.in_think:
-            return [f"{_THOUGHT_PREFIX}{chunk}"]
+    def _handle_content_chunk(self, chunk: str) -> List[str]:
         if self.has_tools:
             combined = self.tool_buffer + chunk
             if any(marker in combined for marker in ("<|tool_call", "<tool_call", "call:")):
@@ -166,23 +160,45 @@ class GemmaStreamInterceptor:
         if self.is_buffering_tool:
             self.tool_buffer += chunk
             return []
-        clean_chunk = strip_thinking_tags(chunk)
-        return [clean_chunk] if clean_chunk else []
+        clean = clean_chunk_tags(chunk)
+        return [clean] if clean else []
 
-    def flush(self) -> List[Any]:
+    def process_chunk(self, chunk: str) -> List[str]:
+        output: List[str] = []
+        if not chunk:
+            return output
+
+        remaining = chunk
+        while remaining:
+            if not self.in_think:
+                if "<think>" in remaining:
+                    before, _, after = remaining.partition("<think>")
+                    if before:
+                        output.extend(self._handle_content_chunk(before))
+                    self.in_think = True
+                    remaining = after
+                else:
+                    output.extend(self._handle_content_chunk(remaining))
+                    break
+            else:
+                if "</think>" in remaining:
+                    thought_part, _, after = remaining.partition("</think>")
+                    self.in_think = False
+                    if thought_part:
+                        output.append(f"{_THOUGHT_PREFIX}{thought_part}")
+                    remaining = after
+                else:
+                    output.append(f"{_THOUGHT_PREFIX}{remaining}")
+                    break
+        return output
+
+    def flush_tool_buffer(self) -> tuple[List[FunctionCall], Optional[str]]:
         if self.tool_buffer:
-            calls, cleaned = extract_gemma_tool_calls(self.tool_buffer)
+            buf = self.tool_buffer
             self.tool_buffer = ""
-            if calls:
-                return [
-                    CreateResult(
-                        finish_reason="function_calls",
-                        content=calls,
-                    )
-                ]
-            if cleaned:
-                return [cleaned]
-        return []
+            self.is_buffering_tool = False
+            return extract_gemma_tool_calls(buf)
+        return [], None
 
 
 class GemmaOpenAIChatCompletionClient(OpenAIChatCompletionClient):
@@ -271,10 +287,35 @@ class GemmaOpenAIChatCompletionClient(OpenAIChatCompletionClient):
             if isinstance(chunk, str):
                 for clean_text in interceptor.process_chunk(chunk):
                     yield clean_text
+            elif isinstance(chunk, CreateResult):
+                flushed_calls, flushed_clean = interceptor.flush_tool_buffer()
+                if flushed_calls:
+                    yield CreateResult(
+                        finish_reason="function_calls",
+                        content=flushed_calls,
+                        usage=chunk.usage,
+                        cached=chunk.cached,
+                        logprobs=chunk.logprobs,
+                        thought=chunk.thought,
+                    )
+                else:
+                    if flushed_clean:
+                        yield flushed_clean
+                    if isinstance(chunk.content, str):
+                        extracted_calls, cleaned = extract_gemma_tool_calls(chunk.content)
+                        if extracted_calls:
+                            yield CreateResult(
+                                finish_reason="function_calls",
+                                content=extracted_calls,
+                                usage=chunk.usage,
+                                cached=chunk.cached,
+                                logprobs=chunk.logprobs,
+                                thought=chunk.thought,
+                            )
+                            continue
+                    yield chunk
             else:
                 yield chunk
-        for flushed_item in interceptor.flush():
-            yield flushed_item
 
 
 def get_local_model(

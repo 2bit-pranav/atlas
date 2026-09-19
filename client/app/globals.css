@@ -61,3 +61,31 @@ button {
     background: #333;
     border-radius: 999px;
 }
+
+@keyframes chat-bounce {
+    0%, 80%, 100% {
+        transform: translateY(0);
+        opacity: 0.35;
+    }
+    40% {
+        transform: translateY(-4px);
+        opacity: 1;
+    }
+}
+
+.chat-dot {
+    animation: chat-bounce 1.2s infinite ease-in-out both;
+}
+
+.chat-dot-1 {
+    animation-delay: -0.32s;
+}
+
+.chat-dot-2 {
+    animation-delay: -0.16s;
+}
+
+.chat-dot-3 {
+    animation-delay: 0s;
+}
+

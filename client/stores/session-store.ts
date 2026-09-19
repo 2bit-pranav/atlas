@@ -20,7 +20,8 @@ interface SessionState {
     updateSessionTitle: (chatId: string, title: string) => Promise<void>;
 }
 
-const API_BASE = "/api/sessions";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_BASE = `${BACKEND_URL}/api/sessions`;
 
 export const useSessionStore = create<SessionState>((set, get) => ({
     sessions: [],

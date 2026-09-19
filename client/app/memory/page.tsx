@@ -32,7 +32,8 @@ const DEFAULT_FACTS: MemoryFact[] = [
     },
 ];
 
-const API = "/api/memory";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API = `${BACKEND_URL}/api/memory`;
 
 export default function MemoryPage() {
     const [facts, setFacts] = useState<MemoryFact[]>(DEFAULT_FACTS);

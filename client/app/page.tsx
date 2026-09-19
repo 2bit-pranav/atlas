@@ -127,7 +127,7 @@ export default function Home() {
                                             ) : (
                                                 <div className="relative max-w-[85%]">
                                                     <div
-                                                        className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                                                        className={`rounded-2xl px-4 py-3 text-sm leading-relaxed break-words [overflow-wrap:anywhere] ${
                                                             msg.role === "user"
                                                                 ? "whitespace-pre-wrap"
                                                                 : ""
@@ -141,8 +141,8 @@ export default function Home() {
                                                             border: "1px solid var(--border)",
                                                         }}
                                                     >
-                                                        {/* Thinking Process */}
-                                                        {msg.role === "assistant" && thought && (
+                                                        {/* 1. Thinking Process (if exists) */}
+                                                        {msg.role === "assistant" && Boolean(thought) && (
                                                             <details
                                                                 open={!msg.content}
                                                                 className="mb-3 group rounded-xl border p-2.5 text-xs transition-all"
@@ -199,7 +199,7 @@ export default function Home() {
                                                             </div>
                                                         )}
 
-                                                        {/* Message Markdown Content */}
+                                                        {/* 2. Message Markdown Content */}
                                                         {msg.content ? (
                                                             msg.role === "user" ? (
                                                                 msg.content
@@ -208,22 +208,37 @@ export default function Home() {
                                                             )
                                                         ) : null}
 
-                                                        {/* Status Badge Area */}
+                                                        {/* 3. Status Area */}
                                                         {msg.role === "assistant" && (
-                                                            <>
+                                                            <div className="text-xs text-[var(--muted)]">
                                                                 {isRunning && isLoading && (
-                                                                    <div className="flex items-center gap-2 text-xs text-[var(--muted)] animate-pulse mt-1">
-                                                                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                                                                        {currentStatus || (thought ? "Reasoning..." : "Thinking...")}
-                                                                    </div>
+                                                                    <>
+                                                                        {/* Tool call status emit with pulsating animation */}
+                                                                        {currentStatus ? (
+                                                                            <div className={`flex items-center gap-2 animate-pulse ${msg.content ? "mt-2 pt-1" : ""}`}>
+                                                                                <span>{currentStatus}</span>
+                                                                            </div>
+                                                                        ) : (
+                                                                            /* Before text chunks stream: 3 dots bouncy chatting animation flowing left to right */
+                                                                            !msg.content && !thought && (
+                                                                                <div className="flex items-center gap-1 py-1 text-[var(--muted)]">
+                                                                                    <span className="h-1.5 w-1.5 rounded-full bg-current chat-dot chat-dot-1" />
+                                                                                    <span className="h-1.5 w-1.5 rounded-full bg-current chat-dot chat-dot-2" />
+                                                                                    <span className="h-1.5 w-1.5 rounded-full bg-current chat-dot chat-dot-3" />
+                                                                                </div>
+                                                                            )
+                                                                        )}
+                                                                    </>
                                                                 )}
+
+                                                                {/* Response cancelled status */}
                                                                 {isCancelled && (
-                                                                    <div className="mt-2.5 flex items-center gap-1.5 text-xs text-amber-400/90 font-mono">
-                                                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                                                    <div className={`flex items-center gap-1.5 text-xs text-amber-400/90 font-mono ${msg.content ? "mt-2 pt-1" : ""}`}>
+                                                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
                                                                         <span>Response was cancelled</span>
                                                                     </div>
                                                                 )}
-                                                            </>
+                                                            </div>
                                                         )}
                                                     </div>
 

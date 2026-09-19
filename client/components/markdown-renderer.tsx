@@ -10,7 +10,8 @@ interface MarkdownRendererProps {
 
 export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
     return (
-        <ReactMarkdown
+        <div className="break-words [overflow-wrap:anywhere]">
+            <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
                 p({ children }) {
@@ -181,5 +182,6 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
         >
             {content}
         </ReactMarkdown>
+        </div>
     );
 }

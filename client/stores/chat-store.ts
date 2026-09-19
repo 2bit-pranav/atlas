@@ -41,7 +41,8 @@ export interface ChatState {
 }
 
 let activeAbortController: AbortController | null = null;
-const API_BASE = "/api";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_BASE = `${BACKEND_URL}/api`;
 
 async function processStream(
     response: Response,
@@ -90,10 +91,14 @@ async function processStream(
                                 ),
                             }));
                         } else {
-                            set(() => ({ currentStatus: typeof parsed.label === "string" ? parsed.label : null }));
+                            const label = typeof parsed.label === "string" ? parsed.label : null;
+                            if (label && label !== "Thinking...") {
+                                set(() => ({ currentStatus: label }));
+                            }
                         }
                     } else if (type === "thought" && typeof parsed.content === "string") {
                         set((state) => ({
+                            currentStatus: null,
                             messages: state.messages.map((msg) =>
                                 msg.id === assistantMessageId
                                     ? { ...msg, thought: (msg.thought || "") + (parsed.content as string) }
@@ -102,6 +107,7 @@ async function processStream(
                         }));
                     } else if (type === "chunk" && typeof parsed.content === "string") {
                         set((state) => ({
+                            currentStatus: null,
                             messages: state.messages.map((msg) =>
                                 msg.id === assistantMessageId
                                     ? { ...msg, content: msg.content + (parsed.content as string) }
@@ -239,7 +245,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             messages: [...state.messages, userMessage, assistantPlaceholder],
             isLoading: true,
             error: null,
-            currentStatus: "Connecting...",
+            currentStatus: null,
         }));
 
         activeAbortController = new AbortController();
@@ -336,7 +342,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ],
                 isLoading: true,
                 error: null,
-                currentStatus: "Regenerating...",
+                currentStatus: null,
             };
         });
 
@@ -410,7 +416,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ),
             isLoading: true,
             error: null,
-            currentStatus: "Retrying...",
+            currentStatus: null,
         }));
 
         activeAbortController = new AbortController();

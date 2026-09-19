@@ -9,7 +9,8 @@ interface Skill {
     description?: string;
 }
 
-const API = "/api/skills";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API = `${BACKEND_URL}/api/skills`;
 
 export default function SkillsPage() {
     const [installed, setInstalled] = useState<Skill[]>([]);

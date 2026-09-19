@@ -53,7 +53,8 @@ export interface SettingsData {
     system: SystemSettings;
 }
 
-const API = "/api/settings";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API = `${BACKEND_URL}/api/settings`;
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState<SettingsData | null>(null);
