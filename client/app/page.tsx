@@ -252,7 +252,7 @@ export default function Home() {
                                                                     className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
                                                                     title="Edit message"
                                                                 >
-                                                                    <Pencil size={13} />
+                                                                    <Pencil size={14} />
                                                                 </button>
                                                             )}
                                                             <button
@@ -262,9 +262,9 @@ export default function Home() {
                                                                 title="Copy prompt"
                                                             >
                                                                 {copiedId === msg.id ? (
-                                                                    <Check size={13} className="text-emerald-400" />
+                                                                    <Check size={14} className="text-emerald-400" />
                                                                 ) : (
-                                                                    <Copy size={13} />
+                                                                    <Copy size={14} />
                                                                 )}
                                                             </button>
                                                         </div>
@@ -277,10 +277,10 @@ export default function Home() {
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => void retryMessage(msg.id)}
-                                                                    className="flex items-center gap-1 rounded px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
+                                                                    className="flex items-center gap-1 rounded p-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
                                                                     title="Regenerate response"
                                                                 >
-                                                                    <RotateCcw size={12} /> Retry
+                                                                    <RotateCcw size={14} />
                                                                 </button>
                                                             )}
                                                             {msg.content && (
@@ -291,9 +291,9 @@ export default function Home() {
                                                                     title="Copy response"
                                                                 >
                                                                     {copiedId === msg.id ? (
-                                                                        <Check size={12} className="text-emerald-400" />
+                                                                        <Check size={14} className="text-emerald-400" />
                                                                     ) : (
-                                                                        <Copy size={12} />
+                                                                        <Copy size={14} />
                                                                     )}
                                                                 </button>
                                                             )}

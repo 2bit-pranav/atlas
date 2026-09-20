@@ -99,8 +99,7 @@ export default function Sidebar() {
                                     resetChat();
                                     router.push("/");
                                 }}
-                                className="flex h-10 items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--surface-hover)] transition-colors"
-                                style={{ background: "transparent" }}
+                                className="flex h-10 items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--surface-hover)] hover:cursor-pointer transition-colors"
                             >
                                 <Icon size={18} className="shrink-0" />
                                 {open && <span className="ml-3 truncate">{label}</span>}
