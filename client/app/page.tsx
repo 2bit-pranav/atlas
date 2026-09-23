@@ -4,6 +4,7 @@ import AppLayout from "@/components/layout/app-layout";
 import TextInput from "@/components/text-input/text-input";
 import MarkdownRenderer from "@/components/markdown-renderer";
 import { useChatStore } from "@/stores/chat-store";
+import { useSessionStore } from "@/stores/session-store";
 import {
     Brain,
     ChevronDown,
@@ -25,10 +26,20 @@ export default function Home() {
     const editMessage = useChatStore((s) => s.editMessage);
     const retryMessage = useChatStore((s) => s.retryMessage);
 
+    const activeChatId = useSessionStore((s) => s.activeChatId);
+    const fetchActiveMount = useSessionStore((s) => s.fetchActiveMount);
+
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Sync the mounted folder chip whenever the active session changes
+    useEffect(() => {
+        if (activeChatId) {
+            void fetchActiveMount(activeChatId);
+        }
+    }, [activeChatId, fetchActiveMount]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

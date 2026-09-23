@@ -47,6 +47,7 @@ export default function Sidebar() {
     const activeChatId = useSessionStore((s) => s.activeChatId);
     const fetchSessions = useSessionStore((s) => s.fetchSessions);
     const deleteSession = useSessionStore((s) => s.deleteSession);
+    const fetchActiveMount = useSessionStore((s) => s.fetchActiveMount);
 
     useEffect(() => {
         void fetchSessions();

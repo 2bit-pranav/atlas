@@ -2,20 +2,27 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import AttachmentChip from "./attachment-chip";
-import PlusMenu from "./plus-menu";
+import PlusMenu from "./file-menu";
 import TextArea from "./text-area";
-import { ArrowUp, ChevronDown, Check, Square } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    ArrowUp,
+    ChevronDown,
+    Check,
+    Square,
+    FolderOpen,
+} from "lucide-react";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  useTextInputStore,
-  buildAttachmentItems,
+    useTextInputStore,
+    buildAttachmentItems,
 } from "@/stores/text-input-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useSessionStore } from "@/stores/session-store";
 
 const THINKING_OPTIONS = [
     { label: "Off", value: 0 },
@@ -40,6 +47,11 @@ export default function TextInput() {
     const setThinkingBudget = useChatStore((s) => s.setThinkingBudget);
     const stopGeneration = useChatStore((s) => s.stopGeneration);
 
+    const activeChatId = useSessionStore((s) => s.activeChatId);
+    const activeMountedFolder = useSessionStore((s) => s.activeMountedFolder);
+    const browseAndMount = useSessionStore((s) => s.browseAndMount);
+    const unmountFolder = useSessionStore((s) => s.unmountFolder);
+
     const fileInput = useRef<HTMLInputElement>(null);
     const dragCounter = useRef(0);
     const [isDragging, setIsDragging] = useState(false);
@@ -49,13 +61,19 @@ export default function TextInput() {
     useEffect(() => {
         void fetch("/api/skills/local")
             .then((response) => response.json())
-            .then((data) => setSkillNames((data.skills || []).map((skill: { name: string }) => skill.name)))
+            .then((data) =>
+                setSkillNames(
+                    (data.skills || []).map((skill: { name: string }) => skill.name)
+                )
+            )
             .catch(() => setSkillNames([]));
     }, []);
 
     const skillMatch = text.match(/(?:^|\s)@([A-Za-z0-9._-]*)$/);
     const skillSuggestions = skillMatch
-        ? skillNames.filter((name) => name.toLowerCase().startsWith(skillMatch[1].toLowerCase()))
+        ? skillNames.filter((name) =>
+              name.toLowerCase().startsWith(skillMatch[1].toLowerCase())
+          )
         : [];
 
     const canSend = useMemo(() => {
@@ -71,7 +89,6 @@ export default function TextInput() {
 
     function handleFiles(files: FileList | null) {
         if (!files || files.length === 0) return;
-
         const fileArray = Array.from(files);
         const items = buildAttachmentItems(fileArray);
         items.forEach((item) => addAttachment(item));
@@ -79,7 +96,6 @@ export default function TextInput() {
 
     function send() {
         if (!canSend) return;
-
         const prompt = text;
         const attachmentFiles = attachments
             .map((item) => item.file)
@@ -90,12 +106,24 @@ export default function TextInput() {
     }
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-        if (skillSuggestions.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
+        if (
+            skillSuggestions.length > 0 &&
+            (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")
+        ) {
             e.preventDefault();
-            if (e.key === "ArrowDown") setSkillIndex((index) => (index + 1) % skillSuggestions.length);
-            if (e.key === "ArrowUp") setSkillIndex((index) => (index - 1 + skillSuggestions.length) % skillSuggestions.length);
+            if (e.key === "ArrowDown")
+                setSkillIndex((index) => (index + 1) % skillSuggestions.length);
+            if (e.key === "ArrowUp")
+                setSkillIndex(
+                    (index) =>
+                        (index - 1 + skillSuggestions.length) %
+                        skillSuggestions.length
+                );
             if (e.key === "Enter") {
-                const prefix = text.slice(0, text.length - (skillMatch?.[1].length || 0));
+                const prefix = text.slice(
+                    0,
+                    text.length - (skillMatch?.[1].length || 0)
+                );
                 setText(`${prefix}${skillSuggestions[skillIndex]} `);
                 setSkillIndex(0);
             }
@@ -111,7 +139,6 @@ export default function TextInput() {
         e.preventDefault();
         e.stopPropagation();
         dragCounter.current += 1;
-
         if (e.dataTransfer.types.includes("Files")) {
             setIsDragging(true);
         }
@@ -126,7 +153,6 @@ export default function TextInput() {
         e.preventDefault();
         e.stopPropagation();
         dragCounter.current -= 1;
-
         if (dragCounter.current <= 0) {
             dragCounter.current = 0;
             setIsDragging(false);
@@ -158,8 +184,17 @@ export default function TextInput() {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
             >
-                {attachments.length > 0 && (
+                {/* Unified Chips Row (Mounted Folder + Uploaded Files) */}
+                {(attachments.length > 0 || activeMountedFolder) && (
                     <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+                        {activeMountedFolder && (
+                            <AttachmentChip
+                                folderPath={activeMountedFolder}
+                                onUnmount={() => {
+                                    if (activeChatId) void unmountFolder(activeChatId);
+                                }}
+                            />
+                        )}
                         {attachments.map((attachment) => (
                             <AttachmentChip
                                 key={attachment.id}
@@ -172,21 +207,65 @@ export default function TextInput() {
 
                 <div className="relative">
                     {skillSuggestions.length > 0 && (
-                        <div className="absolute bottom-full left-0 z-10 mb-2 min-w-40 rounded-lg border p-1 shadow-lg" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+                        <div
+                            className="absolute bottom-full left-0 z-10 mb-2 min-w-40 rounded-lg border p-1 shadow-lg"
+                            style={{
+                                background: "var(--surface)",
+                                borderColor: "var(--border)",
+                            }}
+                        >
                             {skillSuggestions.map((name, index) => (
-                                <button key={name} type="button" className="block w-full rounded px-2 py-1 text-left text-xs" style={{ background: index === skillIndex ? "var(--surface-hover)" : "transparent" }} onMouseDown={(event) => event.preventDefault()} onClick={() => { setText(`${text.slice(0, text.length - (skillMatch?.[1].length || 0))}${name} `); setSkillIndex(0); }}>
+                                <button
+                                    key={name}
+                                    type="button"
+                                    className="block w-full rounded px-2 py-1 text-left text-xs"
+                                    style={{
+                                        background:
+                                            index === skillIndex
+                                                ? "var(--surface-hover)"
+                                                : "transparent",
+                                    }}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => {
+                                        setText(
+                                            `${text.slice(
+                                                0,
+                                                text.length -
+                                                    (skillMatch?.[1].length || 0)
+                                            )}${name} `
+                                        );
+                                        setSkillIndex(0);
+                                    }}
+                                >
                                     @{name}
                                 </button>
                             ))}
                         </div>
                     )}
-                    <TextArea value={text} onChange={setText} onKeyDown={handleKeyDown} />
+                    <TextArea
+                        value={text}
+                        onChange={setText}
+                        onKeyDown={handleKeyDown}
+                    />
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <PlusMenu
-                        onFiles={() => fileInput.current?.click()}
-                    />
+                    {/* Attach Files Button */}
+                    <PlusMenu onFiles={() => fileInput.current?.click()} />
+
+                    {/* 1-Click Native OS Folder Mount Button */}
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            await browseAndMount(activeChatId);
+                        }}
+                        title="Mount local project directory (Native OS Picker)"
+                        aria-label="Mount local project directory"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-[var(--surface-hover)]"
+                        style={{ background: "var(--surface-hover)" }}
+                    >
+                        <FolderOpen size={18} className="opacity-70 hover:opacity-100" />
+                    </button>
 
                     <div className="flex items-center gap-1.5">
                         <span
@@ -222,7 +301,11 @@ export default function TextInput() {
                                 />
                             </DropdownMenuTrigger>
 
-                            <DropdownMenuContent side="top" align="start" className="min-w-[190px]">
+                            <DropdownMenuContent
+                                side="top"
+                                align="start"
+                                className="min-w-[190px]"
+                            >
                                 {THINKING_OPTIONS.map((opt) => (
                                     <DropdownMenuItem
                                         key={opt.value}
@@ -254,15 +337,21 @@ export default function TextInput() {
                                 onClick={() => setUseCloud(!useCloud)}
                                 className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none"
                                 style={{
-                                    background: useCloud ? "var(--text)" : "var(--surface-hover)",
+                                    background: useCloud
+                                        ? "var(--text)"
+                                        : "var(--surface-hover)",
                                     border: "1px solid var(--border)",
                                 }}
                             >
                                 <span
                                     className="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow transition duration-200 ease-in-out"
                                     style={{
-                                        background: useCloud ? "var(--background)" : "var(--muted)",
-                                        transform: useCloud ? "translateX(16px)" : "translateX(2px)",
+                                        background: useCloud
+                                            ? "var(--background)"
+                                            : "var(--muted)",
+                                        transform: useCloud
+                                            ? "translateX(16px)"
+                                            : "translateX(2px)",
                                         marginTop: "1px",
                                     }}
                                 />
@@ -281,19 +370,28 @@ export default function TextInput() {
                                     send();
                                 }
                             }}
-                            aria-label={isLoading ? "Stop generating" : "Send message"}
+                            aria-label={
+                                isLoading ? "Stop generating" : "Send message"
+                            }
                             className={`flex h-9 w-9 items-center justify-center rounded-lg ${
                                 isLoading
                                     ? "bg-red-500 text-white hover:bg-red-600"
                                     : canSend
-                                        ? "bg-white text-[#111]"
-                                        : "bg-[var(--surface-hover)] text-[var(--muted)]"
+                                    ? "bg-white text-[#111]"
+                                    : "bg-[var(--surface-hover)] text-[var(--muted)]"
                             }`}
                             style={{
-                                cursor: !isLoading && !canSend ? "not-allowed" : "pointer",
+                                cursor:
+                                    !isLoading && !canSend
+                                        ? "not-allowed"
+                                        : "pointer",
                             }}
                         >
-                            {isLoading ? <Square size={14} fill="currentColor" /> : <ArrowUp size={18} />}
+                            {isLoading ? (
+                                <Square size={14} fill="currentColor" />
+                            ) : (
+                                <ArrowUp size={18} />
+                            )}
                         </button>
                     </div>
                 </div>
