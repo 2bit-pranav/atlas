@@ -1,0 +1,27 @@
+[project]
+name = "atlas"
+version = "0.0.0"
+description = "Atlas on Strands: local-model chat + document/data harness (L0)"
+requires-python = ">=3.12,<3.13"
+
+# Dependency *intent* lives in requirements.in; the exact resolved set is
+# committed as requirements.lock.txt. See spike S8 in the design doc.
+
+# The command stays `atlas` -- that is the product, and it is what the docs
+# and the muscle memory both use. Only the importable package was renamed,
+# atlas -> agent, so that the repository folder and the Python package do not
+# collide.
+[project.scripts]
+atlas = "agent.cli.main:main"
+
+# Declared explicitly, not auto-discovered. Flat-layout discovery walks the
+# working directory and helpfully offered to package `data/` and `samples/`
+# as top-level modules the moment the package was renamed -- both are
+# generated, and neither belongs in a wheel. Naming the package removes the
+# guesswork and makes the install independent of what else is on disk.
+[tool.setuptools.packages.find]
+include = ["agent*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

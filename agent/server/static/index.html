@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas</title>
+<style>
+  :root {
+    --bg:#11131a; --panel:#181b24; --line:#2a2f3d; --fg:#e6e8ef; --dim:#8b93a7;
+    --accent:#7aa2f7; --warn:#e0af68; --err:#f7768e; --ok:#9ece6a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line);
+           display:flex; gap:12px; align-items:center; }
+  header h1 { font-size:14px; margin:0; letter-spacing:.5px; }
+  header .grow { flex:1; }
+  select, button, input[type=text] {
+    background:var(--panel); color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:5px 9px; font:inherit;
+  }
+  button { cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:var(--accent); color:#0b0d12; border-color:var(--accent); }
+  #main { display:flex; height:calc(100vh - 46px); }
+  #side { width:250px; border-right:1px solid var(--line); overflow:auto; padding:8px; }
+  #side h3 { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
+            color:var(--dim); margin:10px 4px 4px; font-weight:600; }
+  .chat { padding:6px 8px; border-radius:5px; cursor:pointer; }
+  .chat:hover { background:var(--panel); }
+  .chat.active { background:var(--panel); border-left:2px solid var(--accent); }
+  .att { padding:6px 8px; border:1px solid var(--line); border-radius:5px;
+         margin-bottom:6px; background:var(--panel); font-size:12px; }
+  .att .h { color:var(--accent); font-weight:600; }
+  .att .st { color:var(--dim); margin-top:2px; }
+  .att .warn { color:var(--warn); margin-top:3px; font-size:11px; }
+  .bar { height:3px; background:var(--line); border-radius:2px; margin-top:5px; overflow:hidden; }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  .drop { border:1px dashed var(--line); border-radius:6px; padding:10px;
+          text-align:center; color:var(--dim); cursor:pointer; margin:0 0 8px; }
+  .drop.hot { border-color:var(--accent); color:var(--accent); }
+  #log { flex:1; overflow:auto; padding:16px; }
+  .turn { margin-bottom:18px; }
+  .who { color:var(--dim); font-size:12px; margin-bottom:4px; }
+  .msg.user { white-space:pre-wrap; }
+  .msg.assistant { white-space:pre-wrap; }
+  .msg.thinking { white-space:pre-wrap; color:var(--dim); font-size:12px;
+                  border-left:2px solid var(--line); padding-left:10px; margin:6px 0; }
+  .meta { color:var(--dim); font-size:11px; margin-top:4px; }
+  .err { color:var(--err); }
+  .warn { color:var(--warn); }
+  .ok { color:var(--ok); }
+  #composer { display:flex; gap:8px; padding:12px 16px;
+              border-top:1px solid var(--line); }
+  #text { flex:1; }
+  #status { padding:6px 16px; color:var(--dim); border-top:1px solid var(--line); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ATLAS</h1>
+  <select id="chats"></select>
+  <button id="newchat">+ chat</button>
+  <span class="grow"></span>
+  <label><input type="checkbox" id="thinking"> thinking</label>
+  <span id="runstate"></span>
+</header>
+
+<div id="main">
+  <div id="side">
+    <h3>Attach</h3>
+    <div class="drop" id="drop">+ drop or click to upload</div>
+    <input type="file" id="file" multiple hidden>
+    <h3>Attachments</h3>
+    <div id="atts"><div class="att"><div class="st">none</div></div></div>
+    <h3>Chats</h3>
+    <div id="chatlist"></div>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <div id="log"></div>
+    <div id="status">idle</div>
+    <div id="composer">
+      <input type="text" id="text" placeholder="Ask something... (Enter to send)">
+      <button id="send" class="primary">Send</button>
+      <button id="cancel" disabled>Stop</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let chatId = null, runId = null, source = null, streaming = false;
+// The attachments the current chat holds, kept so a send can reference them.
+// Before this existed the send body carried only the text, so the model was
+// never told the files were there and answered from nothing -- confidently,
+// and wrongly, with no indication anything was missing.
+let chatAtts = [];
+
+const $ = (id) => document.getElementById(id);
+const log = $('log');
+
+function api(path, opts) {
+  return fetch(path, opts).then(async (r) => {
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((body.error && body.error.code) || r.status);
+    return body;
+  });
+}
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function turn(role, text) {
+  const t = el('div', 'turn');
+  t.appendChild(el('div', 'who', role === 'user' ? 'you' : 'atlas'));
+  t.appendChild(el('div', 'msg ' + role, text));
+  log.appendChild(t);
+  return t.querySelector('.msg');
+}
+
+function scroll() { log.scrollTop = log.scrollHeight; }
+
+async function loadChats() {
+  const { chats } = await api('/chats');
+  const list = $('chatlist');
+  list.innerHTML = '';
+  for (const c of chats) {
+    const d = el('div', 'chat' + (c.id === chatId ? ' active' : ''), c.title || c.id.slice(0, 8));
+    d.onclick = () => { chatId = c.id; loadChats(); renderTree(); loadAtts(); };
+    list.appendChild(d);
+  }
+  if (!chatId && chats.length) { chatId = chats[0].id; }
+  $('chats').innerHTML = '';
+  for (const c of chats) {
+    const o = el('option', null, c.title || c.id.slice(0, 8));
+    o.value = c.id;
+    $('chats').appendChild(o);
+  }
+  if (chatId) $('chats').value = chatId;
+  return chats;
+}
+
+/* ---- attachments (L4a/L4b) ---- */
+
+const SUPPORTED = /\.(xlsx|xlsm|xls|csv|tsv|tab|txt|md|markdown|json|log|py|js|ts|html|ya?ml|ini|toml)$/i;
+let pollTimer = null;
+
+/* Poll only while something is actually still parsing, and stop the moment
+   everything has settled.
+
+   The old version was a blanket setInterval(700ms) with a fixed 60s lifetime,
+   so it kept hammering the server long after there was nothing left to see --
+   that was the stream of poll requests in the network tab. A text file is
+   ready in ~25ms, so in practice this now makes one or two requests. */
+function watchAtts() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    await loadAtts();
+    const busy = chatAtts.some((a) => a.status !== 'ready' && a.status !== 'failed');
+    if (!busy) { clearInterval(pollTimer); pollTimer = null; }
+  }, 300);
+}
+
+async function uploadFiles(files) {
+  if (!chatId) { alert('Create or select a chat first.'); return; }
+  for (const f of files) {
+    if (!SUPPORTED.test(f.name)) {
+      $('status').textContent = `skipping ${f.name}: not supported yet (PDF/DOCX/PPTX arrive in L4c)`;
+      $('status').className = 'warn';
+      continue;
+    }
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const r = await api(`/chats/${chatId}/attachments`, { method: 'POST', body: fd });
+      $('status').textContent = `uploaded ${f.name} as ${r.handle} - parsing...`;
+      $('status').className = '';
+      watchAtts();
+    } catch (e) {
+      $('status').textContent = 'upload failed: ' + e.message;
+      $('status').className = 'err';
+    }
+  }
+  loadAtts();
+}
+
+async function loadAtts() {
+  if (!chatId) return;
+  const box = $('atts');
+  let data;
+  try { data = await api(`/chats/${chatId}/attachments`); }
+  catch { return; }
+  const items = data.attachments || [];
+  chatAtts = items;
+  const busy = items.some((a) => a.status !== 'ready' && a.status !== 'failed');
+  if (!items.length) {
+    box.innerHTML = '<div class="att"><div class="st">none</div></div>';
+    return;
+  }
+  box.innerHTML = '';
+  for (const a of items) {
+    const d = el('div', 'att');
+    d.appendChild(el('div', 'h', `${a.handle}  ${a.original_name}`));
+    let line = a.status;
+    if (a.status === 'ready' && a.outline) {
+      const o = a.outline;
+      if (o.kind === 'tabular') {
+        line += ` - ${o.sheets.length} sheets, ${o.total_rows} rows` +
+                (o.unified_view ? `, view ${o.unified_view}` : '');
+      } else {
+        line += ` - ${o.lines} lines, ~${o.approx_tokens} tokens`;
+      }
+    }
+    d.appendChild(el('div', 'st', line));
+    if (a.status !== 'ready' && a.status !== 'failed') {
+      const bar = el('div', 'bar');
+      const fill = el('i');
+      fill.style.width = Math.round((a.progress || 0) * 100) + '%';
+      bar.appendChild(fill);
+      d.appendChild(bar);
+    }
+    for (const w of (a.warnings || [])) d.appendChild(el('div', 'warn', '! ' + w));
+    if (a.status === 'ready') {
+      d.appendChild(el('div', 'st', 'ready - readable by the agent this and every later turn'));
+    } else if (busy) {
+      // Say plainly that sending now is fine. It is: the run waits for this
+      // file, and only the first token is delayed.
+      d.appendChild(el('div', 'st', 'you can send now - the run will wait for this'));
+    }
+    if (a.error) d.appendChild(el('div', 'warn', 'error: ' + a.error));
+    box.appendChild(d);
+  }
+}
+
+async function renderTree() {
+  if (!chatId) return;
+  log.innerHTML = '';
+  const { path } = await api(`/chats/${chatId}/tree`);
+  for (const node of path) {
+    if (node.role === 'root') continue;
+    if (node.role === 'user') {
+      turn('user', node.text || '(attachment)');
+    } else {
+      const t = turn('assistant', '');
+      for (const step of node.steps) {
+        if (step.kind === 'text') {
+          t.textContent += (step.content && step.content.text) || '';
+        } else if (step.kind === 'thinking') {
+          t.insertAdjacentHTML('beforeend',
+            `<div class="thinking">${escapeHtml(thinkingText(step.content))}</div>`);
+        }
+      }
+      if (!t.textContent) t.textContent = '(no text)';
+      if (node.run_status) {
+        const m = el('div', 'meta', `run: ${node.run_status}`);
+        if (node.sibling_count > 1) {
+          m.textContent += `  ·  version ${node.sibling_index + 1}/${node.sibling_count}`;
+        }
+        t.parentElement.appendChild(m);
+      }
+    }
+  }
+  scroll();
+}
+
+function thinkingText(content) {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  if (content.reasoningText) return content.reasoningText.text || '';
+  return content.text || '';
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function setRunning(on) {
+  streaming = on;
+  $('send').disabled = on;
+  $('text').disabled = on;
+  $('cancel').disabled = !on;
+  $('runstate').textContent = on ? 'running' : '';
+}
+
+async function send() {
+  const text = $('text').value.trim();
+  if (!text || streaming || !chatId) return;
+  $('text').value = '';
+  turn('user', text);
+  const out = turn('assistant', '');
+  const think = el('div', 'thinking');
+  out.parentElement.insertBefore(think, out);
+  setRunning(true);
+
+  try {
+    const res = await api(`/chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        text,
+        // Every file in this chat travels with the message. Readiness is not
+        // our problem here: the run waits for whatever is still parsing, up to
+        // a few seconds, and tells the model by name if it runs out of time.
+        // Blocking the send instead would make a 1-second spreadsheet parse
+        // look like a broken button.
+        attachment_ids: chatAtts.map((a) => a.id),
+        options: { thinking: $('thinking').checked },
+      }),
+    });
+    runId = res.run_id;
+    follow(runId, out, think);
+  } catch (e) {
+    setRunning(false);
+    $('status').textContent = 'send failed: ' + e.message;
+    log.appendChild(el('div', 'err', 'send failed: ' + e.message));
+  }
+}
+
+function follow(id, out, think) {
+  if (source) source.close();
+  source = new EventSource(`/runs/${id}/events?after=0`);
+  let seen = 0;
+
+  source.onmessage = (ev) => {
+    let e;
+    try { e = JSON.parse(ev.data); } catch { return; }
+    if (e.seq <= seen) return;
+    seen = e.seq;
+    const d = e.data || {};
+
+    switch (e.type) {
+      case 'thinking_delta':
+        think.textContent += d.text;
+        think.style.display = 'block';
+        break;
+      case 'text_delta':
+        out.textContent += d.text;
+        break;
+      case 'tool_call_started':
+        $('status').textContent = `tool: ${d.name}`;
+        break;
+      case 'usage':
+        $('status').textContent =
+          `tokens ${d.prompt_tokens} in / ${d.completion_tokens} out`;
+        break;
+      case 'run_completed':
+        finish('ok', `done · ${d.finish_reason}`);
+        break;
+      case 'run_cancelled':
+        finish('warn', 'cancelled');
+        break;
+      case 'run_failed':
+        finish('err', `failed: ${(d.error || {}).code} ${(d.error || {}).message || ''}`);
+        break;
+    }
+    scroll();
+  };
+
+  source.onerror = () => {
+    // The stream closes after the terminal event; that is not an error.
+    if (streaming) setRunning(false);
+    source.close();
+  };
+
+  function finish(cls, msg) {
+    setRunning(false);
+    const s = $('status');
+    s.textContent = msg;
+    s.className = cls;
+    think.style.display = think.textContent ? 'block' : 'none';
+    loadChats().then(renderTree).catch(() => {});
+  }
+}
+
+$('send').onclick = send;
+$('text').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+$('newchat').onclick = async () => {
+  const c = await api('/chats', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ title: null }),
+  });
+  chatId = c.id;
+  await loadChats();
+  $('chats').value = chatId;
+  renderTree();
+  loadAtts();
+};
+$('chats').onchange = (e) => { chatId = e.target.value; renderTree(); loadAtts(); };
+$('cancel').onclick = async () => {
+  if (!runId) return;
+  try { await api(`/runs/${runId}/cancel`, { method: 'POST' }); }
+  catch (e) { $('status').textContent = 'cancel: ' + e.message; }
+};
+
+/* upload wiring */
+$('drop').onclick = () => $('file').click();
+$('file').onchange = (e) => { uploadFiles([...e.target.files]); e.target.value = ''; };
+['dragenter','dragover'].forEach(ev =>
+  $('drop').addEventListener(ev, (e) => { e.preventDefault(); $('drop').classList.add('hot'); }));
+['dragleave','drop'].forEach(ev =>
+  $('drop').addEventListener(ev, (e) => {
+    e.preventDefault(); $('drop').classList.remove('hot');
+    if (ev === 'drop') uploadFiles([...e.dataTransfer.files]);
+  }));
+
+loadChats().then(() => { renderTree(); loadAtts(); }).catch(() => {});
+</script>
+</body>
+</html>

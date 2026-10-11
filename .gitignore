@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Runtime state: written by `atlas up`, machine-specific, never committed.
+launched.json
+launched.json.tmp
+
+# App state and per-chat workspaces (atlas.db, data.duckdb, blobs/, ...).
+# Everything the user has uploaded or generated lives here.
+data/
+workspace/
+
+# Generated test corpus: `python -m agent.ingest.samples` rebuilds it byte for
+# byte from agent/ingest/samples.py, so committing it would only create merge
+# conflicts on a directory that is derived output.
+samples/
+
+# Model weights: ~6.5 GB of GGUF. Never in git. Individual files run to
+# 2.6 GB, far past GitHub's 100 MB hard limit, and the git-lfs free tier
+# (1 GB storage, 1 GB/month bandwidth) is exhausted by a single push. The
+# directory is ignored outright rather than by extension so that a new model
+# dropped in later is also excluded by default.
+llm/
+
+# Local configuration. settings.json holds absolute paths to this machine's
+# GGUF and mmproj, so it is per-machine by nature. settings.example.json is
+# the committed template; copy it and fill in the two paths.
+settings.json
+settings.local.json
+
+# Local secrets / overrides
+.env
+.env.*
+
+# Logs. samples/server.log is covered by samples/ above; this catches the
+# launcher and backend writing into the working directory.
+*.log
+
+# Stray exports. The SQL guard blocks `COPY ... TO`, but the escape test in
+# L4 proved DuckDB's read_only is not a boundary, so a stray artifact landing
+# in the repo root is worth never committing by accident.
+*.csv.bak
+/atlas_escape*
+/out.csv
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
