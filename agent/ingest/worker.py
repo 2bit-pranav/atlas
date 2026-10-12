@@ -81,7 +81,14 @@ def ingest_one(
     try:
         store.update_extraction(extraction_id, status="running", progress=0.05)
         ingestor = pick_ingestor(attachment["original_name"], attachment.get("mime"))
-        result = ingestor.ingest(path, handle)
+        # Settings travel in the call, not just the environment: the Docling
+        # pipeline choice (standard / vlm / auto) is a setting, and the worker
+        # is a separate process that cannot read the parent's live objects.
+        # The TypeError fallback keeps third-party ingestors working unchanged.
+        try:
+            result = ingestor.ingest(path, handle, _read_worker_settings())
+        except TypeError:
+            result = ingestor.ingest(path, handle)
 
         # Tables -> the shared DuckDB. Text/outline -> SQLite. Declared, not
         # inferred. Table names carry the global handle, so one parse serves

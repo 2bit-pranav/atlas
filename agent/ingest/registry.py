@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Protocol
 
 from agent.ingest.contract import IngestResult
+from agent.ingest.docling_ingest import DoclingIngestor
 from agent.ingest.tabular import TabularIngestor
 from agent.ingest.text import TextIngestor
 
@@ -27,7 +28,11 @@ class Ingestor(Protocol):
     def ingest(self, path: Path, handle: str) -> IngestResult: ...
 
 
-_REGISTRY: list[Ingestor] = [TabularIngestor(), TextIngestor()]
+#: Order is priority, and it is the whole routing rule. Tabular first so an
+#: .xlsx never reaches a document model; text next; Docling last, as the
+#: fallback for everything structural. DoclingIngestor.supports also refuses
+#: the spreadsheet suffixes explicitly, so the two guards agree.
+_REGISTRY: list[Ingestor] = [TabularIngestor(), TextIngestor(), DoclingIngestor()]
 
 
 def register(ingestor: Ingestor) -> None:

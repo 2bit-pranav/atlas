@@ -138,11 +138,25 @@ class IngestVlmSettings(StrictModel):
     gpu_layers: int = Field(
         default=0, ge=0, description="CPU by default so Gemma keeps the VRAM (section 3)"
     )
+    #: The SigLIP projector. Required alongside `model_path`: the VLM is a
+    #: text model plus a vision encoder, and serving one without the other
+    #: gives a server that loads and then fails on the first image.
+    mmproj_path: str = ""
+    #: Per-page ceiling. Measured on this machine (CPU only, no CUDA): a
+    #: 258M VLM on a dense table page is the slowest thing in the system, and
+    #: a document with many such pages should report progress rather than look
+    #: hung. Generous, because a timeout that fires mid-document wastes the
+    #: whole parse.
+    timeout_s: int = Field(default=300, ge=10)
 
 
 class DoclingSettings(StrictModel):
     pipeline: DoclingPipeline = DoclingPipeline.AUTO
     pages_per_progress_report: int = Field(default=1, ge=1)
+    #: First use downloads ~670 MB of layout and table models and takes ~400s.
+    #: A cold start must not be killed as a hang, so this is far above any
+    #: warm conversion (measured 2.4-8.8s per page).
+    document_timeout_s: int = Field(default=1800, ge=60)
 
 
 class IngestSettings(StrictModel):
@@ -308,9 +322,12 @@ TIERS: dict[str, Tier] = {
     "embedding.model": Tier.RESTART,
     "embedding.dimensions": Tier.RESTART,
     "ingest.vlm.model_path": Tier.RESTART,
+    "ingest.vlm.mmproj_path": Tier.RESTART,
     "ingest.vlm.gpu_layers": Tier.RESTART,
+    "ingest.vlm.timeout_s": Tier.RESTART,
     "ingest.device": Tier.LIVE,
     "ingest.docling.pipeline": Tier.LIVE,
+    "ingest.docling.document_timeout_s": Tier.LIVE,
     "ingest.docling.pages_per_progress_report": Tier.LIVE,
     "sampling.top_p": Tier.LIVE,
     "sampling.top_k": Tier.LIVE,

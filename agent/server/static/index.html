@@ -146,7 +146,11 @@ async function loadChats() {
 
 /* ---- attachments (L4a/L4b) ---- */
 
-const SUPPORTED = /\.(xlsx|xlsm|xls|csv|tsv|tab|txt|md|markdown|json|log|py|js|ts|html|ya?ml|ini|toml)$/i;
+/* Order does not matter here: the server routes by suffix, and
+   agent/ingest/registry.py keeps .xlsx on the tabular reader so a
+   spreadsheet never reaches Docling. This list only decides what the file
+   picker offers and what is rejected before upload. */
+const SUPPORTED = /\.(xlsx|xlsm|xls|csv|tsv|tab|txt|md|markdown|json|log|py|js|ts|html|ya?ml|ini|toml|pdf|docx|pptx|png|jpg|jpeg|tif|tiff|bmp|webp)$/i;
 let pollTimer = null;
 
 /* Poll only while something is actually still parsing, and stop the moment
@@ -169,7 +173,7 @@ async function uploadFiles(files) {
   if (!chatId) { alert('Create or select a chat first.'); return; }
   for (const f of files) {
     if (!SUPPORTED.test(f.name)) {
-      $('status').textContent = `skipping ${f.name}: not supported yet (PDF/DOCX/PPTX arrive in L4c)`;
+      $('status').textContent = `skipping ${f.name}: unsupported format`;
       $('status').className = 'warn';
       continue;
     }
@@ -211,8 +215,18 @@ async function loadAtts() {
       if (o.kind === 'tabular') {
         line += ` - ${o.sheets.length} sheets, ${o.total_rows} rows` +
                 (o.unified_view ? `, view ${o.unified_view}` : '');
+      } else if (o.kind === 'document') {
+        // A document has pages and tables, not lines. Rendering the text
+        // branch here produced "undefined lines, ~undefined tokens" on every
+        // PDF, which looks like a broken parse rather than a missing field.
+        const parts = [`${o.pages} pages`];
+        if (o.tables && o.tables.length) {
+          parts.push(`${o.tables.length} table${o.tables.length === 1 ? '' : 's'}`);
+          if (o.total_rows) parts.push(`${o.total_rows} rows`);
+        }
+        line += ` - ${parts.join(', ')}`;
       } else {
-        line += ` - ${o.lines} lines, ~${o.approx_tokens} tokens`;
+        line += ` - ${o.lines ?? '?'} lines, ~${o.approx_tokens ?? '?'} tokens`;
       }
     }
     d.appendChild(el('div', 'st', line));
