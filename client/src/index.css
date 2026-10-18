@@ -2,98 +2,215 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Palette from llama.cpp's web UI (tools/ui/src/app.css): shadcn "neutral" in
+ * oklch, with its darker light-mode border and darker dark background. Stored
+ * as bare "L C H" triples so Tailwind can add opacity (`bg-muted/60`).
+ * Dark-mode translucent borders are flattened to the equivalent solid grey.
+ */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
-
-    --radius: 0.85rem;
-
-    --sidebar-bg: 0 0% 98%;
-    --sidebar-border: 240 5.9% 92%;
+    --background: 1 0 0;
+    --foreground: 0.145 0 0;
+    --card: 1 0 0;
+    --card-foreground: 0.145 0 0;
+    --popover: 1 0 0;
+    --popover-foreground: 0.145 0 0;
+    --primary: 0.205 0 0;
+    --primary-foreground: 0.985 0 0;
+    --secondary: 0.95 0 0;
+    --secondary-foreground: 0.205 0 0;
+    --muted: 0.97 0 0;
+    --muted-foreground: 0.556 0 0;
+    --accent: 0.95 0 0;
+    --accent-foreground: 0.205 0 0;
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 0.985 0 0;
+    --border: 0.875 0 0;
+    --input: 0.92 0 0;
+    --ring: 0.708 0 0;
+    --sidebar: 0.985 0 0;
+    --code-background: 0.985 0 0;
+    --code-foreground: 0.145 0 0;
+    --radius: 0.625rem;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-
-    --card: 240 10% 5.5%;
-    --card-foreground: 0 0% 98%;
-
-    --popover: 240 10% 5.5%;
-    --popover-foreground: 0 0% 98%;
-
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 240 3.7% 17%;
-    --input: 240 3.7% 17%;
-    --ring: 240 4.9% 83.9%;
-
-    --sidebar-bg: 240 10% 4.8%;
-    --sidebar-border: 240 3.7% 15%;
+    --background: 0.16 0 0;
+    --foreground: 0.985 0 0;
+    --card: 0.205 0 0;
+    --card-foreground: 0.985 0 0;
+    --popover: 0.205 0 0;
+    --popover-foreground: 0.985 0 0;
+    --primary: 0.922 0 0;
+    --primary-foreground: 0.205 0 0;
+    --secondary: 0.29 0 0;
+    --secondary-foreground: 0.985 0 0;
+    --muted: 0.269 0 0;
+    --muted-foreground: 0.708 0 0;
+    --accent: 0.269 0 0;
+    --accent-foreground: 0.985 0 0;
+    --destructive: 0.704 0.191 22.216;
+    --destructive-foreground: 0.985 0 0;
+    --border: 0.41 0 0;
+    --input: 0.41 0 0;
+    --ring: 0.556 0 0;
+    --sidebar: 0.2 0 0;
+    --code-background: 0.225 0 0;
+    --code-foreground: 0.875 0 0;
   }
-}
 
-@layer base {
   * {
     @apply border-border;
   }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
-    @apply bg-background text-foreground antialiased selection:bg-primary/10;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    @apply bg-background text-foreground antialiased;
+  }
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
+      "Liberation Mono", Menlo, monospace;
   }
 }
 
-/* Custom scrollbars */
+/* Scrollbars: thin, and invisible until the area is hovered. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: oklch(var(--muted-foreground) / 0.3) transparent;
+}
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.25);
-  border-radius: 9999px;
+  background: transparent;
+  border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+*:hover::-webkit-scrollbar-thumb {
+  background: oklch(var(--muted-foreground) / 0.3);
+}
+
+/* "Reasoning..." and "Processing..." shimmer, as in llama.cpp. */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    oklch(var(--muted-foreground)),
+    oklch(var(--foreground)),
+    oklch(var(--muted-foreground))
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  font-weight: 500;
+  animation: shimmer 1s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* Markdown answers. Block spacing lives here so streamed blocks line up. */
+.markdown {
+  line-height: 1.875rem;
+}
+.markdown > * > :first-child,
+.markdown > :first-child > :first-child {
+  margin-top: 0;
+}
+.markdown p {
+  margin: 0.75rem 0;
+}
+.markdown h1 {
+  @apply mb-3 mt-6 text-2xl font-semibold tracking-tight;
+}
+.markdown h2 {
+  @apply mb-2 mt-5 text-xl font-semibold tracking-tight;
+}
+.markdown h3 {
+  @apply mb-2 mt-4 text-lg font-semibold;
+}
+.markdown h4 {
+  @apply mb-1 mt-3 font-semibold;
+}
+.markdown ul {
+  @apply my-3 list-disc pl-6;
+}
+.markdown ol {
+  @apply my-3 list-decimal pl-6;
+}
+.markdown li {
+  @apply my-1;
+}
+.markdown blockquote {
+  @apply my-3 border-l-2 pl-4 text-muted-foreground;
+}
+.markdown hr {
+  @apply my-6;
+}
+.markdown strong {
+  @apply font-semibold;
+}
+
+/* highlight.js, on the code-background tokens. */
+.hljs-comment,
+.hljs-quote {
+  color: oklch(0.55 0 0);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-type {
+  color: oklch(0.55 0.2 300);
+}
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-built_in,
+.dark .hljs-type {
+  color: oklch(0.75 0.15 300);
+}
+.hljs-string,
+.hljs-attr,
+.hljs-template-tag {
+  color: oklch(0.5 0.13 150);
+}
+.dark .hljs-string,
+.dark .hljs-attr,
+.dark .hljs-template-tag {
+  color: oklch(0.78 0.13 150);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-symbol {
+  color: oklch(0.55 0.15 50);
+}
+.dark .hljs-number,
+.dark .hljs-literal,
+.dark .hljs-symbol {
+  color: oklch(0.8 0.13 60);
+}
+.hljs-title,
+.hljs-function .hljs-title,
+.hljs-section {
+  color: oklch(0.5 0.15 250);
+}
+.dark .hljs-title,
+.dark .hljs-function .hljs-title,
+.dark .hljs-section {
+  color: oklch(0.75 0.12 250);
 }

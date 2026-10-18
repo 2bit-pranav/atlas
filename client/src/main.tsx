@@ -1,16 +1,18 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
+import { BrowserRouter } from "react-router-dom"
+import * as Tooltip from "@radix-ui/react-tooltip"
+
 import "./index.css"
+import "./lib/prefs"
 import { App } from "./App"
-import { ThemeProvider } from "./context/ThemeContext"
-import { TooltipProvider } from "./components/ui/tooltip"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="light" storageKey="atlas-theme">
-      <TooltipProvider>
+    <BrowserRouter>
+      <Tooltip.Provider delayDuration={300}>
         <App />
-      </TooltipProvider>
-    </ThemeProvider>
-  </StrictMode>
+      </Tooltip.Provider>
+    </BrowserRouter>
+  </StrictMode>,
 )

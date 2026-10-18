@@ -88,6 +88,23 @@ class SessionManager:
                                exc_info=True)
         return removed
 
+    async def read_snapshots(self, snapshot_ids: Iterable[str | None]) -> dict[str, str]:
+        """Snapshot bytes by id, as text, for an export. Missing ids are skipped."""
+        storage = self.manager()._resolved_storage  # noqa: SLF001
+        out: dict[str, str] = {}
+        for snapshot_id in sorted({s for s in snapshot_ids if s}):
+            data = await storage.read(_snapshot_key(self.chat_id, AGENT_ID, snapshot_id=snapshot_id))
+            if data is not None:
+                out[snapshot_id] = data.decode("utf-8")
+        return out
+
+    async def write_snapshots(self, snapshots: dict[str, str]) -> None:
+        """Write exported snapshots back under this chat's session, for an import."""
+        storage = self.manager()._resolved_storage  # noqa: SLF001
+        for snapshot_id, text in snapshots.items():
+            await storage.write(_snapshot_key(self.chat_id, AGENT_ID, snapshot_id=snapshot_id),
+                                text.encode("utf-8"))
+
     async def delete_all(self) -> None:
         """Remove every snapshot of this chat. Used when the chat is deleted."""
         await self.manager().delete_session()

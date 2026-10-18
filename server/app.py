@@ -301,6 +301,24 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         shutil.rmtree(paths.chat_dir(state.settings, chat_id), ignore_errors=True)
         return {"deleted": chat_id}
 
+    @api.get("/chats/{chat_id}/export")
+    async def export_chat(chat_id: str) -> dict[str, Any]:
+        """Everything needed to restore the chat elsewhere, version tree and
+        Strands snapshots included, so an imported chat can be continued."""
+        state.require_chat(chat_id)
+        rows = state.store.export_rows(chat_id)
+        snaps = await SessionManager(state.settings, chat_id).read_snapshots(
+            t["after_snap"] for t in rows["turns"])
+        return {"format": "atlas-chat", "version": 1, **rows, "snapshots": snaps}
+
+    @api.post("/chats/import")
+    async def import_chat(body: dict[str, Any]) -> dict[str, Any]:
+        if body.get("format") != "atlas-chat" or not isinstance(body.get("turns"), list):
+            raise HTTPException(422, "not an Atlas chat export")
+        chat_id = state.store.import_rows(body.get("chat") or {}, body["turns"])
+        await SessionManager(state.settings, chat_id).write_snapshots(body.get("snapshots") or {})
+        return state.store.get_chat(chat_id)  # type: ignore[return-value]
+
     # --------------------------------------------------------------- files --
 
     @api.post("/chats/{chat_id}/files")

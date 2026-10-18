@@ -15,19 +15,12 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // The backend serves its routes at the root (`/chats`, `/runs`, `/settings`),
-    // not under a prefix, so each one is proxied explicitly rather than proxying
-    // "/" -- which would swallow Vite's own HMR and asset requests. Proxied
+    // Every backend route is under /api, so one prefix is proxied and the
+    // app's own pages (/settings, /skills, /mcp) stay with the SPA. Proxied
     // rather than reached cross-origin because the backend sends no CORS
-    // headers, and the `/runs/*/events` stream is a long-lived response that a
-    // browser will not open to another origin at all.
+    // headers, and the event stream is a long-lived response.
     proxy: {
-      "/health": { target: backend, changeOrigin: true },
-      "/chats": { target: backend, changeOrigin: true },
-      "/turns": { target: backend, changeOrigin: true },
-      "/runs": { target: backend, changeOrigin: true },
-      "/settings": { target: backend, changeOrigin: true },
-      "/skills": { target: backend, changeOrigin: true },
+      "/api": { target: backend, changeOrigin: true },
     },
   },
 })

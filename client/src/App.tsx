@@ -1,109 +1,212 @@
 /**
- * The shell: sidebar, header, chat surface, settings.
+ * The shell: sidebar, routes, keyboard shortcuts, the delete dialog.
  *
- * This file is now almost entirely layout. It owns no chat state and no
- * fetching -- that all lives in `atlasStore`, which is the only thing that
- * knows what the backend said. The component's job is to decide where things
- * go and to report which model is configured, because that is display state
- * with no other home.
- *
- * What was here before and is now gone: a mock engine that faked a five-step
- * planning workflow, a localStorage transcript that survived deletes, and a
- * model picker offering four model files that do not exist on this machine.
- * Every one of those looked like a feature and was a lie about the backend.
+ * Routes mirror llama.cpp's: the chat at `/` and `/c/:id`, and full pages for
+ * Settings, Skills and MCP instead of modals. All chat state lives in
+ * `lib/store`; this file only decides what is on screen.
  */
 
-import React, { useEffect, useState } from "react"
-import { AlertTriangle, PanelLeft, SlidersHorizontal } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom"
+import * as Dialog from "@radix-ui/react-dialog"
+import { AlertTriangle, PanelLeftOpen, X } from "lucide-react"
 
-import { Sidebar } from "@/components/sidebar/Sidebar"
-import { ChatSurface } from "@/components/chat/ChatSurface"
-import { SettingsModal } from "@/components/settings/SettingsModal"
-import { atlas, useAtlas } from "@/services/atlasStore"
+import { atlas, useAtlas } from "@/lib/store"
+import { matchShortcut } from "@/lib/shortcuts"
+import { downloadJson, exportName } from "@/lib/download"
+import type { ChatSummary } from "@/lib/types"
+import { Sidebar } from "@/components/Sidebar"
+import { ChatScreen } from "@/components/chat/ChatScreen"
+import { Button } from "@/components/ui/kit"
+import { SettingsPage } from "@/pages/SettingsPage"
+import { SkillsPage } from "@/pages/SkillsPage"
+import { McpPage } from "@/pages/McpPage"
+
+const SIDEBAR_KEY = "atlas-sidebar-open"
 
 export function App() {
-  const state = useAtlas()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [sidebar, setSidebar] = useState(() => {
+    try {
+      return window.innerWidth >= 768 && localStorage.getItem(SIDEBAR_KEY) !== "false"
+    } catch {
+      return window.innerWidth >= 768
+    }
+  })
+  const [searching, setSearching] = useState(false)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<ChatSummary | null>(null)
+  const error = useAtlas((s) => s.error)
+  const title = useAtlas((s) => s.chat?.title)
 
-  // Settings and the chat list, once, on mount.
   useEffect(() => {
     void atlas.init()
   }, [])
 
-  // The real model, read from settings. Display only -- there is exactly one
-  // and picking a different one is a settings.json edit, not a UI action.
-  const modelPath = (state.settings?.values["model.path"] as string) ?? ""
-  const modelName = modelPath ? modelPath.split(/[\\/]/).pop() : null
+  useEffect(() => {
+    document.title = title ? `${title} - Atlas` : "Atlas"
+  }, [title])
+
+  const toggleSidebar = useCallback(() => {
+    setSidebar((open) => {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, String(!open))
+      } catch {
+        /* not remembered, still toggled */
+      }
+      return !open
+    })
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const action = matchShortcut(e)
+      if (!action) return
+      e.preventDefault()
+      const { chat, chats } = atlas.state
+      const current = chats.find((c) => c.id === chat?.id)
+      const index = chats.findIndex((c) => c.id === chat?.id)
+      switch (action) {
+        case "newChat":
+          atlas.newChat()
+          navigate("/")
+          break
+        case "search":
+          setSidebar(true)
+          setSearching(true)
+          break
+        case "toggleSidebar":
+          toggleSidebar()
+          break
+        case "settings":
+          navigate("/settings")
+          break
+        case "renameChat":
+          if (current) {
+            setSidebar(true)
+            setSearching(false)
+            setRenaming(current.id)
+          }
+          break
+        case "deleteChat":
+          if (current) setDeleting(current)
+          break
+        case "exportChat":
+          if (current)
+            void atlas.exportChats([current.id]).then(([data]) => downloadJson(exportName(current.id, current.title), data))
+          break
+        case "prevChat":
+        case "nextChat": {
+          const next = chats[action === "prevChat" ? Math.max(0, index - 1) : Math.min(chats.length - 1, index + 1)]
+          if (next) navigate(`/c/${next.id}`)
+          break
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [navigate, toggleSidebar])
+
+  const onChatPage = location.pathname === "/" || location.pathname.startsWith("/c/")
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground antialiased font-sans">
+    <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
       <Sidebar
-        sessions={state.chats}
-        currentSessionId={state.chatId}
-        onSelectSession={(id) => void atlas.openChat(id)}
-        onNewChat={() => void atlas.newChat()}
-        onDeleteSession={(id) => void atlas.deleteChat(id)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        isOpen={sidebarOpen}
-        onToggleOpen={() => setSidebarOpen((v) => !v)}
+        open={sidebar}
+        onToggle={toggleSidebar}
+        searching={searching}
+        setSearching={setSearching}
+        renaming={renaming}
+        setRenaming={setRenaming}
+        onDelete={setDeleting}
       />
 
-      <main className="relative flex h-screen flex-1 flex-col overflow-hidden">
-        <header className="flex h-12 shrink-0 select-none items-center justify-between border-b border-border/40 bg-background/50 px-4 backdrop-blur-xs">
-          <div className="flex items-center gap-2">
-            {!sidebarOpen && (
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title="Open sidebar"
-              >
-                <PanelLeft className="h-4 w-4" />
-              </button>
-            )}
-            <span className="max-w-[200px] truncate text-xs font-medium text-foreground sm:max-w-xs">
-              {state.chats.find((c) => c.id === state.chatId)?.title || "Atlas"}
-            </span>
-          </div>
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {!sidebar && (
+          <button type="button" onClick={toggleSidebar} aria-label="Open sidebar"
+                  className="absolute left-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full hover:bg-accent md:hidden">
+            <PanelLeftOpen className="h-4 w-4" />
+          </button>
+        )}
 
-          <div className="flex items-center gap-2">
-            {modelName && (
-              <div className="hidden items-center gap-1.5 rounded-full border border-border/50 bg-muted/50 px-2.5 py-1 font-mono text-[11px] text-muted-foreground sm:flex">
-                <span className="max-w-[180px] truncate">{modelName}</span>
-              </div>
-            )}
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-              title="Settings"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </header>
-
-        {/* Errors are shown once, at the top, from the backend's own message.
-            An inline notification beats an alert dialog, and it does not hide
-            the answer that was already on screen. */}
-        {state.error && (
-          <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span className="whitespace-pre-wrap">{state.error}</span>
+        {error && (
+          <div className="mx-auto mt-3 flex w-full max-w-3xl items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{error}</span>
+            <button type="button" onClick={atlas.clearError} aria-label="Dismiss"><X className="h-3.5 w-3.5" /></button>
           </div>
         )}
 
-        <div className="relative flex-1 overflow-hidden">
-          <ChatSurface />
+        <div className={onChatPage ? "min-h-0 flex-1" : "hidden"}>
+          <Routes>
+            <Route path="/" element={<ChatRoute />} />
+            <Route path="/c/:chatId" element={<ChatRoute />} />
+            <Route path="*" element={null} />
+          </Routes>
         </div>
+        {!onChatPage && (
+          <div className="min-h-0 flex-1">
+            <Routes>
+              <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
+              <Route path="/settings/:section" element={<SettingsPage />} />
+              <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/mcp" element={<McpPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </div>
+        )}
       </main>
 
-      <SettingsModal
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        settings={state.settings}
-        onSave={(patch) => atlas.saveSettings(patch)}
-        onRefresh={() => void atlas.refreshSettings()}
-      />
+      <DeleteDialog chat={deleting} onClose={() => setDeleting(null)} onConfirm={async (chat) => {
+        setDeleting(null)
+        await atlas.deleteChat(chat.id)
+        if (location.pathname === `/c/${chat.id}`) navigate("/")
+      }} />
     </div>
+  )
+}
+
+/** Keeps the URL and the open chat in step, in both directions. */
+function ChatRoute() {
+  const { chatId } = useParams()
+  const navigate = useNavigate()
+  const openId = useAtlas((s) => s.chat?.id ?? null)
+
+  useEffect(() => {
+    if (chatId) void atlas.openChat(chatId)
+    else if (atlas.state.chat) atlas.newChat()
+  }, [chatId])
+
+  // A first message creates the chat: move the URL to it.
+  useEffect(() => {
+    if (!chatId && openId) navigate(`/c/${openId}`, { replace: true })
+  }, [chatId, openId, navigate])
+
+  return <ChatScreen />
+}
+
+function DeleteDialog({ chat, onClose, onConfirm }: {
+  chat: ChatSummary | null
+  onClose: () => void
+  onConfirm: (chat: ChatSummary) => void
+}) {
+  return (
+    <Dialog.Root open={chat !== null} onOpenChange={(open) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-5 shadow-lg">
+          <Dialog.Title className="text-base font-semibold">Delete conversation</Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+            "{chat?.title || "New chat"}" will be deleted, with every version, its model history and its uploaded files.
+            This cannot be undone.
+          </Dialog.Description>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button variant="destructive" onClick={() => chat && onConfirm(chat)} autoFocus>Delete</Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }

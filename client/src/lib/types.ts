@@ -1,0 +1,168 @@
+/**
+ * The API contract, transcribed from `server/app.py` and `server/extensions.py`.
+ *
+ * One file, so a backend change breaks in one place. Two footguns worth
+ * remembering: `created_at` is already epoch *milliseconds*, and `?after=` on
+ * the event stream is the first sequence number the client has NOT seen.
+ */
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
+
+export type TurnStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted"
+
+export interface ChatFile {
+  name: string
+  path: string
+  size: number
+  type: string
+}
+
+export interface ChatSummary {
+  id: string
+  title: string
+  created_at: number
+  updated_at: number
+}
+
+export type Part =
+  | { kind: "text"; text: string }
+  | { kind: "reasoning"; text: string }
+  | {
+      kind: "tool"
+      id: string
+      name: string
+      args: unknown
+      status: "running" | "success" | "error"
+      text: string
+    }
+
+export interface TurnStats {
+  context_size?: number
+  context_used?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+  tokens_per_second?: number
+  prompt_per_second?: number
+  model_calls?: number
+  duration_ms?: number
+}
+
+export interface Turn {
+  id: string
+  parent_id: string | null
+  user_text: string
+  files: ChatFile[]
+  status: TurnStatus
+  created_at: number
+  render: Part[]
+  stats: TurnStats | null
+  error: string | null
+  version: number
+  versions: string[]
+}
+
+export interface RunRef {
+  id: string
+  chat_id: string
+  turn_id: string
+  status: string
+}
+
+export interface ChatView extends ChatSummary {
+  turns: Turn[]
+  active_run: RunRef | null
+}
+
+export interface StartedRun {
+  run: RunRef
+  chat: ChatView
+}
+
+export type RunEvent = { seq: number } & (
+  | { type: "run_started"; chat_id: string; turn_id: string }
+  | { type: "call_start" }
+  | { type: "model_retry"; reason: string; attempt: number; of: number }
+  | { type: "thinking_delta"; text: string }
+  | { type: "text_delta"; text: string }
+  | { type: "tool_start"; id: string; name: string; args: unknown }
+  | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
+  | { type: "tool_end"; id: string; name: string; status: string; text: string }
+  | ({ type: "stats" } & TurnStats)
+  | { type: "usage"; input: number; output: number; total: number; reported?: number }
+  | { type: "done"; status: TurnStatus }
+  | { type: "error"; status: TurnStatus; message: string | null }
+)
+
+// --------------------------------------------------------------- settings --
+
+export type Tier = "live" | "restart"
+
+export interface Skill {
+  name: string
+  description: string
+  error: string | null
+  folder: string
+  path: string
+  enabled: boolean
+  scripts: string[]
+  requirements: string[]
+  bytes: number
+  tokens: number
+  bundled: boolean
+  origin: { type: string; source?: string; command?: string; installed_at?: number } | null
+}
+
+export interface McpTool {
+  name: string
+  agent_name: string
+  description: string
+  enabled: boolean
+  tokens: number
+}
+
+export interface McpServer {
+  name: string
+  config: Record<string, unknown>
+  transport: "local" | "remote"
+  status: "connected" | "connecting" | "failed" | "stopped" | "disabled"
+  error: string | null
+  enabled: boolean
+  tools: McpTool[]
+  tokens: number
+}
+
+export interface RegistryOption {
+  kind: string
+  local: boolean
+  config: Record<string, unknown>
+  env: { name: string; description?: string; isRequired?: boolean; isSecret?: boolean }[]
+}
+
+export interface RegistryServer {
+  name: string
+  title: string
+  description: string
+  version: string | null
+  repository: string | null
+  options: RegistryOption[]
+}
+
+export interface SettingsView {
+  values: Record<string, unknown>
+  tiers: Record<string, Tier>
+  pending_restart: Record<string, unknown>
+  tools: { available: string[]; builtin_tools: string[]; interventions: boolean }
+  skills: Skill[]
+  mcp: McpServer[]
+  paths: { root: string; data: string }
+}
+
+export interface SkillInstallResult {
+  installed: { name: string; folder: string }[]
+  choices: { name: string; folder: string; description: string }[]
+  skills: Skill[]
+}

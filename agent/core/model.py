@@ -92,6 +92,22 @@ class AtlasLlamaCppModel(LlamaCppModel):
         request.update(self._extra_body)
         return request
 
+    def _format_messages(self, messages: Messages, system_prompt: str | None = None) -> list[dict[str, Any]]:
+        """Drop reasoning from history before it is sent back to the model.
+
+        With thinking on, Strands keeps a `reasoningContent` block in the
+        assistant message, and the base formatter raises
+        `content_type=<reasoningContent> | unsupported type` on it -- so every
+        model call *after* a tool call failed. Reasoning is never replayed
+        anyway: the model thinks afresh each call, and old thoughts would only
+        spend context.
+        """
+        stripped = [
+            {**m, "content": [b for b in m.get("content") or [] if "reasoningContent" not in b]}
+            for m in messages
+        ]
+        return super()._format_messages(stripped, system_prompt)
+
     def _observe(self, event: dict[str, Any]) -> None:
         if self.observer is not None:
             try:

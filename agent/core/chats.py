@@ -309,6 +309,41 @@ class ChatStore:
         self._write(clear_pointer, (f"DELETE FROM turns WHERE id IN ({marks})", tuple(doomed)))
         return turn, snaps
 
+    # ------------------------------------------------------ export/import --
+
+    def export_rows(self, chat_id: str) -> dict[str, Any]:
+        chat = self.get_chat(chat_id)
+        turns = self._rows("SELECT * FROM turns WHERE chat_id=? ORDER BY created_at", (chat_id,))
+        return {"chat": chat, "turns": turns}
+
+    def import_rows(self, chat: dict[str, Any], turns: list[dict[str, Any]]) -> str:
+        """Insert an exported chat under fresh ids. Returns the new chat id.
+
+        Ids are remapped so importing the same file twice gives two chats
+        rather than a primary-key collision. Snapshot ids are kept: they are
+        stored under the new chat's session, so they cannot clash either.
+        """
+        new_chat = new_id()
+        ids = {t["id"]: new_id() for t in turns}
+        now = _now()
+        statements: list[tuple[str, tuple]] = [(
+            "INSERT INTO chats(id, title, selected_root, created_at, updated_at) VALUES(?,?,?,?,?)",
+            (new_chat, chat.get("title") or "Imported chat", ids.get(chat.get("selected_root")),
+             chat.get("created_at") or now, now))]
+        for t in turns:  # created_at order, so a parent is always inserted first
+            statements.append((
+                """INSERT INTO turns(id, chat_id, parent_turn_id, user_text, files_json,
+                                     before_snap, after_snap, status, selected_child,
+                                     render_json, stats_json, error, created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (ids[t["id"]], new_chat, ids.get(t.get("parent_turn_id")), t.get("user_text", ""),
+                 t.get("files_json") or "[]", t.get("before_snap"), t.get("after_snap"),
+                 t["status"] if t.get("status") in TERMINAL else INTERRUPTED,
+                 ids.get(t.get("selected_child")), t.get("render_json"), t.get("stats_json"),
+                 t.get("error"), t.get("created_at") or now)))
+        self._write(*statements)
+        return new_chat
+
     def _snapshots_of(self, turn_ids: list[str]) -> list[str]:
         if not turn_ids:
             return []
