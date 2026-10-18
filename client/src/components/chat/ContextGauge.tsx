@@ -8,7 +8,8 @@
  * an answer streams, because the backend forwards per-token timings.
  */
 
-import { useState } from "react"
+import { useRef, useState } from "react"
+import { createPortal } from "react-dom"
 
 import { currentStats, useAtlas } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -19,7 +20,11 @@ const compact = (n: number) =>
 export function ContextGauge() {
   const stats = useAtlas(currentStats)
   const fallbackSize = useAtlas((s) => Number(s.settings?.values["model.context_size"] ?? 0))
-  const [open, setOpen] = useState(false)
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const open = anchor !== null
+  const show = () => setAnchor(button.current?.getBoundingClientRect() ?? null)
+  const hide = () => setAnchor(null)
 
   const size = stats?.context_size || fallbackSize
   const used = stats?.context_used ?? 0
@@ -32,8 +37,8 @@ export function ContextGauge() {
   const circumference = 2 * Math.PI * r
 
   return (
-    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-label="Context usage"
+    <div onMouseEnter={show} onMouseLeave={hide}>
+      <button ref={button} type="button" onClick={() => (open ? hide() : show())} aria-label="Context usage"
               className={cn("flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted-foreground/10", tone)}>
         <svg width="20" height="20" viewBox="0 0 20 20" className="-rotate-90">
           <circle cx="10" cy="10" r={r} fill="none" stroke="currentColor" strokeOpacity="0.15" strokeWidth="2.5" />
@@ -42,8 +47,13 @@ export function ContextGauge() {
         </svg>
       </button>
 
-      {open && (
-        <div className="absolute bottom-full right-0 z-50 mb-2 w-64 rounded-lg border border-border/50 bg-popover p-3 text-sm shadow-lg ring-1 ring-foreground/10">
+      {/* Portalled to <body>: the composer clips its children (overflow-hidden,
+          for the rounded pill), which cut this popover off. Fixed position,
+          anchored above the ring's right edge. */}
+      {anchor && createPortal(
+        <div
+          style={{ bottom: window.innerHeight - anchor.top + 8, right: Math.max(8, window.innerWidth - anchor.right) }}
+          className="fixed z-50 w-64 rounded-lg border border-border/50 bg-popover p-3 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10">
           <div className="flex items-baseline justify-between">
             <span className="font-medium">Context</span>
             <span className="font-mono text-xs text-muted-foreground">{compact(used)} / {compact(size)}</span>
@@ -64,7 +74,8 @@ export function ContextGauge() {
             {stats?.tokens_per_second ? <Row label="Writing" value={`${stats.tokens_per_second.toFixed(1)} t/s`} /> : null}
             {stats?.model_calls && stats.model_calls > 1 ? <Row label="Model calls this turn" value={String(stats.model_calls)} /> : null}
           </dl>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
