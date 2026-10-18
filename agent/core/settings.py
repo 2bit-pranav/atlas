@@ -79,18 +79,15 @@ class PortSettings(StrictModel):
 class SamplingSettings(StrictModel):
     """Sent to the model on every request.
 
-    `presence_penalty` and `frequency_penalty` bias a retried turn toward a
-    different wording. Note what that does and does not buy: penalties act on
-    tokens being generated, so they make a second attempt *differently worded*,
-    not differently *reasoned*. Forcing a different approach is better served by
-    restoring further back (see `regeneration.rewind_to`) or by the instruction
-    in `regeneration.instructions`. Both are settings rather than behaviour, so
-    the choice stays open until it is measured (T3.10).
+    Penalties act on the tokens being generated, so they change the *wording* of
+    an answer, not its approach. What makes a retry genuinely different lives in
+    `retry` instead.
     """
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)
     top_k: int = Field(default=40, ge=0)
+    min_p: float = Field(default=0.05, ge=0.0, le=1.0)
     max_tokens: int = Field(default=2048, gt=0)
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
@@ -110,22 +107,24 @@ class LlamaCppSettings(StrictModel):
 # --------------------------------------------------------------- agents ----
 
 
-class ToolGroupSettings(StrictModel):
-    """Which built-in tool groups are on (design.md 1a).
+class BuiltinToolSettings(StrictModel):
+    """Which of the harness's built-in tools the agent gets, one switch each.
 
     Not cosmetic. Every tool schema costs prompt tokens on a 32k window, and a
     smaller set is also a safety control: dropping `shell` removes the ability
-    to run anything at all.
+    to run anything at all -- including every skill script.
     """
 
-    files: bool = True
+    read: bool = True
+    write: bool = True
+    edit: bool = True
     shell: bool = True
-    web: bool = False
-    subagents: bool = False
+    web_fetch: bool = False
+    subagent: bool = False
 
 
 class ToolsSettings(StrictModel):
-    groups: ToolGroupSettings = Field(default_factory=ToolGroupSettings)
+    builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
     #: Ask before running a shell command. Off for now because there is no
     #: frontend to show the prompt; revisit with the UI (design.md L5).
     interventions: bool = False
@@ -133,10 +132,23 @@ class ToolsSettings(StrictModel):
 
 class SkillSettings(StrictModel):
     dir: str = "skills"
-    #: Skill folder names to enable. Empty means "all discovered". An unknown
-    #: name is a startup error rather than a silent no-op, because a typo here
-    #: looks exactly like "the skill does not work".
-    enabled: list[str] = Field(default_factory=list)
+    #: Skill folder names to switch off. Every other discovered skill is on, so
+    #: a newly installed skill works without a second step. An unknown name is
+    #: ignored: it usually means the skill was deleted after being disabled.
+    disabled: list[str] = Field(default_factory=list)
+
+
+class McpSettings(StrictModel):
+    """MCP servers, in the standard `mcpServers` JSON format.
+
+    Kept in its own file rather than inside settings.json because that format is
+    what every MCP server's README shows: a block can be pasted in unchanged.
+    """
+
+    #: Relative to the application root.
+    config: str = "mcp.json"
+    #: Seconds to wait for one server to start and list its tools.
+    startup_timeout: float = Field(default=30.0, gt=0)
 
 
 class MemorySettings(StrictModel):
@@ -169,39 +181,64 @@ class MemorySettings(StrictModel):
         return self
 
 
-class RegenerationSettings(StrictModel):
-    """How a retry or an edit differs from the attempt it replaces.
+class RetrySettings(StrictModel):
+    """What makes a retried answer genuinely different from the one before it.
 
-    Both versions are always kept -- nothing is deleted (T3.9) -- so these only
-    shape the *new* attempt.
+    A retry restores the same state and asks the same question, so on its own
+    it gets a near-copy: the sampler is the only thing that changed, and a small
+    model at a moderate temperature follows the same path. Three levers, in
+    order of effect:
+
+    1. `show_previous` -- the model is told what the earlier versions said and
+       asked for a different approach. This is the only lever that changes the
+       *reasoning*, not just the wording. The hint is stripped from history
+       before the snapshot is saved, so follow-up turns never see it.
+    2. `temperature_boost` and `presence_penalty` -- wider sampling for the
+       retry only.
+    3. A fresh random `seed`, so two retries never share a sampling path.
     """
 
-    #: `replace` rewrites the visible tail; `branch` keeps both and lets `<`/`>`
-    #: switch. The tree supports both; this picks the default.
-    mode: str = Field(default="branch", pattern="^(replace|branch)$")
-    #: How far back a retry restores. `turn` = before the failed answer;
-    #: `tool_result` = before the last tool result, which forces the model to
-    #: re-derive the answer rather than re-read its own conclusion.
-    rewind_to: str = Field(default="turn", pattern="^(turn|tool_result)$")
-    #: Appended to the retried user turn, and deliberately kept OUTSIDE the
-    #: snapshot so repeated retries cannot compound it.
-    instructions: str = ""
-    fresh_seed: bool = True
+    show_previous: bool = True
+    #: How many earlier versions to quote, newest first.
+    previous_limit: int = Field(default=2, ge=1, le=5)
+    #: Characters quoted from each earlier version.
+    previous_chars: int = Field(default=600, ge=100, le=4000)
+    instructions: str = (
+        "This question was already answered. Write a substantially different "
+        "answer: take a different approach, structure or angle. Do not reword "
+        "the earlier answer."
+    )
+    temperature_boost: float = Field(default=0.3, ge=0.0, le=1.0)
+    presence_penalty: float = Field(default=0.6, ge=-2.0, le=2.0)
+    new_seed: bool = True
+
+
+class ResilienceSettings(StrictModel):
+    """How a run recovers from failures without a human (agent/core/resilience.py).
+
+    Built on Strands' own hooks rather than on prompt text: a 2B model does not
+    reliably follow "retry on failure", but a hook always runs.
+    """
+
+    #: Total attempts per model call when llama-server errors or returns nothing.
+    model_attempts: int = Field(default=3, ge=1, le=10)
+    #: Seconds between model attempts. Local, so no exponential backoff.
+    model_retry_delay: float = Field(default=1.0, ge=0.0, le=30.0)
+    #: Re-runs of a tool that raised (crashed), as opposed to one that returned
+    #: an error. A crash is usually transient; a returned error is not.
+    tool_crash_retries: int = Field(default=1, ge=0, le=5)
+    #: Failed tool calls per turn after which the model is told to stop trying
+    #: and explain the failure instead.
+    tool_failure_limit: int = Field(default=3, ge=1, le=10)
+    #: When the model gives up straight after a failed tool call, re-invoke it
+    #: once with the failure in front of it.
+    nudge_after_failure: bool = True
 
 
 class SessionSettings(StrictModel):
-    """Where Strands writes snapshots, and when Atlas adds one."""
+    """Where Strands writes snapshots. Relative to `paths.data_dir`."""
 
-    dir: str = "data/sessions"
-    #: `append` is the only supported mode and is not configurable: snapshots
-    #: written with `is_latest=False` are immutable and are never deleted, which
-    #: is what makes retry, edit and `<`/`>` able to return to any earlier point.
-    #: `delete_session` is never called.
-    mode: str = Field(default="append", pattern="^append$")
-    #: Capped, so a long conversation cannot fill the disk. Old snapshots are
-    #: dropped oldest-first; the tree rows survive so a dropped id fails loudly
-    #: rather than silently.
-    max_snapshots: int = Field(default=500, gt=0)
+    dir: str = "sessions"
 
 
 class ContextSettings(StrictModel):
@@ -234,7 +271,10 @@ class ContextSettings(StrictModel):
 
 
 class PathsSettings(StrictModel):
-    data_dir: str = "data"
+    #: Everything Atlas generates: the chat database, Strands snapshots, and
+    #: each chat's uploads and workspace. Relative to the application root, and
+    #: dot-prefixed so it reads as state rather than source.
+    data_dir: str = ".data"
 
 
 class Settings(StrictModel):
@@ -244,8 +284,10 @@ class Settings(StrictModel):
     llamacpp: LlamaCppSettings = Field(default_factory=LlamaCppSettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
     skills: SkillSettings = Field(default_factory=SkillSettings)
+    mcp: McpSettings = Field(default_factory=McpSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
-    regeneration: RegenerationSettings = Field(default_factory=RegenerationSettings)
+    retry: RetrySettings = Field(default_factory=RetrySettings)
+    resilience: ResilienceSettings = Field(default_factory=ResilienceSettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
@@ -281,26 +323,37 @@ TIERS: dict[str, Tier] = {
     "sampling.temperature": Tier.LIVE,
     "sampling.top_p": Tier.LIVE,
     "sampling.top_k": Tier.LIVE,
+    "sampling.min_p": Tier.LIVE,
     "sampling.max_tokens": Tier.LIVE,
     "sampling.presence_penalty": Tier.LIVE,
     "sampling.frequency_penalty": Tier.LIVE,
     "sampling.repeat_penalty": Tier.LIVE,
     "sampling.thinking": Tier.LIVE,
-    "tools.groups.files": Tier.LIVE,
-    "tools.groups.shell": Tier.LIVE,
-    "tools.groups.web": Tier.LIVE,
-    "tools.groups.subagents": Tier.LIVE,
+    "tools.builtin.read": Tier.LIVE,
+    "tools.builtin.write": Tier.LIVE,
+    "tools.builtin.edit": Tier.LIVE,
+    "tools.builtin.shell": Tier.LIVE,
+    "tools.builtin.web_fetch": Tier.LIVE,
+    "tools.builtin.subagent": Tier.LIVE,
     "tools.interventions": Tier.LIVE,
     "skills.dir": Tier.LIVE,
-    "skills.enabled": Tier.LIVE,
+    "skills.disabled": Tier.LIVE,
+    "mcp.config": Tier.RESTART,
+    "mcp.startup_timeout": Tier.LIVE,
     "memory.enabled": Tier.RESTART,
-    "regeneration.mode": Tier.LIVE,
-    "regeneration.rewind_to": Tier.LIVE,
-    "regeneration.instructions": Tier.LIVE,
-    "regeneration.fresh_seed": Tier.LIVE,
+    "retry.show_previous": Tier.LIVE,
+    "retry.previous_limit": Tier.LIVE,
+    "retry.previous_chars": Tier.LIVE,
+    "retry.instructions": Tier.LIVE,
+    "retry.temperature_boost": Tier.LIVE,
+    "retry.presence_penalty": Tier.LIVE,
+    "retry.new_seed": Tier.LIVE,
+    "resilience.model_attempts": Tier.LIVE,
+    "resilience.model_retry_delay": Tier.LIVE,
+    "resilience.tool_crash_retries": Tier.LIVE,
+    "resilience.tool_failure_limit": Tier.LIVE,
+    "resilience.nudge_after_failure": Tier.LIVE,
     "session.dir": Tier.RESTART,
-    "session.mode": Tier.RESTART,
-    "session.max_snapshots": Tier.LIVE,
     "context.conversation_manager": Tier.LIVE,
     "context.window": Tier.RESTART,
     "context.prune_trigger_ratio": Tier.LIVE,
@@ -351,15 +404,23 @@ def live_tier_values(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def changed_restart_keys(
-    current: dict[str, Any], launched: dict[str, Any]
+    current: dict[str, Any], launched_flat: dict[str, Any]
 ) -> dict[str, Any]:
-    """Restart-tier keys that differ from what the running servers were built with."""
-    out: dict[str, Any] = {}
-    for key in restart_tier_values(current):
-        now, was = get_path(current, key), get_path(launched, key)
-        if now != was:
-            out[key] = now
-    return out
+    """Restart-tier keys that differ from what the running servers were built with.
+
+    `current` is the nested settings dict; `launched_flat` is the *flat*
+    `restart_settings` block of launched.json (`{"model.path": ...}`). They
+    used to be compared with the same nested walk, which found nothing in the
+    flat dict, so every restart key always counted as changed.
+
+    A key absent from `launched_flat` is not reported: it was added to the
+    schema after that launch, and its default is what the launch ran with.
+    """
+    return {
+        key: now
+        for key, now in restart_tier_values(current).items()
+        if key in launched_flat and launched_flat[key] != now
+    }
 
 
 class SettingsError(Exception):
@@ -371,6 +432,28 @@ def parse_settings(data: Any) -> Settings:
         return Settings.model_validate(data)
     except Exception as exc:  # noqa: BLE001 - re-raised as our own type
         raise SettingsError(f"invalid settings.json:\n{exc}") from exc
+
+
+def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
+    """Write a dotted key into a nested dict, creating parents as needed."""
+    node = data
+    parts = dotted.split(".")
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = value
+
+
+def write_settings(path: Path, data: dict[str, Any]) -> None:
+    """Validate, then replace the file atomically.
+
+    Validated first so an invalid patch never reaches disk, and written through
+    a temp file so a crash mid-write cannot leave unparseable JSON behind.
+    """
+    parse_settings(data)
+    p = Path(path)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(p)
 
 
 def load_settings(path: Path) -> Settings:
@@ -386,12 +469,15 @@ def load_settings(path: Path) -> Settings:
 
 
 __all__ = [
+    "BuiltinToolSettings",
     "ContextSettings",
     "LlamaCppSettings",
+    "McpSettings",
     "MemorySettings",
     "ModelSettings",
     "PortSettings",
-    "RegenerationSettings",
+    "ResilienceSettings",
+    "RetrySettings",
     "SamplingSettings",
     "SessionSettings",
     "Settings",
@@ -400,7 +486,6 @@ __all__ = [
     "StrictModel",
     "TIERS",
     "Tier",
-    "ToolGroupSettings",
     "ToolsSettings",
     "changed_restart_keys",
     "flatten",
@@ -410,4 +495,6 @@ __all__ = [
     "load_settings",
     "parse_settings",
     "restart_tier_values",
+    "set_path",
+    "write_settings",
 ]

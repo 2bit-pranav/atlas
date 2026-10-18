@@ -19,10 +19,14 @@ htmlcov/
 launched.json
 launched.json.tmp
 
-# App state and per-chat workspaces (atlas.db, data.duckdb, blobs/, ...).
-# Everything the user has uploaded or generated lives here.
+# Everything Atlas generates: atlas.db, Strands snapshots, and each chat's
+# uploads and workspace (paths.data_dir). `data/` is the pre-refactor location.
+.data/
 data/
 workspace/
+
+# MCP server config: may hold API keys for remote servers. Per machine.
+mcp.json
 
 # Strands' own snapshot tree (.agent/sessions/<chat>/...). Written relative to
 # the process working directory, so it lands at the repo root when the backend

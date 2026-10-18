@@ -66,20 +66,22 @@ async def translate(
             if produced is not None:
                 yield produced
                 continue
-            usage_block = inner.get("messageStop")
-            if isinstance(usage_block, dict) and isinstance(
-                usage_block.get("usage"), dict
-            ):
-                yield _event("usage", **_usage(usage_block["usage"]))
+            # Usage arrives on the raw `metadata` event, once per model call.
+            for key in ("metadata", "messageStop"):
+                block = inner.get(key)
+                if isinstance(block, dict) and isinstance(block.get("usage"), dict):
+                    yield _event("usage", **_usage(block["usage"]))
+                    break
             continue
 
-        # --- reasoning, if a future version normalizes it -------------
+        # Strands ALSO reports every reasoning token as a normalized
+        # `{"reasoningText": ..., "delta": {"reasoningContent": ...}}` event.
+        # Translating that one as well sent each token twice, which the UI
+        # showed as "TheThe user user is is". The raw event above is the one
+        # source; the normalized duplicate is skipped here on purpose.
         delta = ev.get("delta")
-        if isinstance(delta, dict) and "reasoningContent" in delta:
-            text = _reasoning_text(delta["reasoningContent"])
-            if text:
-                yield _event("thinking_delta", text=text)
-                continue
+        if ev.get("reasoning") or (isinstance(delta, dict) and "reasoningContent" in delta):
+            continue
 
         # --- text ------------------------------------------------------
         data = ev.get("data")
@@ -109,13 +111,6 @@ async def translate(
             for produced in _from_message(message, pending, args):
                 yield produced
             continue
-
-        # --- usage on the terminal model event -------------------------
-        inner = ev.get("event")
-        if isinstance(inner, dict) and isinstance(inner.get("messageStop"), dict):
-            usage = inner["messageStop"].get("usage")
-            if isinstance(usage, dict):
-                yield _event("usage", **_usage(usage))
 
         # The terminal `result` event is deliberately NOT translated. `Run.finish`
         # emits the single authoritative `done`, carrying the real status; a

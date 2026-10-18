@@ -26,6 +26,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
+from server.transcript import Transcript, stats_from_timings
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,6 +51,9 @@ class Run:
     agent: Any = None
     #: Subscribers currently reading the stream, so a finish can wake them.
     waiters: list[asyncio.Event] = field(default_factory=list)
+    #: What the UI shows for this turn, folded from the same events it streams.
+    transcript: Transcript = field(default_factory=lambda: Transcript(0))
+    _last_stats: float = 0.0
 
     @property
     def done(self) -> bool:
@@ -61,8 +66,28 @@ class Run:
         here and nowhere else.
         """
         self.events.append({"seq": len(self.events), **event})
+        self.transcript.fold(event)
         self.wake()
         return len(self.events) - 1
+
+    def observe(self, event: dict[str, Any]) -> None:
+        """The model's and the retry strategy's side channel into the run.
+
+        `timings` arrive with every generated token; they are folded every time
+        but emitted at most four times a second, which is as fast as a context
+        meter can usefully move and keeps the event buffer small.
+        """
+        kind = event.get("type")
+        if kind == "timings":
+            stats = {"type": "stats", **stats_from_timings(event)}
+            now = time.monotonic()
+            if now - self._last_stats >= 0.25:
+                self._last_stats = now
+                self.emit(stats)
+            else:
+                self.transcript.fold(stats)
+        elif kind in ("call_start", "model_retry"):
+            self.emit(event)
 
     def wake(self) -> None:
         for waiter in self.waiters:
@@ -74,8 +99,9 @@ class Run:
         self.status = status
         self.error = error
         self.finished_at = time.time()
-        self.emit({"type": "done" if status == "completed" else "error",
-                   "status": status, "message": error} if error
+        # The last throttled stats may have been folded but never sent.
+        self.emit({"type": "stats", **{k: v for k, v in self.transcript.final_stats().items()}})
+        self.emit({"type": "error", "status": status, "message": error} if error
                   else {"type": "done", "status": status})
         self.wake()
 
@@ -102,10 +128,12 @@ class RunManager:
 
     # -------------------------------------------------------------- start --
 
-    def start(self, chat_id: str, turn_id: str) -> Run:
+    def start(self, chat_id: str, turn_id: str, *, context_size: int = 0) -> Run:
         if self.active() is not None:
             raise RunConflict("a run is already active")
-        run = Run(id=uuid.uuid4().hex, chat_id=chat_id, turn_id=turn_id)
+        self.sweep()
+        run = Run(id=uuid.uuid4().hex, chat_id=chat_id, turn_id=turn_id,
+                  transcript=Transcript(context_size))
         self._runs[run.id] = run
         self._active = run.id
         return run

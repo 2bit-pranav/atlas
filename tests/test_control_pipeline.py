@@ -1,61 +1,89 @@
-"""Regression tests for Atlas-owned run and chat-tree control state.
+"""Offline tests for the rules Atlas owns. No model server needed.
 
-These do not need a model server. They protect the rules that must hold before
-Strands is invoked: one active run, no mutation on a rejected start, and a
-root-version selection that actually changes the visible path.
+    python -m pytest tests/test_control_pipeline.py
+
+`tests/live_api.py` covers the same rules end to end against the real model.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+import json
 
-from fastapi.testclient import TestClient
-
-from agent.core.chats import ChatStore, COMPLETED
-from server.app import create_app
+from agent.core.chats import COMPLETED, ChatStore
+from agent.core.resilience import _is_empty, _nonzero_exit
+from agent.core.settings import changed_restart_keys, load_settings, restart_tier_values
 from server.runs import RunConflict, RunManager
+from server.transcript import Transcript
 
 
-def test_root_version_selection_changes_visible_path(tmp_path) -> None:
+def _completed(store: ChatStore, chat: str, text: str, parent: str | None, snap: str) -> str:
+    turn = store.insert_turn(chat, text, parent_turn_id=parent,
+                             before_snap=None if parent is None else f"after-{parent}")
+    store.finish_turn(turn["id"], COMPLETED, after_snap=snap)
+    return turn["id"]
+
+
+def test_retry_siblings_keep_their_own_followups(tmp_path) -> None:
     store = ChatStore(tmp_path / "atlas.db")
-    chat = store.create_chat()
-
-    first = store.insert_turn(
-        chat["id"], "first", parent_turn_id=None, before_snap=None
-    )
-    store.set_status(first["id"], COMPLETED, after_snap="first-snapshot")
-
-    replacement = store.insert_turn(
-        chat["id"], "replacement", parent_turn_id=None, before_snap=None
-    )
-    store.set_status(replacement["id"], COMPLETED, after_snap="replacement-snapshot")
-
-    assert store.leaf(chat["id"])["id"] == replacement["id"]
-    store.select_root(chat["id"], first["id"])
-    assert [turn["id"] for turn in store.path(chat["id"])] == [first["id"]]
+    chat = store.create_chat()["id"]
+    a1 = _completed(store, chat, "q1", None, "s-a1")
+    a2 = _completed(store, chat, "q1", None, "s-a2")          # retry of the root
+    b = _completed(store, chat, "q2", a2, "s-b")
+    assert [t["id"] for t in store.path(chat)] == [a2, b]
+    store.select(a1)
+    assert [t["id"] for t in store.path(chat)] == [a1]       # v1's branch ends there
+    store.select(a2)
+    assert [t["id"] for t in store.path(chat)] == [a2, b]    # v2 keeps its follow-up
 
 
-def test_active_run_rejection_happens_before_turn_creation() -> None:
+def test_edit_cuts_versions_and_everything_below(tmp_path) -> None:
+    store = ChatStore(tmp_path / "atlas.db")
+    chat = store.create_chat()["id"]
+    root = _completed(store, chat, "q1", None, "s-root")
+    k1 = _completed(store, chat, "q2", root, "s-k1")
+    k2 = _completed(store, chat, "q2", root, "s-k2")
+    below = _completed(store, chat, "q3", k2, "s-below")
+    old, snaps = store.cut_from(k1)
+    assert old["parent_turn_id"] == root
+    assert sorted(snaps) == ["s-below", "s-k1", "s-k2"]
+    assert "s-root" not in snaps                              # the restore point survives
+    assert store.get_turn(below) is None and store.get_turn(k2) is None
+    assert [t["id"] for t in store.path(chat)] == [root]
+
+
+def test_one_active_run() -> None:
     runs = RunManager()
-    runs.start("chat-a", "turn-a")
-
+    runs.start("chat", "turn")
     try:
-        runs.ensure_available()
+        runs.start("chat", "turn-2")
     except RunConflict:
-        pass
-    else:  # pragma: no cover - makes a false negative explicit
-        raise AssertionError("an active run must reserve the single run slot")
+        return
+    raise AssertionError("second run should be refused")
 
 
-def test_rejected_send_does_not_create_a_running_turn(tmp_path) -> None:
-    root = Path(__file__).resolve().parents[1]
-    app = create_app(settings_path=root / "settings.json", root=tmp_path)
-    client = TestClient(app)
-    chat_id = client.post("/chats").json()["id"]
+def test_restart_keys_compare_flat_to_nested() -> None:
+    settings = load_settings("settings.json").model_dump(mode="json")
+    flat = restart_tier_values(settings)
+    assert changed_restart_keys(settings, flat) == {}
+    flat["ports.llama"] = 1
+    assert changed_restart_keys(settings, flat) == {"ports.llama": settings["ports"]["llama"]}
 
-    # Reserve the global slot without building an agent or needing llama-server.
-    app.state.atlas.runs.start("another-chat", "another-turn")
-    response = client.post(f"/chats/{chat_id}/messages", json={"text": "hello"})
 
-    assert response.status_code == 409
-    assert app.state.atlas.store.path(chat_id) == []
+def test_transcript_drops_a_retried_model_call() -> None:
+    t = Transcript(32768)
+    t.fold({"type": "call_start"})
+    t.fold({"type": "text_delta", "text": "half an ans"})
+    t.fold({"type": "model_retry"})
+    t.fold({"type": "call_start"})
+    t.fold({"type": "thinking_delta", "text": "hm"})
+    t.fold({"type": "text_delta", "text": "full "})
+    t.fold({"type": "text_delta", "text": "answer"})
+    assert t.parts == [{"kind": "reasoning", "text": "hm"}, {"kind": "text", "text": "full answer"}]
+
+
+def test_failure_detection() -> None:
+    bad = {"status": "success", "content": [{"text": json.dumps({"output": "", "exit_code": 2})}]}
+    good = {"status": "success", "content": [{"text": json.dumps({"output": "x", "exit_code": 0})}]}
+    assert _nonzero_exit(bad) and not _nonzero_exit(good)
+    assert _is_empty({"content": [{"reasoningContent": {}}, {"text": "  "}]})
+    assert not _is_empty({"content": [{"toolUse": {}}]})

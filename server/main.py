@@ -1,25 +1,23 @@
-﻿"""ASGI entry point.
+"""ASGI entry point: `uvicorn server.main:app --port <backend>`.
 
-`uvicorn server.main:app --port <backend>` reads settings.json from the
-working directory. The CLI passes `--port` from the same file, so both agree.
+Run it through `atlas start`, which sets ATLAS_ROOT and ATLAS_SETTINGS and
+never passes `--reload`. With `--reload`, uvicorn's worker runs on the
+Selector event loop, which cannot start subprocesses on Windows -- every shell
+call, and therefore every skill, fails with a blank NotImplementedError.
 """
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-import sys
 import asyncio
+import os
+import sys
 
-# Ensure Windows uses the Proactor event loop for subprocess support
+# Subprocesses need the Proactor loop on Windows. Set before uvicorn makes one.
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-from server.app import create_app
+from server.app import create_app  # noqa: E402
 
-app = create_app(
-    settings_path=os.environ.get("ATLAS_SETTINGS", "settings.json"),
-    root=os.environ.get("ATLAS_ROOT", "."),
-)
+app = create_app(os.environ.get("ATLAS_SETTINGS"))
 
 __all__ = ["app"]

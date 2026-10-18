@@ -29,13 +29,17 @@ is load-bearing:
 from __future__ import annotations
 
 import logging
-from typing import Any
+import random
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 from strands_harness import build_system_prompt, create_harness
 
+from agent.core import paths
 from agent.core.memory_manager import MemoryManager
 from agent.core.shell_env import default_environment
 from agent.core.model import AtlasLlamaCppModel
+from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
 from agent.core.settings import Settings
 from agent.core.skill_manager import SkillManager
@@ -53,11 +57,26 @@ CONVERSATION_MANAGERS = {
 }
 
 
-def build_model(settings: Settings, *, thinking: bool) -> AtlasLlamaCppModel:
+@dataclass
+class RetryPlan:
+    """What a retried turn does differently. `None` for every other turn."""
+
+    #: Final answer text of the earlier versions, newest first.
+    previous: list[str] = field(default_factory=list)
+
+
+def build_model(
+    settings: Settings,
+    *,
+    thinking: bool,
+    retry: RetryPlan | None = None,
+    observer: Callable[[dict[str, Any]], None] | None = None,
+) -> AtlasLlamaCppModel:
     """The model for this turn.
 
     Sampling comes from settings every time, so a temperature change applies to
-    the next turn rather than after a restart.
+    the next turn rather than after a restart. A retry widens it (see
+    `RetrySettings`): higher temperature, a presence penalty, a fresh seed.
     """
     s = settings.sampling
     params: dict[str, Any] = {
@@ -65,21 +84,52 @@ def build_model(settings: Settings, *, thinking: bool) -> AtlasLlamaCppModel:
         "temperature": s.temperature,
         "top_p": s.top_p,
         "top_k": s.top_k,
+        "min_p": s.min_p,
         "repeat_penalty": s.repeat_penalty,
+        "max_tokens": s.max_tokens,
     }
-    if s.max_tokens:
-        params["max_tokens"] = s.max_tokens
     if s.presence_penalty:
         params["presence_penalty"] = s.presence_penalty
     if s.frequency_penalty:
         params["frequency_penalty"] = s.frequency_penalty
+
+    if retry is not None:
+        r = settings.retry
+        params["temperature"] = min(2.0, s.temperature + r.temperature_boost)
+        if r.presence_penalty:
+            params["presence_penalty"] = r.presence_penalty
+        if r.new_seed:
+            params["seed"] = random.randrange(1, 2**31 - 1)
 
     return AtlasLlamaCppModel(
         base_url=f"http://127.0.0.1:{settings.ports.llama}",
         enable_thinking=thinking,
         context_window_limit=settings.context.window or settings.model.context_size,
         params=params,
+        # Timings on every chunk, so the context meter and tokens/s move while
+        # the answer is still being written rather than jumping at the end.
+        extra_body={"timings_per_token": True},
+        observer=observer,
     )
+
+
+def retry_hint(settings: Settings, retry: RetryPlan) -> str:
+    """The note appended to a retried question, quoting what came before.
+
+    Appended to the *user message*, not the system prompt: the system prompt is
+    the start of the cached prefix, so changing it would make llama-server
+    re-read the whole conversation, and a small model also pays more attention
+    to the last thing it was told. The run removes it from history before the
+    snapshot is saved, so follow-ups never see it.
+    """
+    r = settings.retry
+    lines = [r.instructions.strip()] if r.instructions.strip() else []
+    if r.show_previous:
+        for i, text in enumerate(retry.previous[: r.previous_limit], start=1):
+            excerpt = " ".join(text.split())[: r.previous_chars]
+            if excerpt:
+                lines.append(f'Earlier answer {i}: "{excerpt}"')
+    return "\n".join(lines)
 
 
 def build_conversation_manager(settings: Settings) -> Any:
@@ -109,7 +159,7 @@ def build_conversation_manager(settings: Settings) -> Any:
     return cls(**kwargs)
 
 
-def _runtime_facts() -> str:
+def _runtime_facts(settings: Settings, chat_id: str) -> str:
     """Facts about this machine that the model cannot know and cannot guess.
 
     An earlier version of this claimed a bare `python` was not on PATH. That was
@@ -134,17 +184,19 @@ def _runtime_facts() -> str:
     """
     import sys
 
+    workspace = paths.chat_dir(settings, chat_id)
     return (
         "Running things on this machine:\n"
         f"- Python: `{sys.executable}`, and a bare `python` resolves to the "
         f"same interpreter. Either works.\n"
-        "- Skill scripts live under `skills/<name>/scripts/`; run them from "
-        "the application root, as `python skills/<name>/scripts/<script>.py "
-        "<args>`.\n"
+        f"- Skill scripts live under `{paths.skills_dir(settings)}`, as "
+        "`<skill>/scripts/<script>.py`. Run them by that full path.\n"
+        f"- Your workspace for this chat is `{workspace}`. Uploaded files are "
+        "there, and any file you create goes there unless the user names "
+        "another place.\n"
         "- NEVER run pip, pip install, conda, or any other installer. If a "
         "script reports a missing library, that is a setup problem to tell the "
-        "user about, not something to fix. Installing from here puts packages "
-        "somewhere the scripts will not find them."
+        "user about, not something to fix."
     )
 
 
@@ -156,7 +208,8 @@ def build_agent(
     restore_snapshot_id: str | None = None,
     session_manager: Any = None,
     tools: list | None = None,
-    extra_instructions: str = "",
+    retry: RetryPlan | None = None,
+    observer: Callable[[dict[str, Any]], None] | None = None,
     sandbox: Any = None,
 ) -> Any:
     """Build one Strands `Agent` for one turn.
@@ -164,8 +217,9 @@ def build_agent(
     Args:
         restore_snapshot_id: rewind to this snapshot before returning. The
             agent is built empty and then restored, never the other way round.
-        extra_instructions: appended to the user turn *outside* the snapshot,
-            so repeated retries cannot compound it. Used by regeneration.
+        tools: extra tools (MCP) added beside the built-ins.
+        retry: set on a retried turn, to widen sampling.
+        observer: receives model-call stats and retry notices for the run.
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -174,30 +228,31 @@ def build_agent(
     if session_manager is None:
         session_manager = SessionManager(settings, chat_id).manager()
 
-    model = build_model(settings, thinking=thinking)
+    model = build_model(settings, thinking=thinking, retry=retry, observer=observer)
 
     # settings.system_prompt is an *extension*: `instructions=` appends to the
-    # harness prompt, so the harness guidance is always retained. Measured at
-    # 1665 -> 1700 chars with our text added (T3.8).
-    instructions = _compose_instructions(settings.system_prompt, extra_instructions)
+    # harness prompt, so the harness guidance is always retained.
+    instructions = _compose_instructions(settings, chat_id)
 
     agent = create_harness(
         model=model,
         # The stock environment shells out to `sh`, which does not exist on
-        # Windows, so every shell call failed with WinError 2. Passed here
-        # because `sandbox=` is the documented seam; the shell tool picks it
+        # Windows. `sandbox=` is the documented seam; the shell tool picks it
         # up from `agent.sandbox` with no other change.
         sandbox=sandbox if sandbox is not None else default_environment(),
         instructions=instructions or None,
         session=session_manager,
         skills=skill_manager.harness_skills(),
         interventions=tool_manager.interventions(),
-        tools=tools if tools is not None else tool_manager.extra_tools(),
+        tools=[*tool_manager.extra_tools(), *(tools or [])],
         builtin_tools=tool_manager.builtin_tools(),
         # The four off-switches, together. Any one of them alone is not enough.
         **memory_manager.harness_args(),
         conversation_manager=build_conversation_manager(settings),
         caching=False,
+        # Recovery is hooks, not prompt text: see agent/core/resilience.py.
+        retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
+        hooks=[ToolFailureRecovery(settings.resilience)],
     )
 
     if restore_snapshot_id:
@@ -206,9 +261,9 @@ def build_agent(
     return agent
 
 
-def _compose_instructions(system_prompt: str, extra: str) -> str:
-    parts = [p.strip() for p in (system_prompt, extra) if p and p.strip()]
-    parts.append(_runtime_facts())
+def _compose_instructions(settings: Settings, chat_id: str) -> str:
+    parts = [settings.system_prompt.strip()] if settings.system_prompt.strip() else []
+    parts.append(_runtime_facts(settings, chat_id))
     return "\n\n".join(parts)
 
 
@@ -272,7 +327,9 @@ def _run(coro: Any) -> Any:
 
 __all__ = [
     "CONVERSATION_MANAGERS",
+    "RetryPlan",
     "build_agent",
     "build_conversation_manager",
     "build_model",
+    "retry_hint",
 ]

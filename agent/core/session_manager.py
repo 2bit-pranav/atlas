@@ -1,114 +1,100 @@
-"""`SessionManager` (design.md 1a, tests T3.1-T3.3, T3.9).
+"""`SessionManager`: where Strands keeps a chat's snapshots.
 
-Atlas keeps **no message content of its own**. Strands stores the messages in
-snapshots; Atlas stores the *shape* (the chat tree) and points at snapshot ids.
+Atlas stores no model history of its own. Strands writes every message into
+snapshots; Atlas's chat tree stores only snapshot *ids* (`before_snap`,
+`after_snap`) and points at them. Restoring, saving and deleting are all
+Strands' own operations -- this class only decides where the files go and
+which ones to remove.
 
-That is only safe because of a measured property of
-`SnapshotSessionManager` (T3.9):
+Properties of `SnapshotSessionManager` this relies on, measured:
 
-- `save_snapshot(is_latest=False)` writes an **immutable** file, and restoring
-  and re-running does not touch it. Verified: after editing turn 3 of 4, all
-  four original snapshot files kept their original bytes and mtimes.
-- `restore_snapshot` works on snapshots from *discarded* branches, so "editing
-  turn 3" never costs us turns 4 and 5. They are off the current path, not gone.
-- There is no `append_only` flag. Append-only is what you get from never
-  calling `delete_session` and always passing `is_latest=False` for anything
-  worth keeping. That is the policy this class enforces.
+- `save_snapshot(is_latest=False)` writes an **immutable** file under a fresh,
+  time-ordered id, and restoring and re-running does not touch it.
+- `restore_snapshot` works on any of those ids, so retry siblings are
+  independent: switching versions is a restore, never a recomputation.
 
-One instance per chat, and a **new instance per turn**: the session managers
-are documented as not thread-safe, and we rebuild the agent every turn anyway
-so that LIVE settings apply (design.md L4).
+Deletion exists for exactly two cases: an edit, which discards everything after
+the edited turn, and deleting a whole chat. Both remove the files through the
+storage object Strands itself reads from, so the key layout is never guessed.
+
+One instance per chat, and a **new Strands manager per turn**: the session
+managers are documented as not thread-safe, and the agent is rebuilt every turn
+anyway so LIVE settings apply.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from strands.session import SnapshotSessionManager
+from strands.session.snapshot_session_manager import _snapshot_key
 from strands.storage import LocalFileStorage
 
+from agent.core import paths
 from agent.core.settings import Settings
 
 logger = logging.getLogger(__name__)
 
+#: The agent id the harness builds its agent with. Snapshot keys include it.
+AGENT_ID = "default"
+
 
 class SessionManager:
-    """Session policy: where snapshots live, and when Atlas adds one."""
+    """Session policy: where snapshots live, and which ones to delete."""
 
     def __init__(self, settings: Settings, chat_id: str) -> None:
         self.settings = settings
         self.chat_id = chat_id
 
-    # ------------------------------------------------------------ storage --
-
     def storage_dir(self) -> Path:
-        base = Path(self.settings.paths.data_dir) / self.settings.session.dir
-        return base
+        return paths.sessions_dir(self.settings)
 
     def manager(self) -> SnapshotSessionManager:
-        """A fresh session manager for this chat.
-
-        Fresh per turn, not because the object is expensive but because the docs
-        say a session manager is tied to one live agent for one session id, and
-        we have a new agent every turn.
-        """
+        """A fresh Strands session manager for this chat."""
         directory = self.storage_dir()
         directory.mkdir(parents=True, exist_ok=True)
         return SnapshotSessionManager(
             session_id=self.chat_id,
             storage=LocalFileStorage(str(directory)),
+            # Never write `snapshot_latest`. Strands restores it automatically
+            # when an agent starts, so a turn with no restore point (any root
+            # turn: a first message, or a retry or edit of one) would silently
+            # begin with the previous conversation loaded. Atlas always names
+            # the snapshot it restores, so "latest" is never wanted.
+            save_latest_on="trigger",
         )
 
-    # --------------------------------------------------------- snapshots --
+    async def delete_snapshots(self, snapshot_ids: Iterable[str | None]) -> int:
+        """Remove immutable snapshots by id. Returns how many were removed.
 
-    @staticmethod
-    async def checkpoint(manager: SnapshotSessionManager, agent: Any) -> str | None:
-        """Save an immutable snapshot and return its id.
-
-        `is_latest=False` is the whole point. `is_latest=True` would overwrite
-        `snapshot_latest.json` and lose the ability to come back.
+        A missing file is not an error: a cancelled or failed turn never wrote
+        an `after_snap`, and deleting nothing is the right outcome.
         """
-        return await manager.save_snapshot(agent, is_latest=False)
+        ids = sorted({s for s in snapshot_ids if s})
+        if not ids:
+            return 0
+        storage = self.manager()._resolved_storage  # noqa: SLF001 - Strands' own view
+        removed = 0
+        for snapshot_id in ids:
+            try:
+                await storage.delete(_snapshot_key(self.chat_id, AGENT_ID, snapshot_id=snapshot_id))
+                removed += 1
+            except FileNotFoundError:
+                continue
+            except Exception:  # noqa: BLE001 - a stray file costs disk, not correctness
+                logger.warning("chat=%s | could not delete snapshot %s", self.chat_id, snapshot_id,
+                               exc_info=True)
+        return removed
 
-    @staticmethod
-    async def restore(
-        manager: SnapshotSessionManager, agent: Any, snapshot_id: str
-    ) -> bool:
-        """Rewind the agent's history to a snapshot. False if the id is unknown.
-
-        A missing id is not an error to swallow: it means a snapshot was pruned
-        or the tree row is corrupt, and the caller must fail loudly rather than
-        continue on whatever history happens to be loaded.
-        """
-        ok = await manager.restore_snapshot(agent, snapshot_id=snapshot_id)
-        if not ok:
-            logger.warning(
-                "chat=%s | restore_snapshot returned False for %s",
-                self.chat_id if hasattr(self, "chat_id") else "?",
-                snapshot_id,
-            )
-        return ok
-
-    @staticmethod
-    async def list_snapshots(
-        manager: SnapshotSessionManager, agent: Any
-    ) -> list[str]:
-        """Immutable snapshot ids, oldest first."""
-        return await manager.list_snapshot_ids(agent)
-
-    # ------------------------------------------------------------- policy --
+    async def delete_all(self) -> None:
+        """Remove every snapshot of this chat. Used when the chat is deleted."""
+        await self.manager().delete_session()
 
     def policy(self) -> dict[str, Any]:
         """The session policy in force, for `GET /settings`."""
-        return {
-            "dir": str(self.storage_dir()),
-            "mode": self.settings.session.mode,
-            "max_snapshots": self.settings.session.max_snapshots,
-            "delete_session_called": False,
-            "immutable_via": "save_snapshot(is_latest=False)",
-        }
+        return {"dir": str(self.storage_dir()), "immutable_via": "save_snapshot(is_latest=False)"}
 
 
-__all__ = ["SessionManager"]
+__all__ = ["AGENT_ID", "SessionManager"]

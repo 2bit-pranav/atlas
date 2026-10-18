@@ -35,6 +35,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from agent.core import paths
 from agent.core.settings import Settings
 
 #: The switches that matter. All four are required; the comment on each says
@@ -74,7 +75,7 @@ class MemoryManager:
         return dict(OFF_SWITCHES)
 
     def memory_dir(self) -> Path:
-        return Path(".agent/memory")
+        return paths.ROOT / ".agent" / "memory"
 
     def verify_off(self) -> dict[str, Any]:
         """Check the off-switches actually held. Cheap, so it runs every turn.
