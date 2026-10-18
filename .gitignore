@@ -24,6 +24,15 @@ launched.json.tmp
 data/
 workspace/
 
+# Strands' own snapshot tree (.agent/sessions/<chat>/...). Written relative to
+# the process working directory, so it lands at the repo root when the backend
+# is launched from there. This is conversation history, not source: committing
+# it would bury every message and tool result in the diff. `tests/.agent` is
+# covered by the same rule -- it was branch-leak evidence, and it is evidence
+# only if something can still go wrong.
+.agent/
+**/.agent/
+
 # Generated test corpus: `python -m agent.ingest.samples` rebuilds it byte for
 # byte from agent/ingest/samples.py, so committing it would only create merge
 # conflicts on a directory that is derived output.
@@ -41,6 +50,10 @@ llm/
 # the committed template; copy it and fill in the two paths.
 settings.json
 settings.local.json
+# Per-test settings files written by the probe scripts in %TEMP%\atlas_spikes.
+# Each one is a copy of settings.json with one key changed, so committing any of
+# them would only risk a stale path ending up in a real config.
+settings_*.json
 
 # Local secrets / overrides
 .env

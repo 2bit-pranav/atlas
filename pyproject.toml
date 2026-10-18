@@ -20,7 +20,7 @@ atlas = "agent.cli.main:main"
 # generated, and neither belongs in a wheel. Naming the package removes the
 # guesswork and makes the install independent of what else is on disk.
 [tool.setuptools.packages.find]
-include = ["agent*"]
+include = ["agent*", "server*"]
 
 [tool.ruff]
 line-length = 100

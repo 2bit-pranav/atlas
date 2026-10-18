@@ -1,18 +1,8 @@
-"""``launched.json``: what is actually running right now (spec section 3, L1).
+﻿"""
+launched.json tracking, port inspection, and process termination helpers.
 
-Written once at launch. Three jobs:
-
-1. Give every run a ``launch_id`` to record, so a run can tell which build and
-   which settings produced it.
-2. Pin the things tool-call behaviour depends on: the llama.cpp build, the GGUF
-   and mmproj hashes, and the exact flag list. Section 9.1.1 requires re-running
-   L0b when any of those change, because parser and template bugs move between
-   builds.
-3. Hold the restart-tier slice actually used, so the API can diff the file
-   against it and report "restart required".
-
-Hashing a multi-GB GGUF on every launch is wasteful, so results are cached
-keyed on (path, size, mtime).
+Maintains runtime status and provides port-scanning to ensure
+no orphaned processes linger across launches.
 """
 
 from __future__ import annotations
@@ -21,6 +11,7 @@ import contextlib
 import ctypes
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -32,23 +23,24 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from agent.cli.settings import Tier, changed_restart_keys, restart_tier_values
-from agent.ids import new_ulid
+from agent.cli.processes import kill_pid_tree
+from agent.core.ids import new_ulid
+from agent.core.settings import changed_restart_keys, restart_tier_values
 
 if TYPE_CHECKING:
     from agent.cli.processes import LogRelay
 
-IS_WINDOWS = sys.platform == "win32"
+logger = logging.getLogger(__name__)
 
+IS_WINDOWS = sys.platform == "win32"
 _HASH_CHUNK = 1024 * 1024
 
+
 def new_launch_id() -> str:
-    """The launch id is a ULID, same as every other row id (spec section 5)."""
     return new_ulid()
 
 
 def hash_file(path: Path) -> str | None:
-    """SHA-256 of a file, or None if it does not exist."""
     if not path.exists():
         return None
     digest = hashlib.sha256()
@@ -67,8 +59,6 @@ def _file_fingerprint(path: Path) -> dict[str, Any] | None:
 
 @dataclass
 class LaunchedInfo:
-    """The contents of ``launched.json``."""
-
     launch_id: str
     started_at: int
     llama_base_url: str
@@ -78,14 +68,9 @@ class LaunchedInfo:
     model_sha256: str | None = None
     mmproj_sha256: str | None = None
     llama_pid: int | None = None
-    #: pid -> {"create_time": epoch, "cmdline": str}. Lets `atlas down` stop a
-    #: stack started from a *different* terminal, where no in-process handle
-    #: exists. Identity is verified before killing, so a recycled pid belonging
-    #: to something else is never touched.
     processes: dict[str, Any] = field(default_factory=dict)
     backend_url: str | None = None
     restart_settings: dict[str, Any] = field(default_factory=dict)
-    # Cache keys so an unchanged GGUF is not re-hashed on every launch.
     model_fingerprint: dict[str, Any] | None = None
     mmproj_fingerprint: dict[str, Any] | None = None
 
@@ -98,9 +83,10 @@ class LaunchedInfo:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
-def record_process(info: LaunchedInfo, name: str, proc: "subprocess.Popen[bytes] | object") -> None:
-    """Remember a started child so ``atlas down`` can find it later."""
+def record_process(info: LaunchedInfo, name: str, proc: Any) -> None:
     pid = getattr(proc, "pid", None)
+    if pid is None and isinstance(proc, int):
+        pid = proc
     if pid is None:
         return
     entry: dict[str, Any] = {"pid": pid, "create_time": None, "cmdline": None}
@@ -110,52 +96,37 @@ def record_process(info: LaunchedInfo, name: str, proc: "subprocess.Popen[bytes]
         native = psutil.Process(pid)
         entry["create_time"] = native.create_time()
         entry["cmdline"] = " ".join(native.cmdline()[:4])
-    except Exception:  # noqa: BLE001 - psutil missing or process gone
+    except Exception:
         pass
     info.processes[name] = entry
 
 
 def _matches(entry: dict[str, Any]) -> bool:
-    """Is this still the process we started?
-
-    Guards against killing an unrelated process that happens to hold the same
-    pid after a reboot or a long-running session.
-    """
     pid = entry.get("pid")
     if not pid:
         return False
     try:
         import psutil
-    except ImportError:  # pragma: no cover - psutil is a hard dependency
-        return False
-    try:
+
         proc = psutil.Process(int(pid))
-    except Exception:  # noqa: BLE001 - gone, which is fine
-        return False
-    recorded_start = entry.get("create_time")
-    if recorded_start is not None:
-        try:
+        recorded_start = entry.get("create_time")
+        if recorded_start is not None:
             if abs(proc.create_time() - float(recorded_start)) > 2.0:
                 return False
-        except Exception:  # noqa: BLE001
-            return False
-    return proc.is_running()
+        return proc.is_running()
+    except Exception:
+        return False
 
 
 def stop_recorded(
-    info: LaunchedInfo | None, *, grace: float = 10.0
+    info: LaunchedInfo | None, *, grace: float = 2.0
 ) -> tuple[list[str], list[str]]:
-    """Stop the children recorded in ``launched.json``.
-
-    Backend first, then the model, mirroring the launcher's own shutdown order.
-    Returns ``(stopped, problems)``.
-    """
     if info is None or not info.processes:
-        return [], ["no launched.json, so no processes are known"]
+        return [], ["no launched.json found or no processes recorded"]
 
     stopped: list[str] = []
     problems: list[str] = []
-    order = ["backend", "llama"]
+    order = ["frontend", "client", "backend", "llama"]
 
     for name in order:
         entry = info.processes.get(name)
@@ -163,104 +134,124 @@ def stop_recorded(
             continue
         pid = int(entry["pid"])
         if not _matches(entry):
-            problems.append(f"{name} (pid {pid}) is not running any more")
             continue
         try:
-            import psutil
-
-            proc = psutil.Process(pid)
-            for child in proc.children(recursive=True):
-                with contextlib.suppress(Exception):
-                    child.terminate()
-            proc.terminate()
-            gone, alive = psutil.wait_procs([proc], timeout=grace)
-            for survivor in alive:
-                survivor.kill()
+            kill_pid_tree(pid, timeout=grace)
             stopped.append(f"{name} (pid {pid})")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             problems.append(f"could not stop {name} (pid {pid}): {exc}")
 
     return stopped, problems
 
 
-def find_by_port(port: int) -> tuple[int, str] | None:
-    """Find the process listening on ``port``: ``(pid, cmdline)``.
+def find_pids_by_port(port: int) -> list[int]:
+    """Identify all PIDs listening on the specified port."""
+    pids: set[int] = set()
 
-    A fallback for when ``launched.json`` is missing or has no pids -- which
-    happens if the file was deleted, or an older launch wrote it. Verified by
-    the caller before anything is killed.
-    """
+    # 1. psutil
     try:
         import psutil
-    except ImportError:  # pragma: no cover
-        return None
-    try:
+
         for conn in psutil.net_connections(kind="inet"):
-            if conn.status != psutil.CONN_LISTEN or not conn.laddr:
-                continue
-            if conn.laddr.port != port or not conn.pid:
-                continue
-            try:
-                cmdline = " ".join(psutil.Process(conn.pid).cmdline()[:6])
-            except Exception:  # noqa: BLE001
-                cmdline = ""
-            return int(conn.pid), cmdline
-    except Exception:  # noqa: BLE001 - access denied on some systems
-        return None
-    return None
+            if (
+                conn.status == psutil.CONN_LISTEN
+                and conn.laddr
+                and conn.laddr.port == port
+                and conn.pid
+            ):
+                pids.add(conn.pid)
+    except Exception:
+        pass
+
+    # 2. Windows fallback using netstat
+    if IS_WINDOWS and not pids:
+        try:
+            res = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            for line in res.stdout.splitlines():
+                parts = line.strip().split()
+                if (
+                    len(parts) >= 5
+                    and parts[0].upper() == "TCP"
+                    and parts[3].upper() == "LISTENING"
+                ):
+                    local_addr = parts[1]
+                    if local_addr.endswith(f":{port}"):
+                        with contextlib.suppress(ValueError):
+                            pids.add(int(parts[4]))
+        except Exception:
+            pass
+
+    # 3. POSIX fallback using lsof
+    if not IS_WINDOWS and not pids:
+        try:
+            res = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            for line in res.stdout.splitlines():
+                if line.strip().isdigit():
+                    pids.add(int(line.strip()))
+        except Exception:
+            pass
+
+    return sorted(pids)
 
 
 def stop_by_port(ports: dict[str, int]) -> tuple[list[str], list[str]]:
-    """Fallback stop: locate the stack by its ports and terminate it.
-
-    Only processes whose command line looks like *ours* are touched, so an
-    unrelated service on the same port is reported rather than killed.
-    """
+    """Scan configured ports and terminate any lingering processes."""
     stopped: list[str] = []
     problems: list[str] = []
-    markers = ("llama", "serve", "uvicorn", "agent.server.main")
+    markers = (
+        "llama", "serve", "uvicorn", "server.main",
+        "vite", "npm", "node", "python", "atlas"
+    )
 
-    # Backend before the model, matching the launcher's own shutdown order.
-    for label in ("backend", "llama"):
+    for label in ("frontend", "client", "backend", "llama"):
         port = ports.get(label)
         if not port:
             continue
-        found = find_by_port(port)
-        if found is None:
-            problems.append(f"nothing is listening on {port} ({label})")
-            continue
-        pid, cmdline = found
-        if not any(marker in cmdline.lower() for marker in markers):
-            problems.append(
-                f"port {port} is held by pid {pid}, which is not ours; not touching it "
-                f"(cmd: {cmdline[:70]})"
-            )
-            continue
-        try:
-            import psutil
+        pids = find_pids_by_port(port)
+        for pid in pids:
+            cmdline = ""
+            name = ""
+            try:
+                import psutil
 
-            proc = psutil.Process(pid)
-            for child in proc.children(recursive=True):
-                with contextlib.suppress(Exception):
-                    child.terminate()
-            proc.terminate()
-            _, alive = psutil.wait_procs([proc], timeout=10)
-            for survivor in alive:
-                survivor.kill()
-            stopped.append(f"{label} on port {port} (pid {pid}, found by port)")
-        except Exception as exc:  # noqa: BLE001
-            problems.append(f"could not stop pid {pid} on port {port}: {exc}")
+                p = psutil.Process(pid)
+                name = p.name().lower()
+                cmdline = " ".join(p.cmdline()[:6]).lower()
+            except Exception:
+                pass
+
+            is_ours = any(m in cmdline or m in name for m in markers) or not cmdline
+            if not is_ours:
+                problems.append(
+                    f"port {port} is held by pid {pid}, which does not match Atlas markers (cmd: {cmdline[:60]})"
+                )
+                continue
+
+            try:
+                kill_pid_tree(pid)
+                stopped.append(f"{label} on port {port} (pid {pid})")
+            except Exception as exc:
+                problems.append(f"could not stop pid {pid} on port {port}: {exc}")
 
     return stopped, problems
 
 
 def probe_llamacpp_build(base_url: str, timeout: float = 5.0) -> str | None:
-    """Read ``build_info`` from a running server, if one is up."""
     try:
         response = httpx.get(f"{base_url.rstrip('/')}/props", timeout=timeout)
         response.raise_for_status()
         return response.json().get("build_info")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -272,15 +263,6 @@ def wait_for_health(
     until: threading.Event | None = None,
     watch_pid: int | None = None,
 ) -> bool:
-    """Poll ``/health`` until the server answers, times out, or the child dies.
-
-    This is the *fallback* path. The normal path waits for llama.cpp's own
-    "listening on" line in the child's output (see LogRelay) and then calls this
-    once, so no requests are wasted while a 2 GB model is loading and the
-    terminal stays quiet.
-
-    ``until`` lets a caller stop waiting early (e.g. the child exited).
-    """
     deadline = time.monotonic() + timeout
     url = f"{base_url.rstrip('/')}/health"
     while True:
@@ -292,7 +274,20 @@ def wait_for_health(
             response = httpx.get(url, timeout=2.0)
             if response.status_code == 200 and response.json().get("status") == "ok":
                 return True
-        except Exception:  # noqa: BLE001 - not up yet; that is the normal case
+        except Exception:
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(interval)
+
+
+def wait_for_http(url: str, timeout: float = 5.0, interval: float = 0.2) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            if httpx.get(url, timeout=1.0).status_code < 500:
+                return True
+        except Exception:
             pass
         if time.monotonic() >= deadline:
             return False
@@ -300,9 +295,8 @@ def wait_for_health(
 
 
 def _pid_alive(pid: int) -> bool:
-    """True while the process exists (Windows and POSIX)."""
     if IS_WINDOWS:
-        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # SYNCHRONIZE
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
         if not handle:
             return False
         ctypes.windll.kernel32.CloseHandle(handle)
@@ -317,28 +311,13 @@ def _pid_alive(pid: int) -> bool:
 
 
 def wait_until_ready(
-    proc: "subprocess.Popen[bytes] | None",
-    relay: "LogRelay | None",
+    proc: subprocess.Popen[bytes] | None,
+    relay: LogRelay | None,
     base_url: str,
     *,
     timeout: float,
     safety_probe_interval: float = 5.0,
 ) -> tuple[bool, str]:
-    """Wait for a spawned llama-server without hammering the port.
-
-    The readiness *line* is a hint, not the authority. llama.cpp's format is
-    ``srv  %12.*s: listening on %s`` and the padding before it varies between
-    builds, so only the stable tail ("listening on ") is matched. A single
-    ``/health`` call is the authority, and it confirms the hint.
-
-    Two intervals keep the terminal and the port quiet:
-      * once the line is seen, probe eagerly (~0.2s) - normally this is the
-        very first request the CLI makes, seconds after the model loads;
-      * before that, probe only every ``safety_probe_interval`` as a backstop
-        for an older build, redirected output, or a future format change.
-
-    Returns ``(ok, reason)``.
-    """
     deadline = time.monotonic() + timeout
     next_safety_probe = 0.0
     url = f"{base_url.rstrip('/')}/health"
@@ -350,7 +329,6 @@ def wait_until_ready(
         announced = relay is not None and relay.ready.is_set()
         now = time.monotonic()
 
-        # Eager only after the announcement; otherwise a slow safety probe.
         probe_now = announced or now >= next_safety_probe
         if probe_now and not announced:
             next_safety_probe = now + safety_probe_interval
@@ -365,7 +343,7 @@ def wait_until_ready(
                         if saw_line
                         else "detected by probing; the server printed no readiness line"
                     )
-            except Exception:  # noqa: BLE001 - not up yet; that is the normal case
+            except Exception:
                 pass
 
         if now >= deadline:
@@ -383,8 +361,6 @@ def build_launched_info(
     previous: LaunchedInfo | None = None,
     llama_pid: int | None = None,
 ) -> LaunchedInfo:
-    """Assemble launched.json, reusing cached hashes when the file is unchanged."""
-
     model_fp = _file_fingerprint(Path(model_path)) if model_path else None
     mmproj_fp = _file_fingerprint(Path(mmproj_path)) if mmproj_path else None
 
@@ -395,14 +371,17 @@ def build_launched_info(
             return cached_hash
         return hash_file(Path(fp["path"]))
 
-    model_hash = _hash(model_fp, previous.model_fingerprint if previous else None,
-                       previous.model_sha256 if previous else None)
-    mmproj_hash = _hash(mmproj_fp, previous.mmproj_fingerprint if previous else None,
-                        previous.mmproj_sha256 if previous else None)
+    model_hash = _hash(
+        model_fp,
+        previous.model_fingerprint if previous else None,
+        previous.model_sha256 if previous else None,
+    )
+    mmproj_hash = _hash(
+        mmproj_fp,
+        previous.mmproj_fingerprint if previous else None,
+        previous.mmproj_sha256 if previous else None,
+    )
 
-    # Carry over the pids of components this launch did NOT start. A second
-    # `atlas up` against an already-running stack must not erase the records
-    # that let `atlas down` find and stop it.
     processes: dict[str, Any] = {}
     if previous and previous.processes:
         processes.update(previous.processes)
@@ -426,7 +405,6 @@ def build_launched_info(
 
 
 def write_launched(path: Path, info: LaunchedInfo) -> None:
-    """Write atomically so a crash mid-write cannot leave a truncated file."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(info.to_json(), indent=2), encoding="utf-8")
     os.replace(tmp, path)
@@ -442,26 +420,6 @@ def load_launched(path: Path) -> LaunchedInfo | None:
 
 
 def restart_required(settings_dict: dict[str, Any], launched: LaunchedInfo | None) -> dict[str, Any]:
-    """Restart-tier keys that differ from what is running. Empty means up to date.
-
-    Nothing launched yet counts as "everything needs restarting".
-    """
     if launched is None:
         return restart_tier_values(settings_dict)
     return changed_restart_keys(settings_dict, launched.restart_settings)
-
-
-__all__ = [
-    "LaunchedInfo",
-    "Tier",
-    "build_launched_info",
-    "changed_restart_keys",
-    "hash_file",
-    "load_launched",
-    "new_launch_id",
-    "probe_llamacpp_build",
-    "restart_required",
-    "wait_for_health",
-    "wait_until_ready",
-    "write_launched",
-]

@@ -1,14 +1,10 @@
-"""``atlas`` command line (spec section 3, L1).
+﻿"""
+Atlas CLI: start, stop, and settings.
 
-    atlas up            start llama-server, the backend and the client
-    atlas down          stop whatever this CLI started
-    atlas settings check    validate settings.json
-    atlas settings show     print resolved settings, and what needs a restart
-
-``up`` is deliberately the only command that supervises processes. It writes
-``launched.json`` with the launch id, the llama.cpp build and the GGUF hash, so
-the backend can compare the file against what is actually running and report
-"restart required" (section 4).
+Primary commands:
+  atlas start     Start llama-server, FastAPI backend, and Vite frontend
+  atlas stop      Stop all running Atlas processes and verify ports are free
+  atlas settings  Validate or display settings.json
 """
 
 from __future__ import annotations
@@ -16,15 +12,22 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import signal
 import sys
 import threading
 import time
 from pathlib import Path
 
-from agent.cli.launch import build_backend_args, build_llamacpp_args, describe_args
+from agent.cli.launch import (
+    build_backend_args,
+    build_frontend_args,
+    build_llamacpp_args,
+    describe_args,
+)
 from agent.cli.launched import (
     build_launched_info,
+    find_pids_by_port,
     load_launched,
     record_process,
     restart_required,
@@ -34,16 +37,29 @@ from agent.cli.launched import (
     wait_until_ready,
     write_launched,
 )
-from agent.cli.processes import ProcessGroup, SpawnFailed, banner
-from agent.cli.settings import Settings, SettingsError, load_settings
+from agent.cli.processes import ProcessGroup, SpawnFailed, banner, kill_pid_tree
+from agent.core.settings import Settings, SettingsError, load_settings
 
 logger = logging.getLogger("atlas")
 
-DEFAULT_SETTINGS = "settings.json"
-DEFAULT_LAUNCHED = "launched.json"
+
+def _find_repo_root() -> Path:
+    """Locate the project root so CLI runs reliably from any subdirectory."""
+    file_root = Path(__file__).resolve().parents[2]
+    if (file_root / "settings.example.json").is_file() or (file_root / "pyproject.toml").is_file():
+        return file_root
+    cur = Path.cwd().resolve()
+    for p in [cur, *cur.parents]:
+        if (p / "settings.example.json").is_file() or (p / "pyproject.toml").is_file():
+            return p
+    return cur
 
 
-# ------------------------------------------------------------------- helpers --
+REPO_ROOT = _find_repo_root()
+DEFAULT_SETTINGS = str(REPO_ROOT / "settings.json")
+DEFAULT_LAUNCHED = str(REPO_ROOT / "launched.json")
+
+_shutting_down = False
 
 
 def _load_or_die(path: Path) -> Settings:
@@ -54,18 +70,7 @@ def _load_or_die(path: Path) -> Settings:
         raise SystemExit(2) from exc
 
 
-def _backend_available() -> bool:
-    """The FastAPI app lands in L2/L3; before that, `atlas up` is llama-only."""
-    import importlib.util
-
-    try:
-        return importlib.util.find_spec("agent.server.main") is not None
-    except (ImportError, ValueError):
-        return False
-
-
 def _print_restart_status(settings: Settings, launched_path: Path) -> list[str]:
-    """Compare the file against what is running. Returns the changed keys."""
     changed = restart_required(settings.model_dump(mode="json"), load_launched(launched_path))
     if not changed:
         print("restart required: no (settings match the running launch)")
@@ -86,6 +91,8 @@ def cmd_settings_check(args: argparse.Namespace) -> int:
     print(f"  context_size      = {settings.model.context_size}")
     print(f"  parallel_slots    = {settings.model.parallel_slots}")
     print(f"  llama port        = {settings.ports.llama}")
+    print(f"  backend port      = {settings.ports.backend}")
+    print(f"  frontend port     = {settings.ports.client}")
     print(f"  llama-server args = {describe_args(build_llamacpp_args(settings))}")
     return 0
 
@@ -99,46 +106,38 @@ def cmd_settings_show(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_up(args: argparse.Namespace) -> int:
+def cmd_start(args: argparse.Namespace) -> int:
     settings = _load_or_die(Path(args.settings))
     launched_path = Path(args.launched)
+    root = REPO_ROOT
 
     llama_args = build_llamacpp_args(settings)
     base_url = f"http://127.0.0.1:{settings.ports.llama}"
 
-    # Always probe, even with --no-llama: that flag means "do not spawn", not
-    # "do not look". Skipping the probe made the warning claim nothing was
-    # running when a perfectly good server was answering.
-    already_running = wait_for_health(base_url, timeout=0.8, interval=0.2)
-    if already_running:
-        if args.no_llama:
-            banner(sys.stdout, "llama-server", f"using the one already on {base_url}")
-            logger.info("--no-llama: attaching to the running server on %s", base_url)
-        else:
-            banner(sys.stdout, "llama-server", f"reusing the one already on {base_url}")
-            logger.warning(
-                "reusing the running llama-server; it was not started here, so it "
-                "will not be stopped when this CLI exits. Run `atlas down` to stop it."
-            )
-    elif args.no_llama:
-        banner(sys.stdout, "llama-server", "not started (--no-llama)")
-        logger.warning("nothing is answering on %s", base_url)
-
+    already_running_llama = wait_for_health(base_url, timeout=0.8, interval=0.2)
     group = ProcessGroup()
     stopping = threading.Event()
-    llama_pid = None
+    llama_pid: int | None = None
 
     try:
-        if not already_running and not args.no_llama:
+        if already_running_llama:
+            banner(sys.stdout, "llama-server", f"reusing running instance on {base_url}")
+            llama_pids = find_pids_by_port(settings.ports.llama)
+            if llama_pids:
+                llama_pid = llama_pids[0]
+        elif args.no_llama:
+            banner(sys.stdout, "llama-server", "not started (--no-llama)")
+        else:
             started = time.monotonic()
             llama, relay = group.spawn(
-                "llama", llama_args, ready_pattern=r"listening on ", sink=sys.stdout
+                "llama",
+                llama_args,
+                cwd=root,
+                ready_pattern=r"listening on ",
+                sink=sys.stdout,
             )
             llama_pid = llama.pid
-            logger.info(
-                "waiting for llama-server to load the model (up to %.0fs)...",
-                args.health_timeout,
-            )
+            logger.info("waiting for llama-server to load the model (up to %.0fs)...", args.health_timeout)
 
             ok, reason = wait_until_ready(llama, relay, base_url, timeout=args.health_timeout)
             if not ok:
@@ -148,11 +147,9 @@ def cmd_up(args: argparse.Namespace) -> int:
                     logger.error("last output from llama-server:\n%s", tail)
                 return 1
 
-            logger.info(
-                "llama-server ready in %.1fs (%s)", time.monotonic() - started, reason
-            )
+            logger.info("llama-server ready in %.1fs (%s)", time.monotonic() - started, reason)
 
-        # launched.json: the backend compares against this to detect drift.
+        # Baseline launched.json record
         info = build_launched_info(
             llama_base_url=base_url,
             llama_args=llama_args,
@@ -162,106 +159,202 @@ def cmd_up(args: argparse.Namespace) -> int:
             previous=load_launched(launched_path),
             llama_pid=llama_pid,
         )
+        if llama_pid:
+            record_process(info, "llama", llama_pid)
         write_launched(launched_path, info)
-        logger.info(
-            "launch %s recorded (build %s, model %s)",
-            info.launch_id,
-            info.llamacpp_build or "unknown",
-            info.model_sha256 or "unhashed",
-        )
-        if not already_running and not args.no_llama:
-            # Record the pid only now that `info` exists, so `atlas down` in
-            # another terminal can find this llama-server.
-            record_process(info, "llama", llama)
 
-        start_backend = not args.no_backend
+        # Backend setup
         backend_url = f"http://127.0.0.1:{settings.ports.backend}"
-        if start_backend and wait_for_health(backend_url, timeout=1.0, interval=0.3):
-            banner(sys.stdout, "backend", "already running - not starting a second one")
-            logger.warning(
-                "a backend is already answering on %s. Run `atlas down` first if you "
-                "want this launch to own it.", backend_url
-            )
-            start_backend = False
-        elif start_backend and not _backend_available():
-            banner(sys.stdout, "backend", "not started (not implemented yet)")
-            logger.warning(
-                "agent.server.main does not exist yet (it arrives in L2/L3); "
-                "running llama-server only. Pass --no-backend to silence this."
-            )
-            start_backend = False
-
-        if not start_backend:
-            pass
+        if args.no_backend:
+            banner(sys.stdout, "backend", "not started (--no-backend)")
         else:
+            # Clean up stale backend if port 8000 is occupied
+            stale_backend_pids = find_pids_by_port(settings.ports.backend)
+            if stale_backend_pids:
+                banner(sys.stdout, "backend", f"clearing stale process on port {settings.ports.backend}")
+                for pid in stale_backend_pids:
+                    kill_pid_tree(pid)
+                time.sleep(0.5)
+
             try:
-                backend, _ = group.spawn("backend", build_backend_args(settings), sink=sys.stdout)
+                backend_env = dict(os.environ)
+                backend_env["ATLAS_SETTINGS"] = str(Path(args.settings).resolve())
+                backend_env["ATLAS_ROOT"] = str(root)
+                backend, _ = group.spawn(
+                    "backend",
+                    build_backend_args(settings),
+                    cwd=root,
+                    env=backend_env,
+                    sink=sys.stdout,
+                )
+                record_process(info, "backend", backend)
+                info.backend_url = backend_url
+                logger.info("backend starting on %s", backend_url)
             except SpawnFailed as exc:
                 logger.error("%s", exc)
                 return 1
-            record_process(info, "backend", backend)
-            info.backend_url = backend_url
-            logger.info("backend starting on %s", backend_url)
 
-        # Rewrite launched.json so it carries the backend pid as well.
+        # Frontend setup
+        client_url = f"http://127.0.0.1:{settings.ports.client}"
+        client_dir = root / "client"
+        if args.no_frontend:
+            banner(sys.stdout, "frontend", "not started (--no-frontend)")
+        else:
+            if not client_dir.is_dir():
+                banner(sys.stdout, "frontend", f"not started (no {client_dir})")
+                logger.error("client directory does not exist: %s", client_dir)
+                return 1
+
+            stale_frontend_pids = find_pids_by_port(settings.ports.client)
+            if stale_frontend_pids:
+                banner(sys.stdout, "frontend", f"clearing stale process on port {settings.ports.client}")
+                for pid in stale_frontend_pids:
+                    kill_pid_tree(pid)
+                time.sleep(0.5)
+
+            client_env = dict(os.environ)
+            client_env["VITE_ATLAS_BACKEND_PORT"] = str(settings.ports.backend)
+            try:
+                frontend, _ = group.spawn(
+                    "frontend",
+                    build_frontend_args(settings),
+                    cwd=client_dir,
+                    env=client_env,
+                    ready_pattern=r"Local:\s+http://",
+                    sink=sys.stdout,
+                )
+                record_process(info, "frontend", frontend)
+                logger.info("frontend starting on %s", client_url)
+            except (SpawnFailed, FileNotFoundError) as exc:
+                logger.error("%s", exc)
+                return 1
+
         write_launched(launched_path, info)
 
         if not group.children():
             banner(sys.stdout, "atlas", "nothing to supervise")
-            logger.info(
-                "Everything was already running, so this launch started no processes "
-                "and has nothing to supervise. Run `atlas down` first if you want this "
-                "terminal to own the stack."
-            )
+            logger.info("All requested services were disabled or managed externally.")
             return 0
 
-        logger.info("Atlas is up. Ctrl+C to stop everything.")
+        logger.info("Atlas is running. Press Ctrl+C or run 'atlas stop' to shut down.")
         _supervise(group, stopping)
         return 0
 
     except KeyboardInterrupt:
-        logger.info("interrupted; shutting down")
+        logger.info("Shutting down (Ctrl+C)...")
         return 0
     finally:
         stopping.set()
+        # Orderly process tree termination
         group.close()
+
+        # Port sweep safety check: guarantee ports are completely free on exit
+        for label, port in [
+            ("frontend", settings.ports.client),
+            ("backend", settings.ports.backend),
+            ("llama", settings.ports.llama),
+        ]:
+            if label == "llama" and already_running_llama:
+                continue
+            for pid in find_pids_by_port(port):
+                kill_pid_tree(pid)
+
+        launched_path.unlink(missing_ok=True)
+        print("Atlas stopped cleanly.")
 
 
 def _supervise(group: ProcessGroup, stopping: threading.Event) -> None:
-    """Block until interrupted or until a supervised process exits on its own."""
     while not stopping.is_set():
         alive = group.running()
         if not alive:
-            logger.warning("every child process has exited")
+            logger.warning("All child processes have stopped.")
             return
         time.sleep(0.5)
 
 
-# ------------------------------------------------------------------ entrypoint --
+def cmd_stop(args: argparse.Namespace) -> int:
+    """Stop all running Atlas processes and verify ports are free."""
+    path = Path(args.launched) if os.path.isabs(args.launched) else REPO_ROOT / args.launched
+    settings_path = Path(args.settings) if os.path.isabs(args.settings) else REPO_ROOT / args.settings
+
+    info = load_launched(path)
+    try:
+        settings = load_settings(settings_path)
+    except Exception as exc:
+        logger.debug("settings unavailable: %s", exc)
+        settings = None
+
+    stopped_any = False
+
+    if info is not None and info.processes:
+        print(f"Stopping launch {info.launch_id} (started {info.started_at})...")
+        stopped, problems = stop_recorded(info)
+        for name in stopped:
+            print(f"  stopped {name}")
+            stopped_any = True
+        for problem in problems:
+            print(f"  note: {problem}")
+
+    if settings is not None:
+        stopped_ports, problems_ports = stop_by_port(
+            {
+                "frontend": settings.ports.client,
+                "backend": settings.ports.backend,
+                "llama": settings.ports.llama,
+            }
+        )
+        for name in stopped_ports:
+            print(f"  stopped {name}")
+            stopped_any = True
+        for problem in problems_ports:
+            print(f"  note: {problem}")
+
+    path.unlink(missing_ok=True)
+
+    if settings is not None:
+        for label, port in [
+            ("llama", settings.ports.llama),
+            ("backend", settings.ports.backend),
+            ("frontend", settings.ports.client),
+        ]:
+            remaining = find_pids_by_port(port)
+            if remaining:
+                print(f"  warning: port {port} ({label}) still held by PIDs: {remaining}")
+
+    if stopped_any:
+        print("Atlas stack stopped cleanly.")
+    else:
+        print("Nothing of ours was running.")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="atlas", description="Atlas on Strands")
-    parser.add_argument("--settings", default=DEFAULT_SETTINGS)
-    parser.add_argument("--launched", default=DEFAULT_LAUNCHED)
-    parser.add_argument("-v", "--verbose", action="store_true")
+    parser = argparse.ArgumentParser(prog="atlas", description="Atlas local agent")
+    parser.add_argument("--settings", default=DEFAULT_SETTINGS, help="path to settings.json")
+    parser.add_argument("--launched", default=DEFAULT_LAUNCHED, help="path to launched.json")
+    parser.add_argument("-v", "--verbose", action="store_true", help="enable verbose debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    up = sub.add_parser("up", help="start the stack")
-    up.add_argument("--no-llama", action="store_true", help="do not spawn llama-server")
-    up.add_argument("--no-backend", action="store_true", help="do not spawn the backend")
-    up.add_argument("--health-timeout", type=float, default=180.0)
-    up.set_defaults(func=cmd_up)
-
-    down = sub.add_parser("down", help="stop the running stack")
-    down.set_defaults(func=cmd_down)
-
-    restart = sub.add_parser(
-        "restart", help="stop the running stack, then start it here"
+    start = sub.add_parser("start", help="start llama-server, backend and frontend")
+    start.add_argument("--no-llama", action="store_true", help="do not spawn llama-server")
+    start.add_argument("--no-backend", action="store_true", help="do not spawn the backend")
+    start.add_argument(
+        "--no-frontend",
+        "--no-client",
+        dest="no_frontend",
+        action="store_true",
+        help="do not spawn the Vite frontend",
     )
-    restart.add_argument("--no-llama", action="store_true")
-    restart.add_argument("--no-backend", action="store_true")
-    restart.set_defaults(func=cmd_restart)
+    start.add_argument(
+        "--health-timeout",
+        type=float,
+        default=180.0,
+        help="seconds to wait for llama-server readiness",
+    )
+    start.set_defaults(func=cmd_start)
+
+    stop = sub.add_parser("stop", help="stop all running Atlas processes")
+    stop.set_defaults(func=cmd_stop)
 
     settings_cmd = sub.add_parser("settings", help="inspect settings.json")
     settings_sub = settings_cmd.add_subparsers(dest="settings_command", required=True)
@@ -273,139 +366,23 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("--restart-required", action="store_true")
     show.set_defaults(func=cmd_settings_show)
 
-    db_cmd = sub.add_parser("db", help="the app database")
-    db_cmd.add_argument("--db", default=None, help="path (default: <data dir>/atlas.db)")
-    db_sub = db_cmd.add_subparsers(dest="db_command", required=True)
-
-    db_init = db_sub.add_parser("init", help="create or upgrade the schema")
-    db_init.set_defaults(func=cmd_db_init)
-
-    db_info = db_sub.add_parser("info", help="summarise contents")
-    db_info.set_defaults(func=cmd_db_info)
-
-
     return parser
 
 
-def cmd_down(args: argparse.Namespace) -> int:
-    """Stop the running stack, even from a terminal that did not start it.
-
-    Primary path: the pids recorded in ``launched.json``, each carrying its
-    creation time. A pid can be recycled, so identity is verified before
-    anything is terminated. Fallback: find the stack by its listening ports and
-    confirm the process looks like ours before touching it.
-    """
-    path = Path(args.launched)
-    info = load_launched(path)
-
-    settings = None
-    try:
-        settings = load_settings(Path(args.settings))
-    except SettingsError as exc:
-        logger.debug("settings unavailable for the port fallback: %s", exc)
-
-    if info is None or not info.processes:
-        print(f"no usable {path}; falling back to the configured ports.")
-        if settings is not None:
-            stopped, problems = stop_by_port(
-                {"llama": settings.ports.llama, "backend": settings.ports.backend}
-            )
-            for name in stopped:
-                print(f"  stopped {name}")
-            for problem in problems:
-                print(f"  note: {problem}")
-            if stopped:
-                path.unlink(missing_ok=True)
-                return 0
-        print("Nothing of ours is running.")
-        return 0
-
-    print(f"stopping launch {info.launch_id} (started {info.started_at})")
-    stopped, problems = stop_recorded(info)
-
-    for name in stopped:
-        print(f"  stopped {name}")
-    for problem in problems:
-        print(f"  note: {problem}")
-
-    path.unlink(missing_ok=True)
-    print(f"removed {path}")
-    return 0
-
-
-def cmd_restart(args: argparse.Namespace) -> int:
-    """Stop the running stack, then start it again in this terminal."""
-    stop_args = argparse.Namespace(launched=args.launched, settings=args.settings)
-    cmd_down(stop_args)
-    up_args = argparse.Namespace(
-        settings=args.settings, launched=args.launched, no_llama=args.no_llama,
-        no_backend=args.no_backend, health_timeout=180.0, verbose=args.verbose,
-    )
-    return cmd_up(up_args)
-
-
-def cmd_db_init(args: argparse.Namespace) -> int:
-    """Create or upgrade the app database (idempotent)."""
-    from agent.core import open_repo, resolve_data_dir
-    from agent.core.migrations import current_version, pending
-
-    db_path = Path(args.db) if args.db else resolve_data_dir() / "atlas.db"
-    repo = open_repo(db_path)
-    try:
-        version = current_version(repo.db.connection)
-        todo = pending(repo.db.connection)
-        print(f"{db_path}")
-        print(f"  schema version : {version}")
-        print(f"  pending        : {len(todo)}")
-        for number, name, _ in todo:
-            print(f"    - {number} {name}")
-    finally:
-        repo.db.close()
-    return 0
-
-
-def cmd_db_info(args: argparse.Namespace) -> int:
-    """Summarise what is in the database right now."""
-    from agent.core import open_repo, resolve_data_dir
-
-    db_path = Path(args.db) if args.db else resolve_data_dir() / "atlas.db"
-    if not db_path.exists():
-        print(f"no database at {db_path}; run `atlas db init`")
-        return 1
-    repo = open_repo(db_path)
-    try:
-        conn = repo.db.connection
-        print(f"{db_path}")
-        chats = conn.execute("SELECT COUNT(*) c FROM chats").fetchone()["c"]
-        nodes = conn.execute("SELECT COUNT(*) c FROM nodes").fetchone()["c"]
-        runs = conn.execute("SELECT COUNT(*) c FROM runs").fetchone()["c"]
-        events = conn.execute("SELECT COUNT(*) c FROM run_events").fetchone()["c"]
-        print(f"  chats   : {chats}")
-        print(f"  nodes   : {nodes}")
-        print(f"  runs    : {runs}")
-        print(f"  events  : {events}")
-        active = repo.active_run()
-        print(f"  active  : {active.id} ({active.status})" if active else "  active  : none")
-    finally:
-        repo.db.close()
-    return 0
-
-
 def _install_signal_handlers() -> None:
-    """Make Ctrl+C *and* Ctrl+Break unwind through the normal shutdown path.
-
-    On Windows, Ctrl+Break arrives as SIGBREAK, which Python does not turn into
-    KeyboardInterrupt; without this the process dies with
-    STATUS_CONTROL_C_EXIT. The Job Object would still clean up the children, but
-    the exit status and the log output would be wrong for a supervised launch.
-    """
-    if not hasattr(signal, "SIGBREAK"):
-        return
-
-    def _on_break(signum, frame):  # noqa: ANN001, ARG001
+    def _sig_handler(signum, frame):
+        global _shutting_down
+        if _shutting_down:
+            sys.stderr.write("\nForce quitting...\n")
+            sys.stderr.flush()
+            os._exit(1)
+        _shutting_down = True
         raise KeyboardInterrupt
 
-    signal.signal(signal.SIGBREAK, _on_break)
+    signal.signal(signal.SIGINT, _sig_handler)
+    signal.signal(signal.SIGTERM, _sig_handler)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _sig_handler)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -416,14 +393,11 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    # httpx logs one line per request at INFO. Our health polling is expected to
-    # miss while the model loads, and those "misses" were filling the terminal
-    # with connection errors that told the user nothing.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     _install_signal_handlers()
     return int(args.func(args))
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     raise SystemExit(main())

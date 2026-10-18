@@ -1,77 +1,87 @@
 {
   "model": {
-    "path": "",
-    "mmproj_path": "",
-    "name": "",
+    "path": "C:\\Users\\prana\\Desktop\\atlas\\llm\\gemma\\unsloth_e2b_qat.gguf",
+    "mmproj_path": "C:\\Users\\prana\\Desktop\\atlas\\llm\\gemma\\mmproj-F16.gguf",
+    "name": "unsloth_e2b_qat",
     "context_size": 32768,
-    "gpu_layers": 0,
-    "device": "cpu",
+    "gpu_layers": "all",
     "batch_size": 2048,
     "ubatch_size": 512,
-    "threads": 4,
+    "threads": 6,
     "flash_attention": true,
     "jinja": true,
     "reasoning": "auto",
     "parallel_slots": 1,
     "supports_thinking": true,
-    "supports_vision": false
+    "supports_vision": true
   },
+
   "ports": {
     "llama": 8080,
-    "backend": 8760,
-    "client": 5173,
-    "ingest_vlm": 8081
+    "backend": 8000,
+    "client": 5173
   },
+
   "llamacpp": {
     "binary": "llama",
     "subcommand": "serve",
-    "extra_args": [],
-    "built_in_tools": false
+    "extra_args": []
   },
-  "embedding": {
-    "enabled": true,
-    "model": "BAAI/bge-small-en-v1.5",
-    "dimensions": 384
-  },
-  "ingest": {
-    "device": "cpu",
-    "vlm": {
-      "model_path": "",
-      "gpu_layers": 0
-    },
-    "docling": {
-      "pipeline": "auto",
-      "pages_per_progress_report": 1
-    }
-  },
+
   "sampling": {
+    "temperature": 0.7,
     "top_p": 0.95,
     "top_k": 40,
-    "temperature": 0.7,
     "max_tokens": 2048,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "repeat_penalty": 1.0,
     "thinking": false
   },
-  "context": {
-    "fixed_reserve": 5000,
-    "pinned_reserve": 3000,
-    "history_reserve": 5000,
-    "rolling_reserve": 10000,
-    "generation_reserve": 8000,
-    "prune_trigger_ratio": 0.75,
-    "prune_target_ratio": 0.5
+
+  "tools": {
+    "groups": {
+      "files": true,
+      "shell": true,
+      "web": false,
+      "subagents": false
+    },
+    "interventions": false
   },
-  "results": {
-    "passthrough_tokens": 400,
-    "max_inline_tokens": 1500,
-    "display_budget_tokens": 400,
-    "max_tool_iterations": 20,
-    "max_argument_tokens": 800
-  },
+
   "skills": {
-    "dirs": [
-      "skills"
-    ],
-    "pinned_token_cap": 2000,
-    "max_tool_schema_tokens": 2000
-  }
+    "dir": "skills",
+    "enabled": []
+  },
+
+  "memory": {
+    "enabled": false
+  },
+
+  "regeneration": {
+    "mode": "branch",
+    "rewind_to": "turn",
+    "instructions": "",
+    "fresh_seed": true
+  },
+
+  "session": {
+    "dir": "data/sessions",
+    "mode": "append",
+    "max_snapshots": 500
+  },
+
+  "context": {
+    "conversation_manager": "null",
+    "window": 32768,
+    "prune_trigger_ratio": 0.75,
+    "prune_target_ratio": 0.5,
+    "generation_reserve": 8000
+  },
+
+  "paths": {
+    "data_dir": "data"
+  },
+
+  "system_prompt": "You are Atlas, a local assistant running entirely on this machine.\n\n- Read files with the skills before answering about them. Do not guess.\n- If a tool result is truncated, say so rather than filling the gap.\n- Prefer fetching a number again over recalling it from an earlier summary."
 }
