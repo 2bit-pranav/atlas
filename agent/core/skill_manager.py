@@ -25,6 +25,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from agent.core import paths
 from agent.core.settings import Settings
 
@@ -82,6 +84,9 @@ class SkillManager:
                 scripts=_listing(child / "scripts"),
                 requirements=_requirements(child),
                 bytes=sum(p.stat().st_size for p in child.rglob("*") if p.is_file()),
+                tokens=body_tokens(child),
+                origin=origin_of(child),
+                bundled=origin_of(child) is None,
             )
             found.append(entry)
         return sorted(found, key=lambda s: s["name"].lower())
@@ -112,10 +117,19 @@ def read_manifest(manifest: Path) -> dict[str, Any]:
     name = desc = None
 
     if (fm := _FRONT_MATTER.search(text)) is not None:
+        # Real YAML: community skills use folded (`>`) and literal (`|`)
+        # descriptions, which a line regex reads as the single character ">".
+        try:
+            meta = yaml.safe_load(fm.group(1)) or {}
+        except yaml.YAMLError:
+            meta = {}
+        if isinstance(meta, dict):
+            name = str(meta.get("name") or "").strip() or None
+            desc = " ".join(str(meta.get("description") or "").split()) or None
         block = fm.group(1)
-        if (m := _NAME.search(block)) is not None:
+        if not name and (m := _NAME.search(block)) is not None:
             name = m.group(1).strip().strip("\"'")
-        if (m := _DESC.search(block)) is not None:
+        if not desc and (m := _DESC.search(block)) is not None:
             desc = m.group(1).strip().strip("\"'")
 
     if not name or not desc:
@@ -154,5 +168,7 @@ def _requirements(folder: Path) -> list[str]:
             return [ln.strip() for ln in lines if ln.strip() and not ln.startswith("#")]
     return []
 
+
+from agent.core.skill_installer import body_tokens, origin_of  # noqa: E402  (cycle-free: installer imports only read_manifest)
 
 __all__ = ["MANIFEST", "SkillError", "SkillManager", "read_manifest"]

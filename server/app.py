@@ -43,6 +43,7 @@ from agent.core.chats import (
     ChatStore,
     TreeError,
 )
+from agent.core.mcp_manager import McpManager
 from agent.core.memory_manager import MemoryManager
 from agent.core.session_manager import SessionManager
 from agent.core.settings import (
@@ -113,11 +114,14 @@ class Atlas:
         self.settings = self.boot
         self.store = ChatStore(paths.database(self.settings))
         self.runs = RunManager()
+        #: MCP connections live as long as the process, not as long as a turn.
+        self.mcp = McpManager(self.settings)
         if n := self.store.mark_interrupted():
             logger.info("%d turn(s) left running by a previous process are now interrupted", n)
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)
 
     def close(self) -> None:
+        self.mcp.stop_all()
         self.store.close()
 
     # ------------------------------------------------------------ helpers --
@@ -187,7 +191,7 @@ class Atlas:
             agent = await asyncio.to_thread(
                 build_agent, settings, chat_id=run.chat_id, thinking=thinking,
                 restore_snapshot_id=turn["before_snap"], session_manager=manager,
-                retry=retry, observer=run.observe,
+                retry=retry, observer=run.observe, tools=self.mcp.agent_tools(),
             )
             run.agent = agent
             if run.cancel.is_set():
@@ -247,6 +251,9 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             logger.error("running on %s: shell tools will not work. Start the backend "
                          "with `atlas start`, or uvicorn WITHOUT --reload.",
                          type(loop).__name__)
+        # Connected in the background: a slow `npx` download must not hold up
+        # the API, and a chat started meanwhile simply has no MCP tools yet.
+        loop.run_in_executor(None, state.mcp.start_all)
         yield
         for run in list(state.runs._runs.values()):  # noqa: SLF001
             if run.task and not run.task.done():
@@ -448,6 +455,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             "tools": ToolManager(state.settings).describe(),
             "memory": MemoryManager(state.settings).describe(),
             "skills": SkillManager(state.settings).catalogue(),
+            "mcp": state.mcp.describe(),
             "paths": {"root": str(paths.ROOT), "data": str(paths.data_dir(state.settings))},
         }
 
