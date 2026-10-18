@@ -37,7 +37,7 @@ from strands_harness import build_system_prompt, create_harness
 
 from agent.core import paths
 from agent.core.memory_manager import MemoryManager
-from agent.core.shell_env import default_environment
+from agent.core.shell_env import default_environment, model_path
 from agent.core.model import AtlasLlamaCppModel
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
@@ -189,9 +189,11 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
         "Running things on this machine:\n"
         f"- Python: `{sys.executable}`, and a bare `python` resolves to the "
         f"same interpreter. Either works.\n"
-        f"- Skill scripts live under `{paths.skills_dir(settings)}`, as "
+        f"- Skill scripts live under `{model_path(paths.skills_dir(settings))}`, as "
         "`<skill>/scripts/<script>.py`. Run them by that full path.\n"
-        f"- Your workspace for this chat is `{workspace}`. Uploaded files are "
+        "- Write every path exactly as given here, with forward slashes. "
+        "Backslashes break in this shell.\n"
+        f"- Your workspace for this chat is `{model_path(workspace)}`. Uploaded files are "
         "there, and any file you create goes there unless the user names "
         "another place.\n"
         "- NEVER run pip, pip install, conda, or any other installer. If a "

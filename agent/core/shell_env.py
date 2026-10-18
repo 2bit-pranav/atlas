@@ -75,6 +75,19 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
     def __init__(self) -> None:
         self.shell_dir = _find_posix_shell()
 
+    @staticmethod
+    def _resolve_path(path: str) -> Path:
+        """Accept the path forms a model sees on this machine.
+
+        The harness file tools reject any path that does not start with `/`, so
+        a Windows drive path can never reach them. The model is
+        therefore shown Git-Bash paths (`/c/Users/...`, see `model_path`),
+        which pass that check, work unchanged in the shell, and are converted
+        here for Python's own file calls. `/C:/Users/...` is accepted too,
+        because a model given one form will sometimes produce the other.
+        """
+        return Path(windows_path(path))
+
     # ------------------------------------------------------------ execution --
 
     async def execute_streaming(
@@ -247,6 +260,50 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         yield await self.execute_code(
             code, language, timeout=timeout, cwd=cwd, env=env, **kwargs
         )
+
+
+# ----------------------------------------------------------------- paths --
+
+_MSYS = re.compile(r"^/([A-Za-z])(?:/|$)(.*)$")
+_SLASH_DRIVE = re.compile(r"^/([A-Za-z]):[/\\]?(.*)$")
+
+
+def windows_path(path: str) -> str:
+    """`/c/Users/x` or `/C:/Users/x` -> `C:/Users/x`. Anything else unchanged."""
+    if sys.platform != "win32":
+        return path
+    for pattern in (_SLASH_DRIVE, _MSYS):
+        if (m := pattern.match(path)) is not None:
+            return f"{m.group(1).upper()}:/{m.group(2)}"
+    return path if os.path.isabs(path) else os.path.join(os.getcwd(), path)
+
+
+def model_path(path: str | Path) -> str:
+    """How a path is written when the model is told about it.
+
+    On Windows with Git Bash: `/c/Users/...`. That one form works in all three
+    places a model uses a path -- unquoted in bash (a backslash there is an
+    escape, which dropped every separator from a Windows path), as an argument to
+    a native program (MSYS converts it to `C:/Users/...` for python.exe), and
+    in the harness file tools, which demand a leading `/`.
+    """
+    p = Path(path).resolve()
+    if sys.platform != "win32":
+        return str(p)
+    posix = p.as_posix()
+    if _find_posix_shell_cached() is None:
+        return f"/{posix}"  # `/C:/...`: still passes the file tools' check
+    drive, _, rest = posix.partition(":/")
+    return f"/{drive.lower()}/{rest}"
+
+
+_shell_cache: list[Path | None] = []
+
+
+def _find_posix_shell_cached() -> Path | None:
+    if not _shell_cache:
+        _shell_cache.append(_find_posix_shell())
+    return _shell_cache[0]
 
 
 # ------------------------------------------------------- shell discovery --
@@ -447,4 +504,4 @@ def default_environment() -> NotASandboxLocalEnvironment:
     return WindowsLocalEnvironment()
 
 
-__all__ = ["WindowsLocalEnvironment", "default_environment"]
+__all__ = ["WindowsLocalEnvironment", "default_environment", "model_path", "windows_path"]

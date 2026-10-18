@@ -59,6 +59,7 @@ from agent.core.settings import (
     set_path,
     write_settings,
 )
+from agent.core.shell_env import model_path
 from agent.core.skill_manager import SkillManager
 from agent.core.tool_manager import ToolManager
 from server.events import _aiter, translate
@@ -566,7 +567,7 @@ def _agent_text(user_text: str, files: list[dict[str, Any]]) -> str:
     a retry replays.
     """
     listed = "\n".join(
-        f"- {f.get('name')} at {f.get('path')} ({f.get('size', 0)} bytes)"
+        f"- {f.get('name')} at {model_path(f['path'])} ({f.get('size', 0)} bytes)"
         for f in files if isinstance(f, dict) and f.get("path")
     )
     if not listed:

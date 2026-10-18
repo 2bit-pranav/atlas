@@ -103,7 +103,7 @@ class AtlasLlamaCppModel(LlamaCppModel):
         spend context.
         """
         stripped = [
-            {**m, "content": [b for b in m.get("content") or [] if "reasoningContent" not in b]}
+            {**m, "content": [_sendable(b) for b in m.get("content") or [] if "reasoningContent" not in b]}
             for m in messages
         ]
         return super()._format_messages(stripped, system_prompt)
@@ -344,6 +344,26 @@ class AtlasLlamaCppModel(LlamaCppModel):
                     "latency_ms": latency_ms,
                 }
             )
+
+
+def _sendable(block: Any) -> Any:
+    """Replace `document` blocks, which llama-server rejects with a 400.
+
+    The harness `read` tool returns a pdf, docx or xlsx as a `document` block,
+    meant for cloud models that can view one. llama.cpp cannot, and the whole
+    request fails -- so the model is told what it tried to read and pointed at
+    the skill that can. Images are left alone: those the model can see.
+    """
+    if not isinstance(block, dict):
+        return block
+    if "document" in block:
+        doc = block["document"] or {}
+        return {"text": f"[{doc.get('name', 'document')} is a binary {doc.get('format', '')} file and "
+                        "cannot be shown directly. Read it with the matching skill's script instead.]"}
+    if "toolResult" in block:
+        result = block["toolResult"]
+        return {"toolResult": {**result, "content": [_sendable(b) for b in result.get("content") or []]}}
+    return block
 
 
 __all__ = ["AtlasLlamaCppModel"]
