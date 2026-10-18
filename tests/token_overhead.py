@@ -28,7 +28,7 @@ def test_token_overhead():
     print(f"Initial Prompt Token Count: {token_count} tokens")
     
     assert token_count < 3000, f"FAIL: Initial prompt tokens ({token_count}) exceed budget of 3000!"
-    print("\nSUCCESS (T0.3): System prompt overhead is under 3000 tokens.")
+    print("\nSUCCESS: System prompt overhead is under 3000 tokens.")
 
 if __name__ == "__main__":
     test_token_overhead()

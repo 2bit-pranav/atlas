@@ -2,7 +2,7 @@
 
 Uses pypdfium2, which is the only PDF text library installed -- there is no
 pypdf, pdfminer or pymupdf here. It is fast and it does not pull in a document
-model, which is the point (design.md L5).
+model, which is the point.
 
 **A PDF with no text layer returns an error, not an empty answer.** That is the
 single most important behaviour in this script. A scanned PDF, or an image-only

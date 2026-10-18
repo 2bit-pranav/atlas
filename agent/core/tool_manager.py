@@ -1,4 +1,4 @@
-"""`ToolManager` (design.md 1a).
+"""`ToolManager` (agent/AGENTS.md).
 
 Turns `tools.builtin` into the harness's `builtin_tools` list. It resolves
 configuration and nothing else: no tool logic, no filtering of what the model
@@ -53,7 +53,7 @@ class ToolManager:
         """The `interventions=` argument, or None when approval is off.
 
         Off for now: there is no frontend to render an approval prompt, so
-        enabling it would hang a run with nothing to answer it (design.md L5).
+        enabling it would hang a run with nothing to answer it.
         """
         return None if not self.settings.tools.interventions else []
 

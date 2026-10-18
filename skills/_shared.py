@@ -1,4 +1,4 @@
-"""Shared output helpers for the Atlas skill scripts (design.md L5).
+"""Shared output helpers for the Atlas skill scripts (skills/AGENTS.md).
 
 Every script here is a ready-made command-line tool that the model runs through
 `shell`. It never writes library code: asking a 2B model to write correct
@@ -31,7 +31,7 @@ from typing import Any
 #: Roughly four characters per token for English prose and tables.
 CHARS_PER_TOKEN = 4
 
-#: Default output budget. design.md: "at most about 1,500 tokens".
+#: Default output budget: about 1,500 tokens.
 DEFAULT_BUDGET_TOKENS = 1500
 
 

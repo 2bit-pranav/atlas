@@ -1,10 +1,10 @@
-"""`MemoryManager` (design.md 1a, tests T0.5 and T3.7).
+"""`MemoryManager` (agent/AGENTS.md, docs/decisions.md).
 
 Long-term memory is off, and this class exists to make "off" a decision rather
 than an omission. It resolves `memory.enabled` into the harness arguments and
 verifies the two switches that actually control the leak.
 
-**Why it is off (measured, T3.7 and T3.5):**
+**Why it is off (measured):**
 
 - With a `Model` instance, the harness reuses **that same model** to distil
   facts, so extraction is a model call on every fifth turn
@@ -52,7 +52,7 @@ OFF_SWITCHES: dict[str, Any] = {
     # Vends `strands_manage_background_task`. Not a memory feature by name, but
     # it survived turning off memory, the context manager, built-in tools and
     # plugins -- the documented four-switch shutdown was not enough, and only
-    # `background_tasks=False` removes it (T0.5).
+    # `background_tasks=False` removes it.
     "background_tasks": False,
     # The `todos` plugin vends `todo_write`; `environment` vends its own tools.
     # Neither is persistent, but every tool schema costs prompt tokens.

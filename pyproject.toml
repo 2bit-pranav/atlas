@@ -1,11 +1,11 @@
 [project]
 name = "atlas"
 version = "0.0.0"
-description = "Atlas on Strands: local-model chat + document/data harness (L0)"
+description = "Atlas: a local agent on Strands and llama.cpp"
 requires-python = ">=3.12,<3.13"
 
 # Dependency *intent* lives in requirements.in; the exact resolved set is
-# committed as requirements.lock.txt. See spike S8 in the design doc.
+# committed as requirements.lock.txt.
 
 # The command stays `atlas` -- that is the product, and it is what the docs
 # and the muscle memory both use. Only the importable package was renamed,

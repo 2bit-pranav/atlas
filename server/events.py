@@ -28,7 +28,7 @@ from typing import Any, AsyncIterator, Iterator
 #: What the API layer streams to a browser.
 #
 #   text_delta        visible answer text
-#   thinking_delta    reasoning, kept separate (S13: never replayed)
+#   thinking_delta    reasoning, kept separate (never replayed)
 #   tool_start        a tool is about to run, with its arguments
 #   tool_args_delta   arguments still arriving (a long command types itself out)
 #   tool_end          the tool finished, with status and duration if known

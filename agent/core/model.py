@@ -1,4 +1,4 @@
-"""`AtlasLlamaCppModel` (design.md L1, tests T1.1-T1.5).
+"""`AtlasLlamaCppModel` (agent/AGENTS.md).
 
 Two jobs, and both exist because something upstream does not do what the docs
 imply:

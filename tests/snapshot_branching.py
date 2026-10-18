@@ -61,7 +61,7 @@ async def test_snapshot_branching():
     if "Mumbai" in messages_text:
         print("FAIL: Leak detected from Branch A into Branch B!")
     else:
-        print("\nSUCCESS (T3.1/T3.2): Snapshot restore isolated branches correctly.")
+        print("\nSUCCESS: Snapshot restore isolated branches correctly.")
 
 if __name__ == "__main__":
     asyncio.run(test_snapshot_branching())

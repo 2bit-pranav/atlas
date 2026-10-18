@@ -1,4 +1,4 @@
-"""`build_agent`: the one place that calls `create_harness` (design.md 1a).
+"""`build_agent`: the one place that calls `create_harness` (agent/AGENTS.md).
 
 Everything above this file resolves settings into managers; this file asks the
 managers for their parts, assembles one Strands `Agent`, and returns it. Tests
@@ -14,12 +14,12 @@ is load-bearing:
    `system_prompt`, and after `restore_snapshot` the *stored* prompt beats the
    one just passed in. So editing the prompt in `settings.json` would silently
    never apply to any chat that already has snapshots -- the settings change,
-   the model does not, and nothing errors. (T3.8)
+   the model does not, and nothing errors.
 
 2. **Four switches, not one, keep memory off.** `memory=False` alone still
    leaves `strands_manage_background_task` in the request, along with
    `retrieve_context`, `search_memory` and `todo_write`. The documented
-   shutdown was incomplete. (T0.5)
+   shutdown was incomplete.
 
 3. **Restoring an older snapshot is not enough on its own.** After restore, the
    agent also needs its prompt, its invocation state and a clean conversation
@@ -47,7 +47,7 @@ from agent.core.tool_manager import ToolManager
 
 logger = logging.getLogger(__name__)
 
-#: Conversation managers by `context.conversation_manager`. L6 picks one of
+#: Conversation managers by `context.conversation_manager`. Context trimming picks one of
 #: these; `null` is the default because the harness's own context manager is a
 #: leak vector and no SDK manager has been measured against a 32k local model.
 CONVERSATION_MANAGERS = {
@@ -136,7 +136,7 @@ def build_conversation_manager(settings: Settings) -> Any:
     """The SDK conversation manager named in settings, or Null.
 
     `NullConversationManager` is the honest default: the harness's
-    `context_manager` is disabled (see `MemoryManager`), and until L6 measures
+    `context_manager` is disabled (see `MemoryManager`), and until context trimming is measured
     one, keeping the full history is better than trimming with an untested rule.
     """
     from strands.agent import conversation_manager as cm
@@ -274,7 +274,7 @@ def _restore(
 ) -> None:
     """Restore a snapshot, then re-apply what the snapshot may have overridden.
 
-    Order matters and is the whole point of T3.8: the snapshot's stored
+    Order matters: the snapshot's stored
     `system_prompt` wins over the one passed to `create_harness`, so the prompt
     is set again afterwards. Without this, editing the prompt in settings.json
     silently stops having any effect on every chat that already has history.

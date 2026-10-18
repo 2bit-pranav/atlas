@@ -13,7 +13,7 @@ Every new knob is added here first, then read by exactly one manager in
 
 What was removed, and why: the previous schema had `ingest`, `ingest.vlm`,
 `ingest.docling`, `context` and `results`. Documents are read through skills
-now (section L5), and no VLM pipeline is configured, so those keys had no
+now, and no VLM pipeline is configured, so those keys had no
 consumer. Leaving them would have meant settings that silently do nothing.
 """
 
@@ -71,7 +71,7 @@ class ModelSettings(StrictModel):
 
 class PortSettings(StrictModel):
     llama: int = 8080
-    #: 8000 per design.md. The previous build used 8760; changed deliberately.
+    #: The previous build used 8760; changed deliberately.
     backend: int = 8000
     client: int = 5173
 
@@ -126,7 +126,7 @@ class BuiltinToolSettings(StrictModel):
 class ToolsSettings(StrictModel):
     builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
     #: Ask before running a shell command. Off for now because there is no
-    #: frontend to show the prompt; revisit with the UI (design.md L5).
+    #: frontend to show the prompt; revisit with the UI.
     interventions: bool = False
 
 
@@ -152,7 +152,7 @@ class McpSettings(StrictModel):
 
 
 class MemorySettings(StrictModel):
-    """Long-term memory (design.md 1a, T3.7).
+    """Long-term memory (docs/decisions.md).
 
     **Hard-wired off.** This is not merely a default we might revisit: with a
     `Model` instance the harness reuses that same model to distil facts, and
@@ -242,16 +242,16 @@ class SessionSettings(StrictModel):
 
 
 class ContextSettings(StrictModel):
-    """Context trimming, L6. Configuration only, for now.
+    """Context trimming. Configuration only, for now.
 
     The harness's own `context_manager` is disabled because its `agentic` mode
     adds a `retrieve_context` tool and offloads tool results to a stash, which
-    is the same family of cross-branch leak as memory. Trimming proper is L6;
+    is the same family of cross-branch leak as memory. Trimming proper is not built yet;
     until then `NullConversationManager` keeps history intact and a long chat
     will eventually hit the window.
     """
 
-    #: Disabled until L6 picks and measures a conversation manager.
+    #: Disabled until a conversation manager is picked and measured.
     conversation_manager: str = Field(
         default="null", pattern="^(null|sliding|summarizing)$"
     )

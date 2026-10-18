@@ -5,7 +5,7 @@ pasting prose into the chat and the user saving it by hand. Letting the agent
 drop a real file in the chat directory is the obvious win.
 
 Deliberately minimal: headings, paragraphs, bullets, and tables. A rich
-document model is out of scope (design.md L5) and adding one feature at a time
+document model is out of scope and adding one feature at a time
 is how a writer script becomes a project.
 
 Reads a tiny JSON description from stdin so the model never has to compose

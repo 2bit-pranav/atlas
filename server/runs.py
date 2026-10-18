@@ -1,4 +1,4 @@
-"""Runs: one active at a time, outliving the frontend (design.md L4).
+"""Runs: one active at a time, outliving the frontend (server/AGENTS.md).
 
 A run is an `asyncio` task plus an in-memory event buffer. The buffer is the
 whole persistence story: a run that finishes leaves its events, and they are

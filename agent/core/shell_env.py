@@ -27,7 +27,7 @@ are kept, because a script that tolerates mangled quoting cannot be broken by a
 
 **What it is not.** A security boundary. Commands run on the host with the
 backend's own privileges, exactly as the POSIX version does. The isolation
-design.md relies on is "the agent works in `data/chats/<chat_id>/`", which is a
+Atlas relies on is "the agent works in `data/chats/<chat_id>/`", which is a
 working-directory convention, not a sandbox. Do not treat this as one.
 """
 
