@@ -185,6 +185,8 @@ class Atlas:
         text = _agent_text(turn["user_text"], files)
         hint = retry_hint(settings, retry) if retry else ""
         sm = SessionManager(settings, run.chat_id)
+        # Recorded per turn, so each version shows the model that wrote it.
+        run.transcript.stats["model"] = settings.model.name
         try:
             manager = sm.manager()
             # Building restores a snapshot from disk and constructs the harness:

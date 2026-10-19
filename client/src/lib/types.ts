@@ -41,6 +41,7 @@ export type Part =
     }
 
 export interface TurnStats {
+  model?: string
   context_size?: number
   context_used?: number
   prompt_tokens?: number

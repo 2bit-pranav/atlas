@@ -39,7 +39,7 @@ export const TurnRow = memo(function TurnRow({ turn, chatId, isLast, laterCount,
   const parts = liveParts ?? turn.render
   const running = turn.status === "running"
   return (
-    <div className="w-full">
+    <div className="w-full" data-turn-id={turn.id}>
       <UserMessage turn={turn} chatId={chatId} editing={editing} setEditing={setEditing} laterCount={laterCount} />
       <AssistantMessage turn={turn} parts={parts} stats={liveStats ?? turn.stats} running={running} isLast={isLast} />
     </div>
@@ -130,7 +130,10 @@ function AssistantMessage({ turn, parts, stats, running, isLast }: {
 }) {
   const prefs = usePrefs()
   const busy = useAtlas((s) => s.run !== null)
-  const modelName = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
+  const currentModel = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
+  // The model that wrote this version, falling back to the current one for
+  // turns recorded before models were stored.
+  const modelName = stats?.model ?? currentModel
   const empty = parts.length === 0
   const lastIndex = parts.length - 1
 

@@ -1,29 +1,9 @@
-"""`build_agent`: the one place that calls `create_harness` (agent/AGENTS.md).
+"""
+build_agent: the one place that calls create_harness (agent/AGENTS.md).
 
 Everything above this file resolves settings into managers; this file asks the
-managers for their parts, assembles one Strands `Agent`, and returns it. Tests
+managers for their parts, assembles one Strands Agent, and returns it. Tests
 build an agent from here without a server.
-
-**A fresh agent per turn**, for one reason: LIVE settings must apply on the
-next turn with no restart. There is no other way to guarantee that.
-
-Three things in here were found by measuring rather than reading docs, and each
-is load-bearing:
-
-1. **The system prompt is set AFTER the restore.** A snapshot stores its
-   `system_prompt`, and after `restore_snapshot` the *stored* prompt beats the
-   one just passed in. So editing the prompt in `settings.json` would silently
-   never apply to any chat that already has snapshots -- the settings change,
-   the model does not, and nothing errors.
-
-2. **Four switches, not one, keep memory off.** `memory=False` alone still
-   leaves `strands_manage_background_task` in the request, along with
-   `retrieve_context`, `search_memory` and `todo_write`. The documented
-   shutdown was incomplete.
-
-3. **Restoring an older snapshot is not enough on its own.** After restore, the
-   agent also needs its prompt, its invocation state and a clean conversation
-   manager, or the next turn sees a mixture of two histories.
 """
 
 from __future__ import annotations
@@ -47,9 +27,7 @@ from agent.core.tool_manager import ToolManager
 
 logger = logging.getLogger(__name__)
 
-#: Conversation managers by `context.conversation_manager`. Context trimming picks one of
-#: these; `null` is the default because the harness's own context manager is a
-#: leak vector and no SDK manager has been measured against a 32k local model.
+
 CONVERSATION_MANAGERS = {
     "null": "NullConversationManager",
     "sliding": "SlidingWindowConversationManager",
@@ -234,7 +212,10 @@ def build_agent(
 
     # settings.system_prompt is an *extension*: `instructions=` appends to the
     # harness prompt, so the harness guidance is always retained.
-    instructions = _compose_instructions(settings, chat_id)
+    builtin = tool_manager.builtin_tools()
+    skills = skill_manager.enabled()
+    instructions = _compose_instructions(settings, chat_id, _tool_sources(
+        builtin, [s["name"] for s in skills], list(tools or [])))
 
     agent = create_harness(
         model=model,
@@ -244,14 +225,19 @@ def build_agent(
         sandbox=sandbox if sandbox is not None else default_environment(),
         instructions=instructions or None,
         session=session_manager,
-        skills=skill_manager.harness_skills(),
+        skills=[s["path"] for s in skills] or False,
         interventions=tool_manager.interventions(),
         tools=[*tool_manager.extra_tools(), *(tools or [])],
-        builtin_tools=tool_manager.builtin_tools(),
+        builtin_tools=builtin,
         # The four off-switches, together. Any one of them alone is not enough.
         **memory_manager.harness_args(),
         conversation_manager=build_conversation_manager(settings),
         caching=False,
+        # Strands' default handler prints every streamed token to stdout. Under
+        # `atlas start` that console is cp1252, so an emoji or an arrow in an
+        # answer raised UnicodeEncodeError and failed the whole run. Atlas
+        # reads the stream itself and never wants the printout.
+        callback_handler=None,
         # Recovery is hooks, not prompt text: see agent/core/resilience.py.
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
         hooks=[ToolFailureRecovery(settings.resilience)],
@@ -263,9 +249,37 @@ def build_agent(
     return agent
 
 
-def _compose_instructions(settings: Settings, chat_id: str) -> str:
+def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> str:
+    """Where each tool comes from, so "use the MCP one" has something to match.
+
+    A small model sees a flat list of tool names. Asked to use an MCP server's
+    fetch tool it kept calling the built-in `web_fetch`, and asked for "MCP
+    tools" it went looking for a skill.
+    """
+    from agent.core.mcp_manager import mcp_server_of
+
+    servers: dict[str, list[str]] = {}
+    for tool in extra:
+        if (server := mcp_server_of(tool)) is not None:
+            servers.setdefault(server, []).append(tool.tool_name)
+    lines = ["Your tools, by where they come from:"]
+    lines.append(f"- Built in: {', '.join(builtin) or 'none'}.")
+    if skills:
+        lines.append(f"- Skills (instructions, loaded with the `skills` tool; not tools themselves): "
+                     f"{', '.join(skills)}.")
+    for server, names in sorted(servers.items()):
+        lines.append(f"- MCP server `{server}` (a separate program connected to Atlas): {', '.join(names)}.")
+    if servers:
+        lines.append("When the user names an MCP server, or says to use MCP tools, use that "
+                     "server's tools, not a built-in tool that does something similar.")
+    return "\n".join(lines)
+
+
+def _compose_instructions(settings: Settings, chat_id: str, tool_sources: str = "") -> str:
     parts = [settings.system_prompt.strip()] if settings.system_prompt.strip() else []
     parts.append(_runtime_facts(settings, chat_id))
+    if tool_sources:
+        parts.append(tool_sources)
     return "\n\n".join(parts)
 
 

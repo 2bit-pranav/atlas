@@ -275,7 +275,32 @@ def windows_path(path: str) -> str:
     for pattern in (_SLASH_DRIVE, _MSYS):
         if (m := pattern.match(path)) is not None:
             return f"{m.group(1).upper()}:/{m.group(2)}"
+    if path.startswith("/") and not path.startswith("//"):
+        # Any other POSIX path (`/tmp/...`, `/usr/...`) means what Git Bash
+        # says it means. web_fetch has curl write to `/tmp/strands-web-fetch-*`
+        # and then reads it back; resolved naively that became `C:\tmp\...`,
+        # which does not exist, and every fetch failed.
+        if (mapped := _cygpath(path)) is not None:
+            return mapped
     return path if os.path.isabs(path) else os.path.join(os.getcwd(), path)
+
+
+def _cygpath(path: str) -> str | None:
+    shell = _find_posix_shell_cached()
+    if shell is None:
+        return None
+    # The shell may have been found in Git's `bin` or in `usr/bin` itself.
+    exe = next((p for p in (shell / "cygpath.exe", shell.parent / "usr" / "bin" / "cygpath.exe")
+                if p.is_file()), None)
+    if exe is None:
+        return None
+    import subprocess
+
+    try:
+        out = subprocess.run([str(exe), "-w", path], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None if out.returncode == 0 else None
 
 
 def model_path(path: str | Path) -> str:
@@ -400,6 +425,10 @@ def _venv_first(env: dict[str, str] | None) -> dict[str, str]:
         parts.insert(0, str(scripts))
     merged["PATH"] = os.pathsep.join(parts) if parts else str(scripts)
     merged.setdefault("VIRTUAL_ENV", str(scripts.parent))
+    # Skill scripts print document text, which is full of characters cp1252
+    # cannot encode. UTF-8 mode makes their stdout safe whatever the console.
+    merged.setdefault("PYTHONUTF8", "1")
+    merged.setdefault("PYTHONIOENCODING", "utf-8")
     return merged
 
 

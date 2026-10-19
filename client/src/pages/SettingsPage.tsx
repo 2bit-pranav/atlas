@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { Download, Keyboard, MessagesSquare, Monitor, RotateCcw, Upload } from "lucide-react"
+import { Download, Keyboard, MessagesSquare, Monitor, RotateCcw, Search, Upload, X } from "lucide-react"
 
 import * as api from "@/lib/api"
 import { atlas, useAtlas } from "@/lib/store"
@@ -60,12 +60,20 @@ export function SettingsPage() {
   }
 
   const pending = Object.keys(settings?.pending_restart ?? {})
+  const [query, setQuery] = useState("")
+  const q = query.trim().toLowerCase()
+  // Every described field that matches, with its section, across all sections.
+  const matches = useMemo(() => !q ? [] : SECTIONS.flatMap((s) => s.groups.flatMap((g) =>
+    g.fields.filter((f) => f.key in values &&
+      [f.label, f.help ?? "", f.key, g.title].some((t) => t.toLowerCase().includes(q)))
+      .map((f) => ({ field: f, where: `${s.title} · ${g.title}` })))), [q, values])
 
   return (
     <div className="flex h-full min-h-0">
       <nav className="hidden w-48 shrink-0 border-r px-3 py-6 md:block">
         <Link to="/" className="px-2 text-xs text-muted-foreground hover:text-foreground">← Back to chat</Link>
         <p className="mt-4 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Settings</p>
+        <SettingsSearch value={query} onChange={setQuery} />
         <ul className="mt-2 space-y-0.5">
           {NAV.map((item) => (
             <li key={item.id}>
@@ -92,6 +100,7 @@ export function SettingsPage() {
             >
               {NAV.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
             </select>
+            <div className="mb-4 md:hidden"><SettingsSearch value={query} onChange={setQuery} /></div>
 
             {pending.length > 0 && (
               <Notice tone="info">
@@ -100,8 +109,24 @@ export function SettingsPage() {
               </Notice>
             )}
 
-            {section === "general" && <GeneralSection />}
-            {SECTIONS.filter((s) => s.id === section).map((s) => (
+            {q && (
+              <div>
+                <SectionHead title={`Results for "${query.trim()}"`} text={matches.length ? `${matches.length} setting${matches.length > 1 ? "s" : ""}` : "No setting matches. Try another word."} />
+                {matches.length > 0 && (
+                  <div className="mt-4 divide-y rounded-xl border bg-card">
+                    {matches.map(({ field, where }) => (
+                      <div key={field.key}>
+                        <p className="px-4 pt-2.5 text-[11px] uppercase tracking-wide text-muted-foreground/70">{where}</p>
+                        <FieldRow field={field} value={value(field.key)} restart={settings?.tiers[field.key] === "restart"}
+                                  changed={field.key in draft} onChange={(v) => set(field.key, v)} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {!q && section === "general" && <GeneralSection />}
+            {!q && SECTIONS.filter((s) => s.id === section).map((s) => (
               <div key={s.id}>
                 <SectionHead title={s.title} text={s.description} />
                 {s.groups.map((g) => (
@@ -115,9 +140,9 @@ export function SettingsPage() {
                 {s.id === "storage" && <OtherKeys values={values} value={value} set={set} tiers={settings?.tiers ?? {}} />}
               </div>
             ))}
-            {section === "extensions" && <ExtensionsSection />}
-            {section === "conversations" && <ConversationsSection />}
-            {section === "shortcuts" && <ShortcutsSection />}
+            {!q && section === "extensions" && <ExtensionsSection />}
+            {!q && section === "conversations" && <ConversationsSection />}
+            {!q && section === "shortcuts" && <ShortcutsSection />}
           </div>
         </div>
 
@@ -277,6 +302,11 @@ function GeneralSection() {
           <Switch checked={prefs.expandTools} onChange={(v) => setPrefs({ expandTools: v })} />
         </Row>
       </Group>
+      <Group title="Scrolling">
+        <Row label="Auto-scroll while generating" help="Off: your message moves to the top and the answer grows below it, so you can read from the start. On: the view follows the newest text.">
+          <Switch checked={prefs.autoScroll} onChange={(v) => setPrefs({ autoScroll: v })} />
+        </Row>
+      </Group>
       <Group title="Input">
         <Row label="Enter sends" help="Off: Enter adds a line and Ctrl+Enter sends.">
           <Switch checked={prefs.sendOnEnter} onChange={(v) => setPrefs({ sendOnEnter: v })} />
@@ -389,3 +419,24 @@ function ShortcutsSection() {
 }
 
 export default SettingsPage
+
+function SettingsSearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="relative mt-2">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && onChange("")}
+        placeholder="Search settings"
+        className="h-8 w-full rounded-md border border-border/50 bg-background pl-8 pr-7 text-sm outline-none focus:border-border"
+      />
+      {value && (
+        <button type="button" onClick={() => onChange("")} aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}

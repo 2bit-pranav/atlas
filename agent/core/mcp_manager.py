@@ -74,7 +74,7 @@ class _Server:
             tools.append({
                 "name": original,
                 "agent_name": tool.tool_name,
-                "description": spec.get("description", ""),
+                "description": spec.get("description", "").removeprefix(MCP_LABEL.format(self.name)),
                 "enabled": original not in self.rejected,
                 "tokens": _estimate_tokens(spec),
             })
@@ -88,6 +88,33 @@ class _Server:
             "tools": tools,
             "tokens": sum(t["tokens"] for t in tools if t["enabled"]),
         }
+
+
+MCP_LABEL = "[MCP: {}] "
+
+
+def _label(tool: Any, server: str) -> None:
+    """Prefix the description the model sees with the tool's server.
+
+    Without it an MCP tool is just another name in the list, and asked to
+    "use the MCP fetch tool" the model reached for the built-in web_fetch or
+    went looking for a skill. The label is also how `mcp_server_of` finds a
+    tool's server again when the prompt's tool list is built.
+    """
+    mcp_tool = getattr(tool, "mcp_tool", None)
+    if mcp_tool is None:
+        return
+    label = MCP_LABEL.format(server)
+    description = mcp_tool.description or f"Tool which performs {mcp_tool.name}"
+    if not description.startswith(label):
+        mcp_tool.description = label + description
+
+
+def mcp_server_of(tool: Any) -> str | None:
+    description = getattr(getattr(tool, "mcp_tool", None), "description", "") or ""
+    if description.startswith("[MCP: "):
+        return description[6:description.index("]")]
+    return None
 
 
 class McpManager:
@@ -160,6 +187,8 @@ class McpManager:
             client._tool_provider_started = True  # noqa: SLF001 - Strands' own lifecycle flag
             server.client = client
             server.tools = list(client._list_all_tools_sync())  # noqa: SLF001
+            for tool in server.tools:
+                _label(tool, name)
             server.status = "connected"
             logger.info("mcp %s connected (%d tools)", name, len(server.tools))
         except Exception as exc:  # noqa: BLE001 - one bad server must not stop the rest
@@ -359,4 +388,4 @@ def search_registry(query: str, limit: int = 30) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["McpError", "McpManager", "registry_entry_to_config", "search_registry"]
+__all__ = ["McpError", "McpManager", "mcp_server_of", "registry_entry_to_config", "search_registry"]
