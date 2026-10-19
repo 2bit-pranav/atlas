@@ -88,7 +88,9 @@ class SamplingSettings(StrictModel):
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)
     top_k: int = Field(default=40, ge=0)
     min_p: float = Field(default=0.05, ge=0.0, le=1.0)
-    max_tokens: int = Field(default=2048, gt=0)
+    #: Per model call, thinking included. 2048 cut long documents off in the
+    #: middle of the create_document call, so the tool got empty arguments.
+    max_tokens: int = Field(default=8192, gt=0)
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     repeat_penalty: float = Field(default=1.0, gt=0.0)

@@ -87,3 +87,19 @@ def test_failure_detection() -> None:
     assert _nonzero_exit(bad) and not _nonzero_exit(good)
     assert _is_empty({"content": [{"reasoningContent": {}}, {"text": "  "}]})
     assert not _is_empty({"content": [{"toolUse": {}}]})
+
+
+def test_resume_supersedes_the_answer_given_up_on() -> None:
+    t = Transcript(32768)
+    t.fold({"type": "text_delta", "text": "I could not read the file."})
+    t.fold({"type": "resumed", "reason": "tool failure"})
+    t.fold({"type": "text_delta", "text": "The apparatus is Packet Tracer."})
+    assert [p["kind"] for p in t.parts] == ["superseded", "text"]
+    assert t.answer_text() == "The apparatus is Packet Tracer."
+
+
+def test_markdown_images_become_blocks() -> None:
+    from agent.core.documents import parse_markdown
+
+    kinds = [b.kind for b in parse_markdown("# T\n\n![fig](a.png)\n\ntext ![i](b.png) more\n")]
+    assert kinds == ["heading", "image", "para", "image"]

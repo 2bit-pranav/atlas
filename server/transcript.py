@@ -11,6 +11,7 @@ Parts:
     {"kind": "text", "text": ...}
     {"kind": "tool", "id", "name", "args", "status", "text"}
     {"kind": "approval", "id", "command", "status", "expires_at"}
+    {"kind": "superseded", "text"}   an answer replaced after a resume
 
 Consecutive deltas of one kind merge into one part, otherwise a 400-token
 answer would be 400 parts.
@@ -43,6 +44,12 @@ class Transcript:
             self.stats["model_calls"] += 1
         elif kind == "model_retry":
             del self.parts[self._call_mark:]
+        elif kind == "resumed":
+            # The model gave up after a failure and was sent back to work. What
+            # it said when giving up is no longer the answer.
+            for part in self.parts:
+                if part["kind"] == "text":
+                    part["kind"] = "superseded"
         elif kind == "thinking_delta":
             self._append("reasoning", event.get("text", ""))
         elif kind == "text_delta":

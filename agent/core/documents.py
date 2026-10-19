@@ -18,8 +18,10 @@ Three guarantees:
    refuses the plain `write`/`edit` tools on .docx/.xlsx/.pdf/.pptx.
 
 Supported Markdown: headings, paragraphs, **bold**, *italic*, `code`, links,
-bullet and numbered lists (nested), tables, fenced code, block quotes and
-horizontal rules.
+bullet and numbered lists (nested), tables, fenced code, block quotes,
+horizontal rules and images (`![caption](path)`). The pdf and docx readers
+save a document's images and print them in that form, so rewriting a document
+keeps its figures: the model copies the lines across.
 """
 
 from __future__ import annotations
@@ -61,14 +63,20 @@ class Run:
 
 @dataclass
 class Block:
-    kind: str                       # heading | para | item | table | code | quote | hr
+    kind: str                       # heading | para | item | table | code | quote | hr | image
     runs: list[Run] = field(default_factory=list)
     level: int = 0                  # heading level, or list nesting depth
     ordered: bool = False
     number: int = 0
     rows: list[list[list[Run]]] = field(default_factory=list)  # table: first row is the header
-    text: str = ""                  # code
+    text: str = ""                  # code; image: the path as written
     group: int = 0                  # list items: which top-level list they belong to
+
+
+def _images(token: Any) -> list[Block]:
+    """`![alt](src)` inside a paragraph, as image blocks in order."""
+    return [Block("image", [Run(c.content or "")], text=c.attrGet("src") or "")
+            for c in token.children or [] if c.type == "image" and c.attrGet("src")]
 
 
 def _inline(token: Any) -> list[Run]:
@@ -129,12 +137,20 @@ def parse_markdown(text: str) -> list[Block]:
             in_item_para = True
         elif t == "paragraph_open":
             runs = _inline(tokens[i + 1])
+            images = _images(tokens[i + 1])
+            if images and not plain(runs).strip():
+                # A paragraph that is only an image: the image is the block.
+                blocks.extend(images)
+                in_item_para = False
+                i += 3
+                continue
             if lists and in_item_para:
                 blocks.append(Block("item", runs, level=len(lists) - 1, group=group,
                                     ordered=lists[-1]["ordered"], number=lists[-1]["n"]))
                 in_item_para = False
             else:
                 blocks.append(Block("quote" if quote else "para", runs))
+            blocks.extend(images)
             i += 3
             continue
         elif t == "blockquote_open":
@@ -170,6 +186,33 @@ def plain(runs: list[Run]) -> str:
 # --------------------------------------------------------------- docx --
 
 
+def _image_size(path: Path) -> tuple[int, int]:
+    from PIL import Image
+
+    with Image.open(path) as im:
+        return im.size
+
+
+def _resolve_images(blocks: list[Block], base: Path | None) -> list[str]:
+    """Point every image block at a real file. Returns the ones that are missing."""
+    from agent.core.shell_env import windows_path
+
+    missing = []
+    for b in blocks:
+        if b.kind != "image":
+            continue
+        src = b.text.strip().strip("<>")
+        p = Path(windows_path(src)) if src.startswith("/") else Path(src)
+        if not p.is_absolute() and base is not None:
+            p = base / p
+        if p.is_file():
+            b.text = str(p)
+        else:
+            missing.append(src)
+            b.kind = "missing"
+    return missing
+
+
 def _write_docx(blocks: list[Block], path: Path, title: str | None) -> dict[str, Any]:
     from docx import Document
     from docx.shared import Pt
@@ -187,9 +230,19 @@ def _write_docx(blocks: list[Block], path: Path, title: str | None) -> dict[str,
                 run.font.name = "Consolas"
                 run.font.size = Pt(10)
 
-    counts = {"headings": 0, "paragraphs": 0, "list_items": 0, "tables": 0}
+    from docx.shared import Inches
+
+    counts = {"headings": 0, "paragraphs": 0, "list_items": 0, "tables": 0, "images": 0}
     for b in blocks:
-        if b.kind == "heading":
+        if b.kind == "image":
+            w, _ = _image_size(Path(b.text))
+            doc.add_picture(b.text, width=Inches(min(6.3, w / 96)))
+            if plain(b.runs).strip():
+                cap = doc.add_paragraph(style="Caption") if "Caption" in [s.name for s in doc.styles] \
+                    else doc.add_paragraph()
+                cap.add_run(plain(b.runs)).italic = True
+            counts["images"] += 1
+        elif b.kind == "heading":
             add_runs(doc.add_heading("", level=min(b.level, 9)), b.runs)
             counts["headings"] += 1
         elif b.kind in ("para", "quote"):
@@ -317,8 +370,13 @@ def _write_pdf(blocks: list[Block], path: Path, title: str | None) -> dict[str, 
                           backColor=colors.HexColor("#f4f4f4"), borderPadding=4)
     cell = ParagraphStyle("cell", parent=body, fontSize=9.5, leading=12)
 
+    from reportlab.platypus import Image as PdfImage
+
     story: list[Any] = []
-    counts = {"headings": 0, "paragraphs": 0, "list_items": 0, "tables": 0}
+    counts = {"headings": 0, "paragraphs": 0, "list_items": 0, "tables": 0, "images": 0}
+    max_w, max_h = A4[0] - 40 * mm, A4[1] - 60 * mm
+    caption = ParagraphStyle("caption", parent=body, fontSize=9, textColor=colors.HexColor("#666666"),
+                             fontName=f["italic"])
     pending: list[Block] = []
 
     def flush_list() -> None:
@@ -337,7 +395,14 @@ def _write_pdf(blocks: list[Block], path: Path, title: str | None) -> dict[str, 
         if b.kind != "item" or (pending and (b.group != pending[0].group or
                                              (b.level == 0 and b.ordered != pending[0].ordered))):
             flush_list()
-        if b.kind == "heading":
+        if b.kind == "image":
+            w, h = _image_size(Path(b.text))
+            scale = min(1.0, max_w / w, max_h / h)
+            story.append(PdfImage(b.text, width=w * scale, height=h * scale, hAlign="CENTER"))
+            if plain(b.runs).strip():
+                story.append(Paragraph(_markup(b.runs, f["mono"]), caption))
+            counts["images"] += 1
+        elif b.kind == "heading":
             story.append(Paragraph(_markup(b.runs, f["mono"]), heads[min(b.level, 6)]))
             counts["headings"] += 1
         elif b.kind == "para":
@@ -486,8 +551,13 @@ def _atomic(path: Path, build: Callable[[Path], dict[str, Any]], check: Callable
         tmp.unlink(missing_ok=True)
 
 
-def create(path: Path, content: str, title: str | None = None) -> dict[str, Any]:
-    """Write `content` (Markdown) to `path` in the format its extension names."""
+def create(path: Path, content: str, title: str | None = None,
+           base: Path | None = None) -> dict[str, Any]:
+    """Write `content` (Markdown) to `path` in the format its extension names.
+
+    Relative image paths are taken from `base` (the chat workspace). Images
+    that do not exist are left out and reported as `missing_images`.
+    """
     ext = path.suffix.lower()
     if ext in TEXT:
         def build_text(p: Path) -> dict[str, Any]:
@@ -500,10 +570,13 @@ def create(path: Path, content: str, title: str | None = None) -> dict[str, Any]
     if not content.strip():
         raise DocumentError("content is empty: write the document as Markdown")
     blocks = parse_markdown(content)
+    missing = _resolve_images(blocks, base or path.parent)
     if ext == ".docx":
-        return _atomic(path, lambda p: _write_docx(blocks, p, title), _check_docx)
+        info = _atomic(path, lambda p: _write_docx(blocks, p, title), _check_docx)
+        return {**info, "missing_images": missing}
     if ext == ".pdf":
-        return _atomic(path, lambda p: _write_pdf(blocks, p, title), _check_pdf)
+        info = _atomic(path, lambda p: _write_pdf(blocks, p, title), _check_pdf)
+        return {**info, "missing_images": missing}
     return _atomic(path, lambda p: _write_xlsx(blocks, p, title, content), _check_xlsx)
 
 
@@ -623,8 +696,10 @@ def document_tools(workspace: Path, shown: Callable[[Path], str]) -> list[Any]:
         """Create a Word (.docx), PDF (.pdf) or Excel (.xlsx) file from Markdown. Also .md/.txt/.csv.
 
         Write the whole document as Markdown in `content`: # headings, paragraphs,
-        **bold**, *italic*, - bullets, 1. numbered lists, and tables
-        (| Name | Total |, then |---|---|, then one row per line). For .xlsx,
+        **bold**, *italic*, - bullets, 1. numbered lists, tables
+        (| Name | Total |, then |---|---|, then one row per line), and images
+        as ![caption](path) on their own line -- to keep a source document's
+        images, copy the ![...](...) lines its reader printed. For .xlsx,
         every Markdown table becomes a sheet named after the heading above it.
         An existing file at `path` is replaced. Use this, never `write`, for
         .docx/.pdf/.xlsx files.
@@ -636,14 +711,17 @@ def document_tools(workspace: Path, shown: Callable[[Path], str]) -> list[Any]:
         """
         target = resolve(path)
         try:
-            info = create(target, content, title or None)
+            info = create(target, content, title or None, base=workspace)
         except DocumentError as exc:
             return _failed(str(exc))
         except Exception as exc:  # noqa: BLE001 - the model needs words, not a traceback
             return _failed(f"could not create {target.name}: {type(exc).__name__}: {exc}")
+        missing = info.pop("missing_images", [])
         detail = ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in info.items() if v)
         size = target.stat().st_size
-        return (f"Created {shown(target)} ({size:,} bytes{'; ' + detail if detail else ''}). "
+        note = (f" These images were not found and were left out: {', '.join(missing)}. "
+                "Use the exact image paths the reader printed." if missing else "")
+        return (f"Created {shown(target)} ({size:,} bytes{'; ' + detail if detail else ''}).{note} "
                 "The user sees it as a download in the chat; tell them it is ready.")
 
     @tool(name="edit_document")
@@ -672,17 +750,33 @@ def document_tools(workspace: Path, shown: Callable[[Path], str]) -> list[Any]:
 
 
 class DocumentGuard(HookProvider):
-    """Refuse `write`/`edit` on binary documents; point at the right tool."""
+    """Keep the plain file tools off binary documents; point at what works.
+
+    - `write`/`edit` on a .docx/.xlsx/.pdf would corrupt it: use the document tools.
+    - `read` on one returns nothing useful (llama.cpp cannot take a document
+      block), and the model used to spend a whole step finding that out. It is
+      answered at once with the exact command that does read it.
+    """
+
+    def __init__(self, reader: Callable[[str], str | None] | None = None) -> None:
+        self.reader = reader
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         registry.add_callback(BeforeToolCallEvent, self._before)
 
     def _before(self, event: BeforeToolCallEvent) -> None:
         use = event.tool_use
-        if use.get("name") not in ("write", "edit"):
-            return
         path = str((use.get("input") or {}).get("path", ""))
         ext = Path(path).suffix.lower()
+        if use.get("name") == "read" and ext in GUARDED:
+            command = self.reader(path) if self.reader else None
+            event.cancel_tool = (
+                f"`read` only handles text files and images; {Path(path).name} is a binary {ext} "
+                + (f"file. Read it with: {command}" if command else "file. Use the matching skill's script.")
+            )
+            return
+        if use.get("name") not in ("write", "edit"):
+            return
         if ext in GUARDED:
             what = "edit_document" if use.get("name") == "edit" else "create_document"
             event.cancel_tool = (f"{Path(path).name} is a binary {ext} file; writing text into it "

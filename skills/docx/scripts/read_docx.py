@@ -18,9 +18,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from _shared import (  # noqa: E402
+    MAX_IMAGES,
     add_common_arguments,
     fail,
     header,
+    image_line,
+    images_dir,
     limit_for,
     main_wrapper,
     require,
@@ -49,6 +52,30 @@ def iter_blocks(document) -> list[tuple[str, object]]:
             yield "t", Table(child, document)
 
 
+BLIP = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+
+
+def paragraph_images(paragraph, document, source: Path, budget: list[int]) -> list[str]:
+    """Save the pictures inside one paragraph; return their Markdown lines."""
+    lines = []
+    for blip in paragraph._p.iter(BLIP):
+        if budget[0] <= 0:
+            break
+        rid = blip.get(EMBED)
+        part = document.part.related_parts.get(rid) if rid else None
+        if part is None or not getattr(part, "blob", None):
+            continue
+        ext = Path(getattr(part, "partname", "image.png")).suffix.lower() or ".png"
+        if ext not in (".png", ".jpg", ".jpeg", ".gif", ".bmp"):
+            continue  # EMF/WMF and friends: neither PDF nor Word on another machine will draw them
+        budget[0] -= 1
+        target = images_dir(source) / f"image{MAX_IMAGES - budget[0]}{ext}"
+        target.write_bytes(part.blob)
+        lines.append(image_line(target, f"image {MAX_IMAGES - budget[0]}"))
+    return lines
+
+
 def render_table(table, max_rows: int) -> tuple[str, bool]:
     rows = []
     for row in table.rows:
@@ -75,6 +102,7 @@ def main() -> int:
     parser.add_argument("--headings-only", action="store_true",
                         help="print just the outline")
     parser.add_argument("--max-table-rows", type=int, default=20)
+    parser.add_argument("--no-images", action="store_true", help="do not save the images")
     add_common_arguments(parser)
     args = parser.parse_args()
 
@@ -106,12 +134,18 @@ def main() -> int:
     limit, hint = limit_for(args)
     parts = []
     dropped_tables = 0
+    images = 0
+    budget = [MAX_IMAGES]
     for kind, block in blocks:
         if kind == "p":
             text = block.text.strip()
             if text:
                 marker = "#" if block.style.name.startswith("Heading") else ""
                 parts.append(f"{marker} {text}")
+            if not args.no_images:
+                found = paragraph_images(block, document, path, budget)
+                images += len(found)
+                parts.extend(found)
         else:
             rendered, was_cut = render_table(block, args.max_table_rows)
             if rendered:
@@ -121,7 +155,7 @@ def main() -> int:
 
     body, cut = truncate("\n\n".join(parts), limit, more_hint=hint)
     print(header(file=path.name, headings=len(headings), tables=len(tables),
-                 empty_tables=dropped_tables, truncated=cut or "no"))
+                 empty_tables=dropped_tables, truncated=cut or "no", images=images))
     print()
     print(body)
     return 0

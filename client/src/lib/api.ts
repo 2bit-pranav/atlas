@@ -77,6 +77,8 @@ export async function uploadFile(chatId: string, file: File): Promise<ChatFile> 
 /** A workspace file. `name` may contain folders; each segment is encoded. */
 export const fileUrl = (chatId: string, name: string, download = false) =>
   `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${download ? "?download=1" : ""}`
+export const deleteUpload = (chatId: string, name: string) =>
+  request<unknown>(`/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}`, json("DELETE"))
 export const listWorkspace = (chatId: string) => request<WorkspaceFile[]>(`/chats/${chatId}/workspace`)
 export const sheetPreview = (chatId: string, name: string) =>
   request<SheetPreview>(`/chats/${chatId}/preview/${name.split("/").map(encodeURIComponent).join("/")}`)

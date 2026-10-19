@@ -240,15 +240,17 @@ class Store {
     }))
   }
 
-  /** Attach a file already in the chat's workspace (from the @ menu). No upload. */
-  stageExisting(file: ChatFile) {
-    if (this.state.staged.some((s) => s.path === file.path)) return
-    this.set({ staged: [...this.state.staged, { ...file, key: file.path, uploading: false }],
-               stagedChat: this.state.chat?.id ?? this.state.stagedChat })
-  }
-
+  /**
+   * Take a file off the message being written. It was already uploaded, so
+   * it is deleted too: otherwise it lingers in the workspace and in the @ menu
+   * as if it had been sent. (The backend keeps any file a sent message used.)
+   */
   unstage(key: string) {
+    const file = this.state.staged.find((s) => s.key === key)
     this.set({ staged: this.state.staged.filter((s) => s.key !== key) })
+    const chatId = this.state.chat?.id ?? this.state.stagedChat
+    if (file && !file.uploading && file.path && chatId)
+      void api.deleteUpload(chatId, file.name).catch(() => undefined)
   }
 
   // -------------------------------------------------------------- preview --

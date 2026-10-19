@@ -151,13 +151,28 @@ function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "approval" }
 
 /** User text with each `@name` shown as a token, like the composer inserted it. */
 function WithMentions({ text }: { text: string }) {
-  const parts = text.split(/((?<![\w@])@[\w.-]+)/g)
+  const parts = text.split(/((?<![\w@])@(?:"[^"\n]+"|[\w.-]+))/g)
   return (
     <>
       {parts.map((p, i) => p.startsWith("@") && i % 2 === 1
         ? <span key={i} className="rounded bg-primary/10 px-1 font-mono text-[0.9em]">{p}</span>
         : p)}
     </>
+  )
+}
+
+/** An answer given up on after a failure, before Atlas sent the model back to work. */
+function Superseded({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="my-2">
+      <button type="button" onClick={() => setOpen(!open)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className={cn("h-3 w-3 transition-transform", open && "rotate-90")} />
+        Earlier attempt, replaced after a tool failed and the model tried again
+      </button>
+      {open && <div className="mt-1 border-l pl-3 text-sm text-muted-foreground line-through decoration-muted-foreground/40"><Markdown text={text} /></div>}
+    </div>
   )
 }
 
@@ -266,6 +281,8 @@ function AssistantMessage({ turn, chatId, parts, stats, running, isLast }: {
           return <ToolBlock key={part.id || i} part={part} defaultOpen={prefs.expandTools} />
         if (part.kind === "approval")
           return <ApprovalCard key={part.id} part={part} live={running} />
+        if (part.kind === "superseded")
+          return <Superseded key={i} text={part.text} />
         return <Markdown key={i} text={part.text} />
       })}
 

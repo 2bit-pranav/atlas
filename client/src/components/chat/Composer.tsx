@@ -67,14 +67,12 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
     const el = area.current
     if (!mention || !el) return
     const caret = el.selectionStart
-    const insert = m.kind === "file" ? "" : `@${m.name} `
+    // Everything is inserted as text. A file name with spaces is quoted, so
+    // the backend can find where it ends.
+    const insert = /^[\w.-]+$/.test(m.name) ? `@${m.name} ` : `@"${m.name}" `
     const next = text.slice(0, mention.start) + insert + text.slice(caret)
     setText(next)
     setMention(null)
-    if (m.kind === "file") {
-      if (edit) setEditFiles((f) => (f.some((x) => x.path === m.file.path) ? f : [...f, m.file]))
-      else atlas.stageExisting(m.file)
-    }
     requestAnimationFrame(() => {
       el.focus()
       const at = mention.start + insert.length

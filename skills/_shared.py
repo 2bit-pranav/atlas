@@ -91,7 +91,7 @@ def unquote(value: str) -> str:
     argument the model carefully wrapped in `"..."` or `'...'` can arrive here
     with the quote characters still attached. `cmd /c script.py "C:\\data\\a.xlsx"`
     has been observed reaching argparse as `"C:\\data\\a.xlsx"`, which fails with
-    `no such file: "C:\data\a.xlsx"` -- an error that points at the filesystem
+    `no such file: "C:\\data\\a.xlsx"` -- an error that points at the filesystem
     when the real problem is a character of punctuation.
 
     Stripped repeatedly rather than once, so an argument that was quoted *and*
@@ -215,3 +215,27 @@ __all__ = [
     "truncate",
     "unquote",
 ]
+
+# ------------------------------------------------------------------ images --
+
+#: Images smaller than this on both sides are rules, bullets and logos, not
+#: content worth carrying into a rewrite.
+MIN_IMAGE_PX = 64
+#: Per document. A brochure with 200 thumbnails would otherwise flood the reply.
+MAX_IMAGES = 30
+
+
+def images_dir(source: Path) -> Path:
+    """Where a document's extracted images go: a hidden folder beside it.
+
+    Hidden (dot-prefixed) so the chat's file list and download chips are not
+    filled with figure-1.png, figure-2.png ... every time a document is read.
+    """
+    folder = source.parent / ".atlas-images" / source.stem
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def image_line(path: Path, caption: str) -> str:
+    """How an image is printed: Markdown that create_document accepts as is."""
+    return f"![{caption}]({path.resolve().as_posix()})"

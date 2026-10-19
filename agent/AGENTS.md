@@ -98,7 +98,8 @@ Hooks, not prompt text: a 2B model does not reliably follow "retry on failure".
   - appends "attempt N of M, read the error, fix the arguments" to a failed
     result, and past the limit "stop and explain";
   - if the model stops right after a failure, resumes it once
-    (`AfterInvocationEvent.resume`).
+    (`AfterInvocationEvent.resume`). The run emits `resumed`, and the answer
+    the model gave up with is shown folded away as an earlier attempt.
 
 ## The model adapter (`model.py`)
 
@@ -109,9 +110,11 @@ The stock `LlamaCppModel` needed five things:
 - The response is **streamed** (`client.stream`). `client.post` buffered the
   whole body, so each model call arrived in one burst.
 - `timings` (per token) go to an observer: the context meter and tokens/s.
-- `reasoningContent` blocks are **dropped** from history before sending — the
-  base formatter raises on them, which broke every call after a tool call with
-  thinking on. Reasoning is never replayed anyway.
+- `reasoningContent` blocks are sent as each assistant message's
+  `reasoning_content`, not as content (the base formatter raises on them).
+  Gemma's template keeps the current turn's reasoning and drops older turns'
+  by itself; stripping it all made the model forget its plan after every tool
+  call and repeat its steps.
 - `document` blocks (what the harness `read` tool returns for a pdf/docx/xlsx)
   become a text note pointing at the skill; llama-server answers them with a 400.
 
@@ -129,7 +132,13 @@ xlsx cell, or a text file. A PDF cannot be edited in place; the model is told
 to create it again.
 
 `DocumentGuard` refuses the plain `write`/`edit` tools on .docx/.xlsx/.pdf/
-.pptx: writing text into one is how corrupt documents happened.
+.pptx (writing text into one is how corrupt documents happened), and answers
+`read` on one at once with the command that does read it.
+
+Images: the pdf and docx readers save a document's images into a hidden
+`.atlas-images/<name>/` folder beside it and print each as `![caption](path)`.
+`create_document` embeds such lines in docx and pdf, so a rewrite keeps its
+figures. Images that cannot be found are left out and named in the result.
 
 ## Approvals (`approvals.py`)
 
@@ -142,6 +151,11 @@ Atlas's own venv.
 
 ## Windows (`shell_env.py`)
 
+- Every shell command starts in the **chat's workspace**, and `$ATLAS_SKILLS`
+  points at the skills folder. An attached file is named by its name alone
+  (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
+  `python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>"`. The attachment
+  list gives each pdf/docx/xlsx's exact command.
 - Commands run through Git Bash when it exists (`cmd.exe` as a fallback); the
   venv's `Scripts` is first on PATH, so a bare `python` is the project's.
 - The model is shown every path as `/c/Users/...` (`model_path`). That one form

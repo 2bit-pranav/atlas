@@ -31,6 +31,8 @@ export interface ChatSummary {
 export type Part =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
+  /** An answer the model gave before it was sent back to work after a failure. */
+  | { kind: "superseded"; text: string }
   | {
       kind: "tool"
       id: string
@@ -123,6 +125,7 @@ export type RunEvent = { seq: number } & (
   | { type: "run_started"; chat_id: string; turn_id: string }
   | { type: "call_start" }
   | { type: "model_retry"; reason: string; attempt: number; of: number }
+  | { type: "resumed"; reason: string }
   | { type: "thinking_delta"; text: string }
   | { type: "text_delta"; text: string }
   | { type: "tool_start"; id: string; name: string; args: unknown }

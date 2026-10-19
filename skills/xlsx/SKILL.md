@@ -14,7 +14,7 @@ setup problem to report to the user.
 ## 1. Shape first
 
 ```
-python skills/xlsx/scripts/read_xlsx.py "<path>"
+python "$ATLAS_SKILLS/xlsx/scripts/read_xlsx.py" "<file>"
 ```
 
 Gives every sheet name, then for one sheet its row/column counts and the first
@@ -28,14 +28,14 @@ spreadsheet is worse than no number.
 ## 2. Query with SQL
 
 ```
-python skills/xlsx/scripts/query_xlsx.py "<path>" 'SELECT SUM("revenue") FROM "Mar"'
+python "$ATLAS_SKILLS/xlsx/scripts/query_xlsx.py" "<file>" 'SELECT SUM("revenue") FROM "Mar"'
 ```
 
 The sheet name is the table name, so quote it. Column names come from the
 first row, exactly as they appear. Not sure of them? This needs no SQL:
 
 ```
-python skills/xlsx/scripts/query_xlsx.py "<path>" --schema
+python "$ATLAS_SKILLS/xlsx/scripts/query_xlsx.py" "<file>" --schema
 ```
 
 ---

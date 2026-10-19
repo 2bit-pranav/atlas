@@ -90,7 +90,7 @@ class Run:
                 self.emit(stats)
             else:
                 self.transcript.fold(stats)
-        elif kind in ("call_start", "model_retry"):
+        elif kind in ("call_start", "model_retry", "resumed"):
             self.emit(event)
 
     async def request_approval(self, kind: str, detail: dict[str, Any], timeout: float) -> str:

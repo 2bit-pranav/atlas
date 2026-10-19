@@ -10,18 +10,24 @@ Use `shell` to run the script. Do not write PDF code yourself.
 ## Read pages
 
 ```
-python skills/pdf/scripts/read_pdf.py "<path>" --pages 1-3
+python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>" --pages 1-3
 ```
 
 `--pages` takes `1-3`, `1,4,7`, or `all`. The default is the first two pages,
 which is usually enough to tell what a document is.
+
+## Images
+
+The reader saves the document's images and prints each one as a line like
+`![page 2, image 1](C:/.../page2-1.png)`. To keep an image in a new document,
+put that exact line in `create_document`'s Markdown where it belongs.
 
 ## Search first when you know the word
 
 Far cheaper than reading pages when you are hunting a term:
 
 ```
-python skills/pdf/scripts/read_pdf.py "<path>" --search "coherence"
+python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>" --search "coherence"
 ```
 
 ## Show more

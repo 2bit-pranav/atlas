@@ -111,6 +111,35 @@ class SkillManager:
         return self.discover()
 
 
+#: File type -> (skill folder, reader script). The bundled readers.
+READERS: dict[str, tuple[str, str]] = {
+    ".pdf": ("pdf", "read_pdf.py"),
+    ".docx": ("docx", "read_docx.py"),
+    ".xlsx": ("xlsx", "read_xlsx.py"),
+    ".xlsm": ("xlsx", "read_xlsx.py"),
+}
+
+
+def reader_command(settings: Settings, path: str, shown: str) -> str | None:
+    """The exact shell command that reads `path`, if an enabled skill can.
+
+    Named in the attachment list and in the `read` guard, so the model runs
+    the right script first time instead of trying `read`, getting nothing
+    useful back, and loading the skill to find out what to run.
+    """
+    reader = READERS.get(Path(path).suffix.lower())
+    if reader is None:
+        return None
+    folder, script = reader
+    if folder in settings.skills.disabled:
+        return None
+    script_path = paths.skills_dir(settings) / folder / "scripts" / script
+    if not script_path.is_file():
+        return None
+    extra = " --pages all" if folder == "pdf" else ""
+    return f'python "$ATLAS_SKILLS/{folder}/scripts/{script}" "{shown}"{extra}'
+
+
 def read_manifest(manifest: Path) -> dict[str, Any]:
     """Name and description from a SKILL.md, or `SkillError`."""
     text = manifest.read_text(encoding="utf-8")
@@ -171,4 +200,4 @@ def _requirements(folder: Path) -> list[str]:
 
 from agent.core.skill_installer import body_tokens, origin_of  # noqa: E402  (cycle-free: installer imports only read_manifest)
 
-__all__ = ["MANIFEST", "SkillError", "SkillManager", "read_manifest"]
+__all__ = ["MANIFEST", "READERS", "SkillError", "SkillManager", "read_manifest", "reader_command"]

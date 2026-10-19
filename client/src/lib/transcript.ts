@@ -37,6 +37,12 @@ export function fold(live: LiveTurn, event: RunEvent): void {
       parts.length = live.callMark
       live.retries += 1
       return
+    case "resumed":
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i]
+        if (p.kind === "text") parts[i] = { kind: "superseded", text: p.text }
+      }
+      return
     case "thinking_delta":
       return append(parts, "reasoning", event.text)
     case "text_delta":

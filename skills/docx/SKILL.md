@@ -10,7 +10,7 @@ Use `shell` to run the scripts. Do not write `python-docx` code yourself.
 ## Read
 
 ```
-python skills/docx/scripts/read_docx.py "<path>"
+python "$ATLAS_SKILLS/docx/scripts/read_docx.py" "<file>"
 ```
 
 Returns the headings, the prose, and every table rendered as a pipe table, in
@@ -19,10 +19,16 @@ document order.
 ## The outline first, for long documents
 
 ```
-python skills/docx/scripts/read_docx.py "<path>" --headings-only
+python "$ATLAS_SKILLS/docx/scripts/read_docx.py" "<file>" --headings-only
 ```
 
 Cheap, and it tells you which section actually answers the question.
+
+## Images
+
+The reader saves the document's images and prints each one as a line like
+`![page 2, image 1](C:/.../page2-1.png)`. To keep an image in a new document,
+put that exact line in `create_document`'s Markdown where it belongs.
 
 ## Create or change a document
 

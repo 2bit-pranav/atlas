@@ -24,7 +24,7 @@ from agent.core.documents import DocumentGuard, document_tools
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
 from agent.core.settings import Settings
-from agent.core.skill_manager import SkillManager
+from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,22 @@ def build_model(
         # the answer is still being written rather than jumping at the end.
         extra_body={"timings_per_token": True},
         observer=observer,
+    )
+
+
+def build_summarizer(settings: Settings) -> AtlasLlamaCppModel:
+    """The model `web_fetch` uses to answer a question over a fetched page.
+
+    The harness would otherwise reuse the main model object: with thinking on
+    it reasoned before summarising a whole page, which is where most of a
+    10-15 second fetch went, and its timings were counted as the turn's.
+    Summarising needs no reasoning and only a short answer.
+    """
+    return AtlasLlamaCppModel(
+        base_url=f"http://127.0.0.1:{settings.ports.llama}",
+        enable_thinking=False,
+        context_window_limit=settings.context.window or settings.model.context_size,
+        params={"cache_prompt": True, "temperature": 0.2, "top_p": 0.9, "max_tokens": 600},
     )
 
 
@@ -169,13 +185,14 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
         "Running things on this machine:\n"
         f"- Python: `{sys.executable}`, and a bare `python` resolves to the "
         f"same interpreter. Either works.\n"
-        f"- Skill scripts live under `{model_path(paths.skills_dir(settings))}`, as "
-        "`<skill>/scripts/<script>.py`. Run them by that full path.\n"
-        "- Write every path exactly as given here, with forward slashes. "
-        "Backslashes break in this shell.\n"
-        f"- Your workspace for this chat is `{model_path(workspace)}`. Uploaded files are "
-        "there, and any file you create goes there unless the user names "
-        "another place.\n"
+        f"- Your workspace for this chat is `{model_path(workspace)}`, and every shell "
+        "command starts there, so a file in it is named by its name alone "
+        "(\"exp4.pdf\"). Uploaded files are there, and files you create go "
+        "there unless the user names another place.\n"
+        f"- Skill scripts are under `$ATLAS_SKILLS` ({model_path(paths.skills_dir(settings))}), "
+        "as `$ATLAS_SKILLS/<skill>/scripts/<script>.py`.\n"
+        "- Write paths with forward slashes, exactly as given. Backslashes break "
+        "in this shell.\n"
         "- You may install what a task needs (`python -m pip install ...` for "
         "Python packages, so they go into Atlas's own environment; `npm install "
         "-g ...` for Node tools). The user is asked to approve every install "
@@ -230,13 +247,17 @@ def build_agent(
         # The stock environment shells out to `sh`, which does not exist on
         # Windows. `sandbox=` is the documented seam; the shell tool picks it
         # up from `agent.sandbox` with no other change.
-        sandbox=sandbox if sandbox is not None else default_environment(),
+        sandbox=sandbox if sandbox is not None else default_environment(
+            cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings)),
         instructions=instructions or None,
         session=session_manager,
         skills=[s["path"] for s in skills] or False,
         interventions=tool_manager.interventions(),
         tools=[*tool_manager.extra_tools(), *atlas_tools, *(tools or [])],
-        builtin_tools=builtin,
+        # A mapping rather than a list, so web_fetch gets its own summarizer.
+        builtin_tools={"*": False, **{name: True for name in builtin},
+                       **({"web_fetch": {"model": build_summarizer(settings)}}
+                          if "web_fetch" in builtin else {})},
         # The four off-switches, together. Any one of them alone is not enough.
         **memory_manager.harness_args(),
         conversation_manager=build_conversation_manager(settings),
@@ -248,7 +269,9 @@ def build_agent(
         callback_handler=None,
         # Recovery is hooks, not prompt text: see agent/core/resilience.py.
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
-        hooks=[ToolFailureRecovery(settings.resilience), DocumentGuard(), InstallApproval(approver)],
+        hooks=[ToolFailureRecovery(settings.resilience, notify=observer),
+               DocumentGuard(lambda p: reader_command(settings, p, p)),
+               InstallApproval(approver)],
     )
 
     if restore_snapshot_id:
@@ -272,6 +295,9 @@ def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> st
             servers.setdefault(server, []).append(tool.tool_name)
     lines = ["Your tools, by where they come from:"]
     lines.append(f"- Built in: {', '.join(builtin) or 'none'}.")
+    if "read" in builtin:
+        lines.append("- `read` is for text files and images only. A .pdf, .docx or .xlsx is read "
+                     "with its skill's script; the command is given next to each attached file.")
     if skills:
         lines.append(f"- Skills (instructions, loaded with the `skills` tool; not tools themselves): "
                      f"{', '.join(skills)}.")

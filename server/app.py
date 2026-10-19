@@ -61,7 +61,7 @@ from agent.core.settings import (
     write_settings,
 )
 from agent.core.shell_env import model_path
-from agent.core.skill_manager import SkillManager
+from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
@@ -213,8 +213,10 @@ class Atlas:
         refs = [{**r, "path": r.get("path") or str(workspace / str(r.get("file", "")))}
                 for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
         media = [f for f in files if _media_kind(f) and Path(str(f.get("path", ""))).is_file()]
-        text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs)
-        if guidance := _mention_guidance(turn["user_text"], settings, self.mcp):
+        text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs,
+                           reader=lambda p, shown: reader_command(settings, p, shown),
+                           workspace=workspace)
+        if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
             text = f"{text}\n\n{guidance}".strip()
         hint = retry_hint(settings, retry) if retry else ""
         sm = SessionManager(settings, run.chat_id)
@@ -403,6 +405,20 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         if not target.is_file():
             raise HTTPException(404, "no such file")
         return target
+
+    @api.delete("/chats/{chat_id}/files/{name:path}")
+    async def remove_upload(chat_id: str, name: str) -> dict[str, Any]:
+        """Remove an upload the user took off a message before sending it.
+
+        Refused for a file any sent message used: that message's history, and
+        any document made from it, still point at it.
+        """
+        target = workspace_file(chat_id, name)
+        for row in state.store.export_rows(chat_id)["turns"]:
+            if any(f.get("name") == target.name for f in json.loads(row["files_json"] or "[]")):
+                raise HTTPException(409, f"{target.name} was sent with a message and is kept")
+        target.unlink()
+        return {"deleted": name}
 
     @api.get("/chats/{chat_id}/workspace")
     async def workspace(chat_id: str) -> list[dict[str, Any]]:
@@ -650,10 +666,12 @@ def _media_blocks(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return blocks
 
 
-_MENTION = re.compile(r"(?<![\w@])@([\w.-]+)")
+#: `@name`, or `@"a name with spaces"` -- what the composer inserts.
+_MENTION = re.compile(r'(?<![\w@])@(?:"([^"\n]+)"|([\w.-]+))')
 
 
-def _mention_guidance(user_text: str, settings: Settings, mcp: Any) -> str:
+def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
+                      workspace: Path | None = None) -> str:
     """`@name` in a message, resolved against skills, tools and MCP servers.
 
     The composer's @ menu inserts these. A small model needs the instruction
@@ -662,7 +680,7 @@ def _mention_guidance(user_text: str, settings: Settings, mcp: Any) -> str:
     message gets the same instruction. Unknown names are left alone -- an
     email address or a handle is not a mention.
     """
-    names = list(dict.fromkeys(_MENTION.findall(user_text or "")))
+    names = list(dict.fromkeys(q or n for q, n in _MENTION.findall(user_text or "")))
     if not names:
         return ""
     skills = {s["folder"]: s["name"] for s in SkillManager(settings).enabled()}
@@ -675,9 +693,15 @@ def _mention_guidance(user_text: str, settings: Settings, mcp: Any) -> str:
     for server_tools in servers.values():
         tools |= set(server_tools)
 
+    files = _scan(workspace) if workspace is not None else {}
     lines = []
     for name in names:
-        if name in servers:
+        if name in files:
+            shown = model_path(str(workspace / name))  # type: ignore[operator]
+            command = reader_command(settings, name, name)
+            lines.append(f"- `{name}` is the file at {shown}"
+                         + (f"; read it with: {command}" if command else "."))
+        elif name in servers:
             lines.append(f"- Use the tools of the MCP server `{name}` "
                          f"({', '.join(servers[name]) or 'none enabled'}), not built-in tools that "
                          "do something similar.")
@@ -696,7 +720,9 @@ def _scan(root: Path) -> dict[str, tuple[int, int]]:
     if not root.is_dir():
         return out
     for p in root.rglob("*"):
-        if p.is_file() and not p.name.startswith(".atlas-"):
+        # Dot-files and dot-folders are Atlas's own bookkeeping (temp files,
+        # images a reader extracted): not the user's files, not download chips.
+        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(root).parts):
             st = p.stat()
             out[p.relative_to(root).as_posix()] = (st.st_size, st.st_mtime_ns)
     return out
@@ -754,7 +780,8 @@ def _run_view(run: Run) -> dict[str, Any]:
 
 
 def _agent_text(user_text: str, files: list[dict[str, Any]],
-                refs: list[dict[str, Any]] | None = None) -> str:
+                refs: list[dict[str, Any]] | None = None,
+                reader: Any = None, workspace: Path | None = None) -> str:
     """What the agent is told, as opposed to what the user typed.
 
     Nothing is parsed at upload, but a file the model has never heard of is a
@@ -771,13 +798,22 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
         parts.append("The user selected these passages and is asking about them:\n" + "\n".join(
             f"- from {r.get('file')} at {model_path(r['path']) if r.get('path') else r.get('file')}: "
             f'"{r["quote"]}"' for r in quoted))
-    listed = "\n".join(
-        f"- {f.get('name')} at {model_path(f['path'])} ({f.get('size', 0)} bytes)"
-        for f in files if isinstance(f, dict) and f.get("path")
-    )
-    if listed:
-        parts.append("Files attached to this message. Read them with the matching skill; their "
-                     f"exact paths are below, so use them verbatim:\n{listed}")
+    lines = []
+    for f in files:
+        if not isinstance(f, dict) or not f.get("path"):
+            continue
+        shown = model_path(f["path"])
+        line = f"- {f.get('name')} at {shown} ({f.get('size', 0)} bytes)"
+        # The exact command for a pdf/docx/xlsx: the model runs it directly
+        # instead of trying `read` first and loading the skill to find out.
+        # Commands start in the workspace, so a file there is named bare.
+        here = workspace is not None and Path(str(f["path"])).parent == workspace
+        if reader is not None and (command := reader(str(f["path"]), f["name"] if here else shown)):
+            line += f". Read it with: {command}"
+        lines.append(line)
+    if lines:
+        parts.append("Files attached to this message (use the paths exactly as written):\n"
+                     + "\n".join(lines))
     return "\n\n".join(p for p in parts if p).strip()
 
 

@@ -25,6 +25,15 @@ reach a chat with history. The prompt is set again after every restore,
 recomposed with `build_system_prompt` so the harness's own guidance stays
 (assigning our text raw dropped it).
 
+**Keep the current turn's reasoning in the history** (2026-10-19, found by
+test). Atlas stripped every `reasoningContent` block before sending history
+to llama-server. Within one turn the model then lost its plan after each tool
+call. It restated the task every step, loaded the same skill twice and re-ran
+the same tool: 6 model calls and 38 s for a two-part question. `/apply-template`
+showed that Gemma's template already keeps the current turn's thoughts and
+drops older turns'. So reasoning is now passed as `reasoning_content` and the
+template decides. The same question then took 2 model calls and 14 s.
+
 **Turn off Strands' printing callback handler** (2026-10-19, found by test).
 `Agent` defaults to a `PrintingCallbackHandler` that writes every token to
 stdout. Started by `atlas start` the console was cp1252, so an emoji or `→`
@@ -125,6 +134,22 @@ file. `create_document` takes Markdown, writes to a temp file, reopens it to
 prove it parses, then moves it into place. The model also wrote
 tab-separated data for an xlsx, so TSV is accepted alongside Markdown tables
 and CSV.
+
+**Name files, not paths, and say how to read them** (2026-10-19, found by
+test). The model copied a 32-character chat id in a path as `a34a34a3...` and
+the read failed. Shell commands now start in the chat's workspace, so an
+attachment is named `"exp4.pdf"`. The attachment list gives the exact reader
+command, which also stopped the model trying `read` on a PDF first.
+
+**8192 output tokens per model call** (2026-10-19, found by test). With 2048,
+reasoning plus a rewritten document ran out mid tool call. Strands could not
+parse the truncated arguments, ran `create_document` with `{}`, and the model
+had to write the whole document again.
+
+**Keep images when a document is rewritten** (2026-10-19). The readers save
+a document's images and print them as Markdown image lines, and
+`create_document` embeds those lines. A five-page PDF with six figures came
+back with all six.
 
 **Tool failures must be error results** (2026-10-19). A tool that returns
 "Error: ..." as ordinary text is a success as far as Strands is concerned,

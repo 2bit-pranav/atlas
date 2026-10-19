@@ -72,11 +72,22 @@ _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
     """A POSIX shell where one exists, `cmd.exe` where one does not."""
 
-    def __init__(self) -> None:
+    def __init__(self, cwd: Path | None = None, skills: Path | None = None) -> None:
         self.shell_dir = _find_posix_shell()
+        #: Where commands run unless told otherwise: the chat's workspace. The
+        #: model then names an attached file `"exp4.pdf"`, not a path holding
+        #: a 32-character chat id -- which it once copied as `a34a34a3...`.
+        self.cwd = Path(cwd) if cwd else None
+        if self.cwd:
+            self.cwd.mkdir(parents=True, exist_ok=True)
+        #: `$ATLAS_SKILLS` in every command, so a SKILL.md can name its script
+        #: wherever the command runs from.
+        self.extra_env = {"ATLAS_SKILLS": model_path(skills)} if skills else {}
 
-    @staticmethod
-    def _resolve_path(path: str) -> Path:
+    def _env(self, env: dict[str, str] | None) -> dict[str, str]:
+        return {**self.extra_env, **(env or {})}
+
+    def _resolve_path(self, path: str) -> Path:
         """Accept the path forms a model sees on this machine.
 
         The harness file tools reject any path that does not start with `/`, so
@@ -84,8 +95,11 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         therefore shown Git-Bash paths (`/c/Users/...`, see `model_path`),
         which pass that check, work unchanged in the shell, and are converted
         here for Python's own file calls. `/C:/Users/...` is accepted too,
-        because a model given one form will sometimes produce the other.
+        because a model given one form will sometimes produce the other. A
+        relative path is taken from the workspace, like the shell's.
         """
+        if not path.startswith("/") and not os.path.isabs(path) and self.cwd is not None:
+            return self.cwd / path
         return Path(windows_path(path))
 
     # ------------------------------------------------------------ execution --
@@ -99,6 +113,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         env: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+        cwd = cwd or (str(self.cwd) if self.cwd else None)
+        env = self._env(env)
         try:
             if self.shell_dir is not None:
                 async for chunk in super().execute_streaming(
@@ -230,8 +246,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
             sys.executable, "-c", code,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=_cmd_env(env),
+            cwd=cwd or (str(self.cwd) if self.cwd else None),
+            env=_cmd_env(self._env(env)),
         )
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -524,13 +540,13 @@ def _decode(raw: bytes | None) -> str:
     return (raw or b"").decode("utf-8", errors="replace")
 
 
-def default_environment() -> NotASandboxLocalEnvironment:
+def default_environment(cwd: Path | None = None, skills: Path | None = None) -> NotASandboxLocalEnvironment:
     """The environment to use on this platform.
 
     Always the Windows subclass: on POSIX it defers to `super()` on every method,
     so behaviour is identical and there is one code path to test rather than two.
     """
-    return WindowsLocalEnvironment()
+    return WindowsLocalEnvironment(cwd=cwd, skills=skills)
 
 
 __all__ = ["WindowsLocalEnvironment", "default_environment", "model_path", "windows_path"]

@@ -1,9 +1,10 @@
 /**
  * The @ menu: point the agent at a file, a skill, a tool or an MCP server.
  *
- * Files are this chat's workspace only (uploads and what the agent made) and
- * are attached when picked. Everything else is inserted as `@name`; the
- * backend turns each known name into an explicit instruction for the model,
+ * Files are this chat's workspace only (uploads and what the agent made).
+ * Everything is inserted as text -- `@name`, or `@"a name"` when it has
+ * spaces -- and the backend turns each known name into an explicit
+ * instruction for the model (a file's path and how to read it),
  * which a 2B model needs -- it otherwise reaches for whichever tool looks
  * closest, the built-in one included.
  */
@@ -93,7 +94,7 @@ export function MentionMenu({ items, query, index, onPick, onHover }: {
                   <g.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate font-mono text-xs">{m.name}</span>
                   <span className="ml-auto max-w-32 shrink-0 truncate text-[11px] text-muted-foreground">
-                    {m.kind === "file" ? "attach" : m.detail}
+                    {m.kind === "file" ? "file" : m.detail}
                   </span>
                 </button>
               )
