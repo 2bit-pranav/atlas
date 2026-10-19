@@ -7,15 +7,18 @@ body when one applies, and then runs the skill's scripts through `shell`.
 ```
 skills/
   _shared.py           output budget, truncation notices, friendly import errors
-  pdf/   SKILL.md  scripts/read_pdf.py
-  docx/  SKILL.md  scripts/read_docx.py, write_docx.py
-  xlsx/  SKILL.md  scripts/read_xlsx.py, query_xlsx.py   (SQL via DuckDB)
+  pdf/   SKILL.md  scripts/read_pdf.py, merge_pdf.py, split_pdf.py, pdf_to_docx.py
+  docx/  SKILL.md  scripts/read_docx.py, docx_to_pdf.py   (needs Word or LibreOffice)
+  xlsx/  SKILL.md  scripts/read_xlsx.py, query_xlsx.py   (SQL via DuckDB),
+                   combine_xlsx.py, xlsx_to_csv.py
   <installed>/  ...  .atlas-source.json                  (where it came from)
 ```
 
-Rich documents only work through skills. The harness `read` tool returns a
-pdf, docx or xlsx as a `document` block that llama.cpp cannot accept, and
-`write`/`edit` handle text only.
+Rich documents are *read* through skills: the harness `read` tool returns a
+pdf, docx or xlsx as a `document` block that llama.cpp cannot accept. They are
+*written* with Atlas's own `create_document` and `edit_document` tools, which
+take Markdown; the bundled skills say so. What a skill needs is listed on
+the Skills page with an install button.
 
 ## Writing one for a 2B model
 
@@ -34,8 +37,10 @@ pdf, docx or xlsx as a `document` block that llama.cpp cannot accept, and
   short message. A traceback is what provokes the model to `pip install`.
 - **Tolerate mangled quoting.** Paths may arrive with stray quotes or
   backslashes; `_shared.unquote` is there for that.
-- **Never install.** Declare packages in `requirements.txt`. The Skills page
-  lists them and installs them into the venv only when the user clicks.
+- **Declare what you need.** `requirements.txt` for Python, `package.json`
+  for Node, or an `npm install -g ...` line in a SKILL.md code block. The
+  Skills page shows each as installed or missing and installs the missing
+  ones. If the model installs instead, the user is asked first.
 
 ## Installing
 

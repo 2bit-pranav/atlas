@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS turns (
     selected_child TEXT,
     render_json    TEXT,
     stats_json     TEXT,
+    refs_json      TEXT NOT NULL DEFAULT '[]',
     error          TEXT,
     created_at     INTEGER NOT NULL
 );
@@ -118,6 +119,11 @@ class ChatStore:
             self._conn.execute("PRAGMA journal_mode = WAL")
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._conn.executescript(SCHEMA)
+            # Columns added after a database was created. CREATE TABLE IF NOT
+            # EXISTS does not evolve an existing table.
+            have = {r["name"] for r in self._conn.execute("PRAGMA table_info(turns)")}
+            if "refs_json" not in have:
+                self._conn.execute("ALTER TABLE turns ADD COLUMN refs_json TEXT NOT NULL DEFAULT '[]'")
             self._conn.commit()
 
     def close(self) -> None:
@@ -181,18 +187,23 @@ class ChatStore:
         parent_turn_id: str | None,
         before_snap: str | None,
         files: list[dict[str, Any]] | None = None,
+        refs: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Insert a turn and make it the selected version at its position."""
+        """Insert a turn and make it the selected version at its position.
+
+        `refs` are passages the user selected in the preview panel and attached
+        to this question: `{"file", "path", "quote"}`.
+        """
         tid, now = new_id(), _now()
         select = (("UPDATE turns SET selected_child=? WHERE id=?", (tid, parent_turn_id))
                   if parent_turn_id else
                   ("UPDATE chats SET selected_root=? WHERE id=?", (tid, chat_id)))
         self._write(
             ("""INSERT INTO turns(id, chat_id, parent_turn_id, user_text, files_json,
-                                  before_snap, status, created_at)
-                VALUES(?,?,?,?,?,?,?,?)""",
+                                  refs_json, before_snap, status, created_at)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
              (tid, chat_id, parent_turn_id, user_text, json.dumps(files or []),
-              before_snap, RUNNING, now)),
+              json.dumps(refs or []), before_snap, RUNNING, now)),
             select,
             ("UPDATE chats SET updated_at=? WHERE id=?", (now, chat_id)),
         )
@@ -333,11 +344,12 @@ class ChatStore:
         for t in turns:  # created_at order, so a parent is always inserted first
             statements.append((
                 """INSERT INTO turns(id, chat_id, parent_turn_id, user_text, files_json,
-                                     before_snap, after_snap, status, selected_child,
+                                     refs_json, before_snap, after_snap, status, selected_child,
                                      render_json, stats_json, error, created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (ids[t["id"]], new_chat, ids.get(t.get("parent_turn_id")), t.get("user_text", ""),
-                 t.get("files_json") or "[]", t.get("before_snap"), t.get("after_snap"),
+                 t.get("files_json") or "[]", t.get("refs_json") or "[]",
+                 t.get("before_snap"), t.get("after_snap"),
                  t["status"] if t.get("status") in TERMINAL else INTERRUPTED,
                  ids.get(t.get("selected_child")), t.get("render_json"), t.get("stats_json"),
                  t.get("error"), t.get("created_at") or now)))

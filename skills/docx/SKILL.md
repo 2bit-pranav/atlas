@@ -1,16 +1,28 @@
 ---
 name: docx
-description: Read, summarise and write Word documents (.docx). Use this whenever a .docx file is attached or mentioned - to summarise it, list its headings, read its tables, or produce a new Word document.
+description: Read, summarise, write and convert Word documents (.docx). Use this whenever a .docx file is attached or mentioned - to summarise it, list its headings, read its tables, turn it into a PDF, or produce a new Word document.
 ---
 
 # Word documents
 
 Use `shell` to run the scripts. Do not write `python-docx` code yourself.
 
+## Convert to PDF
+
+Do not read the document first: the script converts it in one call.
+
+```
+python "$ATLAS_SKILLS/docx/scripts/docx_to_pdf.py" "<file>"
+```
+
+This needs Microsoft Word or LibreOffice. If the script says neither is
+installed, follow its hint: read the document and create the PDF from that
+Markdown with `create_document`.
+
 ## Read
 
 ```
-python skills/docx/scripts/read_docx.py "<path>"
+python "$ATLAS_SKILLS/docx/scripts/read_docx.py" "<file>"
 ```
 
 Returns the headings, the prose, and every table rendered as a pipe table, in
@@ -19,26 +31,35 @@ document order.
 ## The outline first, for long documents
 
 ```
-python skills/docx/scripts/read_docx.py "<path>" --headings-only
+python "$ATLAS_SKILLS/docx/scripts/read_docx.py" "<file>" --headings-only
 ```
 
 Cheap, and it tells you which section actually answers the question.
 
-## Write
+## Images
 
-Reads JSON on stdin, so you describe the document rather than code it:
+The reader saves the document's images and prints each one as a line like
+`![page 2, image 1](C:/.../page2-1.png)`. To keep an image in a new document,
+put that exact line in `create_document`'s Markdown where it belongs.
+
+## Create or change a document
+
+Do not use `shell` or `write` for this. Call the **`create_document`** tool
+with the whole document as **Markdown**:
+
+- `path`: a file name such as `summary.docx` (it is saved in your workspace)
+- `content`: Markdown -- `#` headings, paragraphs, `**bold**`, `- bullets`,
+  `1. numbered`, and tables:
 
 ```
-echo '{"title":"Findings","blocks":[
-  {"type":"heading","level":1,"text":"March total"},
-  {"type":"para","text":"The total for March was 425184.67."},
-  {"type":"bullet","text":"Confirmed against the workbook."},
-  {"type":"table","header":["sheet","total"],"rows":[["Jan","489337.15"]]}
-]}' | python skills/docx/scripts/write_docx.py "summary.docx"
+| Month | Total |
+|---|---|
+| Jan | 489337.15 |
 ```
 
-Block types: `heading` (with `level`), `para`, `bullet`, `table` (with
-`header` and `rows`).
+To change part of an existing file, call **`edit_document`** with the exact
+text to `find` and its `replace`ment. Read the file first and copy the text
+exactly.
 
 ## Things that bite
 

@@ -111,8 +111,9 @@ class LocalModelRetry(ModelRetryStrategy):
 class ToolFailureRecovery(HookProvider):
     """Keeps a run going after a tool fails, within a fixed budget per turn."""
 
-    def __init__(self, settings: ResilienceSettings) -> None:
+    def __init__(self, settings: ResilienceSettings, notify: Notify | None = None) -> None:
         self.settings = settings
+        self._notify = notify
         self._crashes: Counter[str] = Counter()
         self._failures = 0
         self._last_failed = False
@@ -182,6 +183,9 @@ class ToolFailureRecovery(HookProvider):
         self._nudged = True
         self._resuming = True
         logger.info("model stopped after a failed tool call; resuming once")
+        if self._notify is not None:
+            # The answer it gave up with is now out of date; the UI folds it away.
+            self._notify({"type": "resumed", "reason": "tool failure"})
         event.resume = NUDGE
 
 

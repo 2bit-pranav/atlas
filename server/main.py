@@ -16,6 +16,14 @@ import sys
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+# Logs can contain any character a model writes. Never let the console's code
+# page turn one into an exception (started by hand, PYTHONUTF8 may be unset).
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
+
 from server.app import create_app  # noqa: E402
 
 app = create_app(os.environ.get("ATLAS_SETTINGS"))

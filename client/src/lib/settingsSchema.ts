@@ -141,6 +141,29 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    id: "access",
+    title: "Access",
+    description: "What the agent may touch beyond its chat workspace, and what it must ask about. Applies from the next message.",
+    groups: [
+      {
+        title: "Allowed folders",
+        fields: [
+          { key: "access.folders", label: "Folders", control: { type: "list" },
+            help: "One per line, e.g. C:/Users/you/Documents. Subfolders are included. The chat workspace is always allowed. Used by the file tools, the document tools, shell commands and any MCP server whose arguments contain {atlas:folders}." },
+          { key: "access.ask_outside", label: "Ask before going outside them", control: toggle,
+            help: "On: anything outside shows an Allow / Deny card. Off: it is refused." },
+        ],
+      },
+      {
+        title: "Approvals",
+        fields: [
+          { key: "approvals.timeout", label: "Seconds to wait for an answer", control: num(30, 120, 5),
+            help: "No answer counts as Deny. Installs always ask; MCP tools ask when set to Ask on the MCP page." },
+        ],
+      },
+    ],
+  },
+  {
     id: "server",
     title: "Model & server",
     description: "How llama-server is launched. Saved now, used at the next `atlas stop` + `atlas start`.",
@@ -202,7 +225,7 @@ export const SECTIONS: Section[] = [
 ]
 
 /** Keys shown elsewhere (Skills, MCP pages) or deliberately not editable. */
-export const HIDDEN = new Set(["skills.disabled", "memory.enabled", "tools.interventions"])
+export const HIDDEN = new Set(["skills.disabled", "memory.enabled", "tools.interventions", "tools.documents"])
 
 export function describedKeys(): Set<string> {
   return new Set(SECTIONS.flatMap((s) => s.groups.flatMap((g) => g.fields.map((f) => f.key))))

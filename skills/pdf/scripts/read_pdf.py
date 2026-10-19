@@ -21,9 +21,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from _shared import (  # noqa: E402
+    MAX_IMAGES,
+    MIN_IMAGE_PX,
     add_common_arguments,
     fail,
     header,
+    image_line,
+    images_dir,
     limit_for,
     main_wrapper,
     require,
@@ -63,6 +67,35 @@ def parse_pages(spec: str, total: int) -> list[int]:
     return sorted({i for i in out if 0 <= i < total})
 
 
+def page_images(doc, index: int, source: Path, budget: list[int]) -> list[str]:
+    """Save the images on one page and return their Markdown lines.
+
+    Rendered with their masks applied (`render=True`), so a transparent PNG or
+    an image drawn through a soft mask looks the way it does on the page.
+    """
+    import pypdfium2.raw as raw
+
+    lines = []
+    for n, obj in enumerate(doc[index].get_objects(filter=(raw.FPDF_PAGEOBJ_IMAGE,)), start=1):
+        if budget[0] <= 0:
+            break
+        try:
+            w, h = obj.get_px_size()
+            if w < MIN_IMAGE_PX and h < MIN_IMAGE_PX:
+                continue
+            try:
+                image = obj.get_bitmap(render=True).to_pil()
+            except Exception:  # noqa: BLE001 - some filters only decode raw
+                image = obj.get_bitmap(render=False).to_pil()
+            target = images_dir(source) / f"page{index + 1}-{n}.png"
+            image.save(target)
+        except Exception:  # noqa: BLE001 - one odd image must not lose the text
+            continue
+        budget[0] -= 1
+        lines.append(image_line(target, f"page {index + 1}, image {n}"))
+    return lines
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read text from a PDF")
     parser.add_argument("path", help="path to the PDF")
@@ -73,6 +106,8 @@ def main() -> int:
     # term arrives as three arguments and the extras are rejected.
     parser.add_argument("--search", nargs="*", default=[],
                         help="print only pages containing this text")
+    parser.add_argument("--no-images", action="store_true",
+                        help="do not save the pages' images")
     add_common_arguments(parser)
     args = parser.parse_args()
 
@@ -123,11 +158,17 @@ def main() -> int:
     limit, hint = limit_for(args)
     chunks = []
     empty_pages = []
+    images = 0
+    budget = [MAX_IMAGES]
     for i in pages:
         text = doc[i].get_textpage().get_text_range()
-        if not text.strip():
+        found = [] if args.no_images else page_images(doc, i, path, budget)
+        images += len(found)
+        if not text.strip() and not found:
             empty_pages.append(i + 1)
-        chunks.append(f"--- page {i + 1} of {total} ---\n{text.strip()}")
+        # Images go after the page's text: their place in the page is not
+        # recoverable from the text layer, and "after" keeps them on the page.
+        chunks.append("\n".join([f"--- page {i + 1} of {total} ---", text.strip(), *found]).strip())
 
     body = "\n\n".join(chunks)
 
@@ -143,7 +184,9 @@ def main() -> int:
     text, cut = truncate(body, limit, more_hint=f"--pages <range> {hint}")
     print(header(file=path.name, pages=total, read=", ".join(
         str(i + 1) for i in pages), truncated=cut or "no",
-               empty_pages=empty_pages or "none"))
+               empty_pages=empty_pages or "none", images=images))
+    if images:
+        print("images: saved; keep a ![...](...) line in create_document's Markdown to keep that image")
     print()
     print(text)
     return 0

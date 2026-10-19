@@ -9,20 +9,21 @@
 
 import { memo, useEffect, useRef, useState } from "react"
 import {
-  BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Gauge, Lightbulb,
-  Pencil, RefreshCw, Sparkles, WholeWord, Wrench,
+  BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Download, Eye, Gauge,
+  Lightbulb, Pencil, Quote, RefreshCw, ShieldAlert, Sparkles, WholeWord, Wrench,
 } from "lucide-react"
 
 import { atlas, useAtlas } from "@/lib/store"
 import { usePrefs } from "@/lib/prefs"
 import { fileUrl } from "@/lib/api"
-import type { ChatFile, Part, Turn, TurnStats } from "@/lib/types"
+import type { ChangedFile, ChatFile, Part, Ref, Turn, TurnStats } from "@/lib/types"
 import { answerText } from "@/lib/transcript"
 import { cn } from "@/lib/utils"
 import { Markdown } from "@/components/chat/Markdown"
 import { Composer, formatBytes } from "@/components/chat/Composer"
 import { ToolBlock } from "@/components/chat/ToolBlock"
 import { Tip } from "@/components/ui/tip"
+import { fullTime, timeAgo, useNow } from "@/lib/time"
 
 // ------------------------------------------------------------------ turn --
 
@@ -39,9 +40,9 @@ export const TurnRow = memo(function TurnRow({ turn, chatId, isLast, laterCount,
   const parts = liveParts ?? turn.render
   const running = turn.status === "running"
   return (
-    <div className="w-full">
+    <div className="w-full" data-turn-id={turn.id}>
       <UserMessage turn={turn} chatId={chatId} editing={editing} setEditing={setEditing} laterCount={laterCount} />
-      <AssistantMessage turn={turn} parts={parts} stats={liveStats ?? turn.stats} running={running} isLast={isLast} />
+      <AssistantMessage turn={turn} chatId={chatId} parts={parts} stats={liveStats ?? turn.stats} running={running} isLast={isLast} />
     </div>
   )
 })
@@ -83,16 +84,168 @@ function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
   return (
     <div className="mt-12 flex flex-col items-end gap-2">
       {turn.files.length > 0 && <Attachments files={turn.files} chatId={chatId} />}
+      {turn.refs?.length > 0 && <RefChips refs={turn.refs} />}
       {turn.user_text && (
         <div className={cn("max-w-[80%] whitespace-pre-wrap break-words rounded-[1.125rem] bg-primary/5 px-3.5 text-[15px] leading-7 dark:bg-primary/15",
                            turn.user_text.includes("\n") ? "py-2.5" : "py-1.5")}>
-          {turn.user_text}
+          <WithMentions text={turn.user_text} />
         </div>
       )}
       <div className="flex h-6 items-center gap-2">
+        <SentAt at={turn.created_at} />
         <CopyButton text={turn.user_text} />
         <Action label="Edit" onClick={() => setEditing(true)} disabled={busy}><Pencil className="h-3 w-3" /></Action>
       </div>
+    </div>
+  )
+}
+
+/** "2 min ago" under a user message; the exact time on hover. */
+function SentAt({ at }: { at: number }) {
+  const now = useNow()
+  return <span className="text-xs text-muted-foreground" title={fullTime(at)}>{timeAgo(at, now)}</span>
+}
+
+const ASK_TITLE = {
+  install: "Atlas wants to install something",
+  access: "Atlas wants to use a folder outside its allowed ones",
+  tool: "Atlas wants to use a tool that needs your approval",
+} as const
+const DONE_TITLE = { install: "Install request", access: "Folder access request", tool: "Tool approval" } as const
+
+/**
+ * The agent wants to do something that needs the user: install a package,
+ * reach a folder outside the allowed ones, or call an MCP tool marked "ask".
+ * Allow or Deny; no answer by the deadline counts as Deny (the backend
+ * decides, this only shows the clock).
+ */
+function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "approval" }>; live: boolean }) {
+  const [now, setNow] = useState(() => Date.now())
+  const [sent, setSent] = useState(false)
+  const pending = part.status === "pending" && live
+  useEffect(() => {
+    if (!pending) return
+    const timer = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(timer)
+  }, [pending])
+  const left = Math.max(0, Math.ceil((part.expires_at - now) / 1000))
+  const outcome = {
+    pending: live ? null : "Not answered",
+    allowed: "Allowed",
+    denied: "Declined: not run",
+    expired: "No answer in time: not run",
+  }[part.status]
+  return (
+    <div className={cn("my-3 rounded-xl border p-3.5",
+                       pending ? "border-amber-500/50 bg-amber-500/5" : "bg-muted/30")}>
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <ShieldAlert className={cn("h-4 w-4", pending ? "text-amber-500" : "text-muted-foreground")} />
+        {(pending ? ASK_TITLE : DONE_TITLE)[part.request ?? "install"]}
+        {pending && <span className="ml-auto font-mono text-xs text-muted-foreground">{left}s</span>}
+        {outcome && (
+          <span className={cn("ml-auto text-xs", part.status === "allowed" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+            {outcome}
+          </span>
+        )}
+      </div>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-code p-2.5 font-mono text-xs text-code-foreground">{part.command}</pre>
+      {pending && (
+        <div className="mt-3 flex items-center gap-2">
+          <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, true) }}
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
+            Allow
+          </button>
+          <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, false) }}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
+            Deny
+          </button>
+          <span className="text-[11px] text-muted-foreground">
+            {part.request === "access" && part.folder
+              ? <>Allows {part.folder} for the rest of this answer. To allow it always, add it under Settings &gt; Access.</>
+              : "Runs on this computer with your permissions."}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** User text with each `@name` shown as a token, like the composer inserted it. */
+function WithMentions({ text }: { text: string }) {
+  const parts = text.split(/((?<![\w@])@(?:"[^"\n]+"|[\w.-]+))/g)
+  return (
+    <>
+      {parts.map((p, i) => p.startsWith("@") && i % 2 === 1
+        ? <span key={i} className="rounded bg-primary/10 px-1 font-mono text-[0.9em]">{p}</span>
+        : p)}
+    </>
+  )
+}
+
+/** An answer given up on after a failure, before Atlas sent the model back to work. */
+function Superseded({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="my-2">
+      <button type="button" onClick={() => setOpen(!open)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className={cn("h-3 w-3 transition-transform", open && "rotate-90")} />
+        Earlier attempt, replaced after a tool failed and the model tried again
+      </button>
+      {open && <div className="mt-1 border-l pl-3 text-sm text-muted-foreground line-through decoration-muted-foreground/40"><Markdown text={text} /></div>}
+    </div>
+  )
+}
+
+/** Passages selected in the preview panel that went with this question. */
+export function RefChips({ refs, onRemove }: { refs: Ref[]; onRemove?: (i: number) => void }) {
+  return (
+    <div className="flex max-w-[80%] flex-col items-end gap-1.5">
+      {refs.map((r, i) => (
+        <div key={i} className="group flex max-w-full items-start gap-2 rounded-lg border bg-muted/50 px-2.5 py-1.5 text-xs">
+          <Quote className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+          <span className="min-w-0">
+            <span className="line-clamp-2 italic text-foreground/80">{r.quote}</span>
+            <span className="block truncate text-[11px] text-muted-foreground">{r.file}</span>
+          </span>
+          {onRemove && (
+            <button type="button" onClick={() => onRemove(i)} aria-label="Remove passage"
+                    className="text-muted-foreground hover:text-foreground">×</button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Files this answer created or changed: open in the preview, or download. */
+function ProducedFiles({ files, chatId }: { files: ChangedFile[]; chatId: string }) {
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {files.map((f) => {
+        const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"
+        return (
+          <div key={f.name} className="flex items-center gap-3 rounded-lg border bg-muted p-2 pr-1.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">{ext}</span>
+            <span className="min-w-0">
+              <span className="block max-w-48 truncate text-sm font-medium" title={f.name}>{f.name}</span>
+              <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Created" : "Updated"} · {formatBytes(f.size)}</span>
+            </span>
+            <Tip label="Preview">
+              <button type="button" onClick={() => atlas.openPreview(f.name)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
+                <Eye className="h-3.5 w-3.5" />
+              </button>
+            </Tip>
+            <Tip label="Download">
+              <a href={fileUrl(chatId, f.name, true)}
+                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
+                <Download className="h-3.5 w-3.5" />
+              </a>
+            </Tip>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -104,19 +257,19 @@ function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
         const image = f.type.startsWith("image/")
         const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"
         return image ? (
-          <a key={f.path} href={fileUrl(chatId, f.name)} target="_blank" rel="noreferrer"
-             className="overflow-hidden rounded-lg bg-muted shadow-lg">
+          <button key={f.path} type="button" onClick={() => atlas.openPreview(f.name)}
+                  className="overflow-hidden rounded-lg bg-muted shadow-lg">
             <img src={fileUrl(chatId, f.name)} alt={f.name} className="max-h-40" />
-          </a>
+          </button>
         ) : (
-          <a key={f.path} href={fileUrl(chatId, f.name)} target="_blank" rel="noreferrer"
-             className="flex items-center gap-3 rounded-lg border bg-muted p-2.5 hover:bg-accent">
+          <button key={f.path} type="button" onClick={() => atlas.openPreview(f.name)} title="Open in the preview panel"
+             className="flex items-center gap-3 rounded-lg border bg-muted p-2.5 text-left hover:bg-accent">
             <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">{ext}</span>
             <span className="min-w-0">
               <span className="block max-w-40 truncate text-sm font-medium">{f.name}</span>
               <span className="block text-xs text-muted-foreground">{formatBytes(f.size)}</span>
             </span>
-          </a>
+          </button>
         )
       })}
     </div>
@@ -125,12 +278,15 @@ function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
 
 // ------------------------------------------------------------- assistant --
 
-function AssistantMessage({ turn, parts, stats, running, isLast }: {
-  turn: Turn; parts: Part[]; stats: TurnStats | null; running: boolean; isLast: boolean
+function AssistantMessage({ turn, chatId, parts, stats, running, isLast }: {
+  turn: Turn; chatId: string; parts: Part[]; stats: TurnStats | null; running: boolean; isLast: boolean
 }) {
   const prefs = usePrefs()
   const busy = useAtlas((s) => s.run !== null)
-  const modelName = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
+  const currentModel = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
+  // The model that wrote this version, falling back to the current one for
+  // turns recorded before models were stored.
+  const modelName = stats?.model ?? currentModel
   const empty = parts.length === 0
   const lastIndex = parts.length - 1
 
@@ -144,6 +300,10 @@ function AssistantMessage({ turn, parts, stats, running, isLast }: {
                             interrupted={!running && turn.status !== "completed"} defaultOpen={prefs.expandReasoning} />
         if (part.kind === "tool")
           return <ToolBlock key={part.id || i} part={part} defaultOpen={prefs.expandTools} />
+        if (part.kind === "approval")
+          return <ApprovalCard key={part.id} part={part} live={running} />
+        if (part.kind === "superseded")
+          return <Superseded key={i} text={part.text} />
         return <Markdown key={i} text={part.text} />
       })}
 
@@ -155,6 +315,8 @@ function AssistantMessage({ turn, parts, stats, running, isLast }: {
           {isLast && " Regenerate or edit the question to continue."}
         </p>
       )}
+
+      {!running && stats?.files && stats.files.length > 0 && <ProducedFiles files={stats.files} chatId={chatId} />}
 
       {!running && (
         <>

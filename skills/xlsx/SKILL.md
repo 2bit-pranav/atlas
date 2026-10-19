@@ -1,20 +1,41 @@
 ---
 name: xlsx
-description: Read and query Excel spreadsheets (.xlsx, .xlsm, .xltx) - list sheets, inspect columns and formulas, and compute totals, sums, averages and group-by results with SQL. Use this whenever a spreadsheet is attached or mentioned and the answer is a number.
+description: Read, query, combine and export Excel spreadsheets (.xlsx, .xlsm, .xltx) - list sheets, inspect columns and formulas, compute totals, sums, averages and group-by results with SQL, combine workbooks or sheets, and export sheets as CSV. Use this whenever a spreadsheet is attached or mentioned. Also creates spreadsheets from Markdown tables.
 ---
 
 # Spreadsheets
 
-Run the scripts with `shell`. Two steps, always in this order.
+Run the scripts with `shell`. To answer a question about a spreadsheet, take
+the two numbered steps below, always in that order.
 
 `python` is already the right interpreter — do not look for another one, and do
 not run `pip install` to fix a complaint about a missing library. That is a
 setup problem to report to the user.
 
+## Combine and export
+
+These need no reading first, and one call does every file or sheet.
+
+Several workbooks, chosen sheets (`file.xlsx:Sheet`) or CSVs into one
+workbook, a sheet each:
+
+```
+python "$ATLAS_SKILLS/xlsx/scripts/combine_xlsx.py" combined.xlsx "jan.xlsx" "feb.xlsx:Sales" "mar.csv"
+```
+
+Add `--stack` to append all rows into one sheet instead (the headers must
+match; a `source` column records where each row came from).
+
+Export every sheet as CSV, one file each (add `--sheet Mar` for just one):
+
+```
+python "$ATLAS_SKILLS/xlsx/scripts/xlsx_to_csv.py" "<file>"
+```
+
 ## 1. Shape first
 
 ```
-python skills/xlsx/scripts/read_xlsx.py "<path>"
+python "$ATLAS_SKILLS/xlsx/scripts/read_xlsx.py" "<file>"
 ```
 
 Gives every sheet name, then for one sheet its row/column counts and the first
@@ -28,17 +49,36 @@ spreadsheet is worse than no number.
 ## 2. Query with SQL
 
 ```
-python skills/xlsx/scripts/query_xlsx.py "<path>" 'SELECT SUM("revenue") FROM "Mar"'
+python "$ATLAS_SKILLS/xlsx/scripts/query_xlsx.py" "<file>" 'SELECT SUM("revenue") FROM "Mar"'
 ```
 
 The sheet name is the table name, so quote it. Column names come from the
 first row, exactly as they appear. Not sure of them? This needs no SQL:
 
 ```
-python skills/xlsx/scripts/query_xlsx.py "<path>" --schema
+python "$ATLAS_SKILLS/xlsx/scripts/query_xlsx.py" "<file>" --schema
 ```
 
 ---
+
+## Create or change a document
+
+Do not use `shell` or `write` for this. Call the **`create_document`** tool
+with the whole document as **Markdown**:
+
+- `path`: a file name such as `summary.xlsx` (it is saved in your workspace)
+- `content`: Markdown -- `#` headings, paragraphs, `**bold**`, `- bullets`,
+  `1. numbered`, and tables:
+
+```
+| Month | Total |
+|---|---|
+| Jan | 489337.15 |
+```
+
+To change part of an existing file, call **`edit_document`** with the exact
+text to `find` and its `replace`ment. Read the file first and copy the text
+exactly. Every Markdown table becomes a sheet, named after the heading above it; numbers become real numbers.
 
 ## Gotchas that produce wrong answers
 

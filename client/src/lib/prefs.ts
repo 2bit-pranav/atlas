@@ -15,6 +15,7 @@ export interface Prefs {
   expandReasoning: boolean
   expandTools: boolean
   showContextMeter: boolean
+  autoScroll: boolean
 }
 
 const KEY = "atlas-prefs"
@@ -25,6 +26,7 @@ const DEFAULTS: Prefs = {
   expandReasoning: false,
   expandTools: false,
   showContextMeter: true,
+  autoScroll: false,
 }
 
 function load(): Prefs {

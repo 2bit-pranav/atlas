@@ -25,6 +25,25 @@ reach a chat with history. The prompt is set again after every restore,
 recomposed with `build_system_prompt` so the harness's own guidance stays
 (assigning our text raw dropped it).
 
+**Keep the current turn's reasoning in the history** (2026-10-19, found by
+test). Atlas stripped every `reasoningContent` block before sending history
+to llama-server. Within one turn the model then lost its plan after each tool
+call. It restated the task every step, loaded the same skill twice and re-ran
+the same tool: 6 model calls and 38 s for a two-part question. `/apply-template`
+showed that Gemma's template already keeps the current turn's thoughts and
+drops older turns'. So reasoning is now passed as `reasoning_content` and the
+template decides. The same question then took 2 model calls and 14 s.
+
+**Turn off Strands' printing callback handler** (2026-10-19, found by test).
+`Agent` defaults to a `PrintingCallbackHandler` that writes every token to
+stdout. Started by `atlas start` the console was cp1252, so an emoji or `→`
+in an answer raised `UnicodeEncodeError` and failed the run.
+
+**MCP tools need their server in the description** (2026-10-19, found by
+test). Asked to "use the MCP tools", the model picked built-in tools or went
+looking for skills. With `[MCP: <server>]` on each description, and the
+prompt listing tools by source, it picked the server's tool.
+
 **Never write `snapshot_latest`** (2026-10-18, found by test). Strands writes
 it after every invocation and restores it automatically whenever an agent
 starts. A turn with no restore point (a first message, or a retry or edit of
@@ -105,6 +124,95 @@ would show the model a second shell and file tool beside the Strands ones.
 
 ---
 
+## Documents and installs
+
+**The model writes Markdown; Atlas makes the document** (2026-10-19, found by
+test). The docx writer read hand-written JSON from `echo '...' |`. An
+apostrophe in the text ended the shell quote, and slips in nested JSON were
+common, so the model fell back to writing plain text into a `.docx`: a corrupt
+file. `create_document` takes Markdown, writes to a temp file, reopens it to
+prove it parses, then moves it into place. The model also wrote
+tab-separated data for an xlsx, so TSV is accepted alongside Markdown tables
+and CSV.
+
+**Name files, not paths, and say how to read them** (2026-10-19, found by
+test). The model copied a 32-character chat id in a path as `a34a34a3...` and
+the read failed. Shell commands now start in the chat's workspace, so an
+attachment is named `"exp4.pdf"`. The attachment list gives the exact reader
+command, which also stopped the model trying `read` on a PDF first.
+
+**8192 output tokens per model call** (2026-10-19, found by test). With 2048,
+reasoning plus a rewritten document ran out mid tool call. Strands could not
+parse the truncated arguments, ran `create_document` with `{}`, and the model
+had to write the whole document again.
+
+**Keep images when a document is rewritten** (2026-10-19). The readers save
+a document's images and print them as Markdown image lines, and
+`create_document` embeds those lines. A five-page PDF with six figures came
+back with all six.
+
+**Tool failures must be error results** (2026-10-19). A tool that returns
+"Error: ..." as ordinary text is a success as far as Strands is concerned,
+and the recovery hooks never see it. Atlas's tools return
+`{"status": "error", ...}`.
+
+**Installs are asked, not forbidden** (2026-10-19, decided). "NEVER run pip"
+in the prompt also stopped `npm install` for an npm-based skill. Every install
+now pauses for Allow / Deny, and 60 seconds with no answer is Deny.
+
+**Generated files outlive edits** (2026-10-19, decided). An edit deletes the
+turns that follow, never the files they produced or changed. The preview
+panel lists the whole workspace.
+
+**Voice is an audio attachment** (2026-10-19, decided). llama-server reports
+`audio` among the model's modalities, and Strands sends `audio` blocks as
+`input_audio`. The recording goes to the model as it is, with no
+speech-to-text step and nothing to install.
+
+**One policy hook, in a fixed order** (2026-10-19, decided). The document
+guard and install approval were separate hooks whose order depended on
+`build_agent`. `ToolPolicy` runs normalise, access, install, sensitive,
+documents in that order, and the first refusal wins.
+
+**One access model** (2026-10-19, decided). The workspace is always allowed;
+`access.folders` adds more; anything else asks. It covers the file tools,
+document tools, shell paths and MCP arguments, and MCP servers get the folders
+through `{atlas:folders}` because Strands' MCP client has no roots support.
+Skills are bounded at the tool boundary, not by a sandbox.
+
+**Skill requirements are installed by the user** (2026-10-19, decided). A
+community skill often says `npm install -g x` only in its SKILL.md, and the
+model then tried to install it mid-task. Requirements are read from all three
+places and installed from the Skills page; the click is the approval.
+
+**Benchmark baseline: 5/12** (2026-10-19, measured with a local benchmark kept out of the repo). Fails
+are about quality, not plumbing: no date context, guessed URLs with no search
+engine, the `web_fetch` summariser mangling tables, dropped images in long
+copies, claimed-but-not-done steps, and giving up early with thinking off.
+Phase 2 measures each change against this. See `docs/roadmap.md`.
+
+**A search MCP mattered more than new tools** (2026-10-19, found by test).
+With a filesystem and a DuckDuckGo search MCP installed, a search-save-verify
+task ran cleanly in 5 calls, and the F1 task returned real, correct winners.
+What remained was the date: the model read "last season" as 2024 because it
+did not know the year. So `todo_write`, `notebook` and subagents are on hold.
+
+**The date in the prompt, the time in the message** (2026-10-19, decided).
+The system prompt carries today's date, which changes once a day, so
+llama.cpp's prompt cache is kept. Each user message ends with
+`[Sent Mon 19 Oct 2026, 18:38 (UTC+05:30)]`, which only the model sees.
+
+**docx to PDF needs Word or LibreOffice** (2026-10-19). `docx2pdf` drives Word
+over COM; without Word or LibreOffice the script says so and points the model
+to read the document and `create_document` the PDF instead. xlsx to PDF has no
+library that works without Excel, so it is not offered. `pdf2docx` (PDF to
+Word) pulls in PyMuPDF, which is AGPL-licensed.
+
+**Tests stay out of the repository** (2026-10-19, decided). The user tests by
+hand; the development tests and benchmark live in an ignored `tests/`.
+
+---
+
 ## Recovery and retries
 
 **Recovery is hooks, not prompt text** (2026-10-18). The model read an empty
@@ -161,6 +269,11 @@ used to insert a turn first and leave a phantom `running` leaf.
   `write` and `edit` never worked on Windows.
 - The Git-Bash form fixes both. MSYS converts it for native programs, and the
   sandbox converts it for Python's own file calls.
+
+**`/tmp` is Git's, not `C:\tmp`** (2026-10-19, found by test). `web_fetch`
+has curl write `/tmp/strands-web-fetch-*` and reads it back; that path was
+resolved as `C:\tmp\...` and every fetch failed. POSIX paths go through
+`cygpath`.
 
 **Never `uvicorn --reload`** (2026-10-18). Its worker runs the Selector event
 loop, which cannot start subprocesses on Windows. Every shell call failed with

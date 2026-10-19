@@ -91,7 +91,7 @@ def unquote(value: str) -> str:
     argument the model carefully wrapped in `"..."` or `'...'` can arrive here
     with the quote characters still attached. `cmd /c script.py "C:\\data\\a.xlsx"`
     has been observed reaching argparse as `"C:\\data\\a.xlsx"`, which fails with
-    `no such file: "C:\data\a.xlsx"` -- an error that points at the filesystem
+    `no such file: "C:\\data\\a.xlsx"` -- an error that points at the filesystem
     when the real problem is a character of punctuation.
 
     Stripped repeatedly rather than once, so an argument that was quoted *and*
@@ -215,3 +215,68 @@ __all__ = [
     "truncate",
     "unquote",
 ]
+
+# ------------------------------------------------------------------ images --
+
+#: Images smaller than this on both sides are rules, bullets and logos, not
+#: content worth carrying into a rewrite.
+MIN_IMAGE_PX = 64
+#: Per document. A brochure with 200 thumbnails would otherwise flood the reply.
+MAX_IMAGES = 30
+
+
+def images_dir(source: Path) -> Path:
+    """Where a document's extracted images go: a hidden folder beside it.
+
+    Hidden (dot-prefixed) so the chat's file list and download chips are not
+    filled with figure-1.png, figure-2.png ... every time a document is read.
+    """
+    folder = source.parent / ".atlas-images" / source.stem
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def image_line(path: Path, caption: str) -> str:
+    """How an image is printed: Markdown that create_document accepts as is."""
+    return f"![{caption}]({path.resolve().as_posix()})"
+
+# ------------------------------------------------------------------ pages --
+
+
+def page_list(spec: str, total: int) -> list[int]:
+    """`1-3,7`, `5-`, `all` -> 0-based indices, **in the order given**.
+
+    Unlike `read_pdf.parse_pages` this keeps order and repeats, because
+    merging `3,1-2` means page 3 first. Raises ValueError on anything that
+    is not a page, so a typo fails instead of silently dropping pages.
+    """
+    spec = (spec or "all").strip().lower()
+    if spec in ("all", "*", ""):
+        return list(range(total))
+    out: list[int] = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        a, dash, b = part.partition("-")
+        start = int(a) if a.strip() else 1
+        end = (int(b) if b.strip() else total) if dash else start
+        if not (1 <= start <= total and 1 <= end <= total):
+            raise ValueError(f"page {part!r} is outside 1-{total}")
+        step = 1 if end >= start else -1
+        out.extend(i - 1 for i in range(start, end + step, step))
+    return out
+
+
+def output_path(name: str) -> Path:
+    """Where a script writes: a bare name lands in the chat workspace (cwd)."""
+    path = Path(unquote(name))
+    path = path if path.is_absolute() else Path.cwd() / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def created(names: Path | str, **details: Any) -> str:
+    """The lines every writing script ends with, so the model tells the user."""
+    names = names.name if isinstance(names, Path) else names
+    return header(created=names, **details) + "\nThe user sees it as a download in the chat."

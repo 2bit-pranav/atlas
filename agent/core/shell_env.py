@@ -72,11 +72,22 @@ _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
     """A POSIX shell where one exists, `cmd.exe` where one does not."""
 
-    def __init__(self) -> None:
+    def __init__(self, cwd: Path | None = None, skills: Path | None = None) -> None:
         self.shell_dir = _find_posix_shell()
+        #: Where commands run unless told otherwise: the chat's workspace. The
+        #: model then names an attached file `"exp4.pdf"`, not a path holding
+        #: a 32-character chat id -- which it once copied as `a34a34a3...`.
+        self.cwd = Path(cwd) if cwd else None
+        if self.cwd:
+            self.cwd.mkdir(parents=True, exist_ok=True)
+        #: `$ATLAS_SKILLS` in every command, so a SKILL.md can name its script
+        #: wherever the command runs from.
+        self.extra_env = {"ATLAS_SKILLS": model_path(skills)} if skills else {}
 
-    @staticmethod
-    def _resolve_path(path: str) -> Path:
+    def _env(self, env: dict[str, str] | None) -> dict[str, str]:
+        return {**self.extra_env, **(env or {})}
+
+    def _resolve_path(self, path: str) -> Path:
         """Accept the path forms a model sees on this machine.
 
         The harness file tools reject any path that does not start with `/`, so
@@ -84,8 +95,11 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         therefore shown Git-Bash paths (`/c/Users/...`, see `model_path`),
         which pass that check, work unchanged in the shell, and are converted
         here for Python's own file calls. `/C:/Users/...` is accepted too,
-        because a model given one form will sometimes produce the other.
+        because a model given one form will sometimes produce the other. A
+        relative path is taken from the workspace, like the shell's.
         """
+        if not path.startswith("/") and not os.path.isabs(path) and self.cwd is not None:
+            return self.cwd / path
         return Path(windows_path(path))
 
     # ------------------------------------------------------------ execution --
@@ -99,6 +113,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         env: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+        cwd = cwd or (str(self.cwd) if self.cwd else None)
+        env = self._env(env)
         try:
             if self.shell_dir is not None:
                 async for chunk in super().execute_streaming(
@@ -230,8 +246,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
             sys.executable, "-c", code,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=_cmd_env(env),
+            cwd=cwd or (str(self.cwd) if self.cwd else None),
+            env=_cmd_env(self._env(env)),
         )
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -268,6 +284,20 @@ _MSYS = re.compile(r"^/([A-Za-z])(?:/|$)(.*)$")
 _SLASH_DRIVE = re.compile(r"^/([A-Za-z]):[/\\]?(.*)$")
 
 
+def drive_path(path: str) -> str:
+    """`/c/Users/x` or `/C:/Users/x` -> `C:/Users/x`; anything else unchanged.
+
+    Only the drive forms, never other POSIX paths: used on MCP arguments,
+    where a string that merely starts with `/` may be a URL path or a pattern.
+    """
+    if sys.platform != "win32" or not path.startswith("/"):
+        return path
+    for pattern in (_SLASH_DRIVE, _MSYS):
+        if (m := pattern.match(path)) is not None:
+            return f"{m.group(1).upper()}:/{m.group(2)}"
+    return path
+
+
 def windows_path(path: str) -> str:
     """`/c/Users/x` or `/C:/Users/x` -> `C:/Users/x`. Anything else unchanged."""
     if sys.platform != "win32":
@@ -275,7 +305,32 @@ def windows_path(path: str) -> str:
     for pattern in (_SLASH_DRIVE, _MSYS):
         if (m := pattern.match(path)) is not None:
             return f"{m.group(1).upper()}:/{m.group(2)}"
+    if path.startswith("/") and not path.startswith("//"):
+        # Any other POSIX path (`/tmp/...`, `/usr/...`) means what Git Bash
+        # says it means. web_fetch has curl write to `/tmp/strands-web-fetch-*`
+        # and then reads it back; resolved naively that became `C:\tmp\...`,
+        # which does not exist, and every fetch failed.
+        if (mapped := _cygpath(path)) is not None:
+            return mapped
     return path if os.path.isabs(path) else os.path.join(os.getcwd(), path)
+
+
+def _cygpath(path: str) -> str | None:
+    shell = _find_posix_shell_cached()
+    if shell is None:
+        return None
+    # The shell may have been found in Git's `bin` or in `usr/bin` itself.
+    exe = next((p for p in (shell / "cygpath.exe", shell.parent / "usr" / "bin" / "cygpath.exe")
+                if p.is_file()), None)
+    if exe is None:
+        return None
+    import subprocess
+
+    try:
+        out = subprocess.run([str(exe), "-w", path], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None if out.returncode == 0 else None
 
 
 def model_path(path: str | Path) -> str:
@@ -400,6 +455,10 @@ def _venv_first(env: dict[str, str] | None) -> dict[str, str]:
         parts.insert(0, str(scripts))
     merged["PATH"] = os.pathsep.join(parts) if parts else str(scripts)
     merged.setdefault("VIRTUAL_ENV", str(scripts.parent))
+    # Skill scripts print document text, which is full of characters cp1252
+    # cannot encode. UTF-8 mode makes their stdout safe whatever the console.
+    merged.setdefault("PYTHONUTF8", "1")
+    merged.setdefault("PYTHONIOENCODING", "utf-8")
     return merged
 
 
@@ -495,13 +554,13 @@ def _decode(raw: bytes | None) -> str:
     return (raw or b"").decode("utf-8", errors="replace")
 
 
-def default_environment() -> NotASandboxLocalEnvironment:
+def default_environment(cwd: Path | None = None, skills: Path | None = None) -> NotASandboxLocalEnvironment:
     """The environment to use on this platform.
 
     Always the Windows subclass: on POSIX it defers to `super()` on every method,
     so behaviour is identical and there is one code path to test rather than two.
     """
-    return WindowsLocalEnvironment()
+    return WindowsLocalEnvironment(cwd=cwd, skills=skills)
 
 
-__all__ = ["WindowsLocalEnvironment", "default_environment", "model_path", "windows_path"]
+__all__ = ["WindowsLocalEnvironment", "default_environment", "drive_path", "model_path", "windows_path"]

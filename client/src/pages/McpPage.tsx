@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 
 import * as api from "@/lib/api"
-import type { McpServer, RegistryOption, RegistryServer } from "@/lib/types"
+import type { McpServer, RegistryOption, RegistryServer, ToolMode } from "@/lib/types"
 import { useAtlas } from "@/lib/store"
 import { Button, Empty, Notice, PageShell, Switch } from "@/components/ui/kit"
 import { cn } from "@/lib/utils"
@@ -102,7 +102,7 @@ export function McpPage() {
               onToggle={(on) => run(() => api.toggleMcp(s.name, on))}
               onReconnect={() => run(() => api.reconnectMcp(s.name))}
               onDelete={() => run(() => api.deleteMcp(s.name))}
-              onTool={(tool, on) => run(() => api.toggleMcpTool(s.name, tool, on))}
+              onTool={(tool, mode) => run(() => api.setMcpToolMode(s.name, tool, mode))}
               onEdit={() => setDraft({ name: s.name, config: JSON.stringify(s.config, null, 2) })}
             />
           ))}
@@ -131,7 +131,7 @@ function ServerCard({ server, onToggle, onReconnect, onDelete, onTool, onEdit }:
   onToggle: (on: boolean) => void
   onReconnect: () => void
   onDelete: () => void
-  onTool: (tool: string, on: boolean) => void
+  onTool: (tool: string, mode: ToolMode) => void
   onEdit: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -154,6 +154,9 @@ function ServerCard({ server, onToggle, onReconnect, onDelete, onTool, onEdit }:
             </span>
           </div>
           <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground" title={command}>{command}</p>
+          {server.uses_folders && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Uses the allowed folders from Settings &gt; Access.</p>
+          )}
         </div>
         {server.status === "connected" && (
           <span className="hidden text-[11px] text-muted-foreground sm:inline">
@@ -194,12 +197,28 @@ function ServerCard({ server, onToggle, onReconnect, onDelete, onTool, onEdit }:
                 <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{tool.description}</p>
               </div>
               <span className="shrink-0 font-mono text-[10px] text-muted-foreground">~{tool.tokens} tok</span>
-              <Switch checked={tool.enabled} onChange={(on) => onTool(tool.name, on)} label={`Enable ${tool.name}`} />
+              <ModeSwitch value={tool.mode ?? (tool.enabled ? "on" : "off")} onChange={(m) => onTool(tool.name, m)} />
             </div>
           ))}
         </div>
       )}
     </div>
+  )
+}
+
+/** On / ask / off for one tool. "Ask" means the user approves every call. */
+function ModeSwitch({ value, onChange }: { value: ToolMode; onChange: (m: ToolMode) => void }) {
+  return (
+    <span className="inline-flex shrink-0 rounded-md border p-0.5 text-[11px]">
+      {(["on", "ask", "off"] as const).map((m) => (
+        <button key={m} type="button" onClick={() => onChange(m)} title={
+          m === "ask" ? "Ask before every call" : m === "on" ? "Use freely" : "Hidden from the agent"}
+                className={cn("rounded px-1.5 py-0.5 capitalize",
+                              value === m ? "bg-accent font-medium text-foreground" : "text-muted-foreground")}>
+          {m}
+        </button>
+      ))}
+    </span>
   )
 }
 
@@ -239,6 +258,8 @@ function ServerForm({ draft, onCancel, onSave, onError }: {
       <p className="text-sm font-medium">{draft.name ? `Server: ${draft.name}` : "New server"}</p>
       <p className="mt-1 text-xs text-muted-foreground">
         Paste the JSON from the server's README. A whole <span className="font-mono">mcpServers</span> block adds every server in it.
+        Where a server expects folder paths, put <span className="font-mono">"{"{atlas:folders}"}"</span> in its args: Atlas fills in
+        the folders allowed under Settings &gt; Access.
       </p>
       <input
         value={name}

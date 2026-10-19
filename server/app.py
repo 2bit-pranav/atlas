@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import re
 import shutil
 import sys
 from contextlib import asynccontextmanager
@@ -34,7 +35,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from agent.core import paths
-from agent.core.agent_factory import RetryPlan, build_agent, retry_hint
+from agent.core.agent_factory import RetryPlan, build_agent, clock_note, retry_hint
 from agent.core.chats import (
     CANCELLED,
     COMPLETED,
@@ -60,7 +61,7 @@ from agent.core.settings import (
     write_settings,
 )
 from agent.core.shell_env import model_path
-from agent.core.skill_manager import SkillManager
+from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
@@ -83,6 +84,8 @@ class RenameChat(BaseModel):
 class SendMessage(BaseModel):
     text: str = ""
     files: list[dict[str, Any]] = Field(default_factory=list)
+    #: Passages selected in the preview panel: {"file", "path", "quote"}.
+    refs: list[dict[str, Any]] = Field(default_factory=list)
     thinking: bool | None = None
 
 
@@ -93,11 +96,16 @@ class RetryTurn(BaseModel):
 class EditTurn(BaseModel):
     text: str
     files: list[dict[str, Any]] | None = None
+    refs: list[dict[str, Any]] | None = None
     thinking: bool | None = None
 
 
 class SelectTurn(BaseModel):
     delta: int = 0
+
+
+class Answer(BaseModel):
+    allow: bool
 
 
 # ------------------------------------------------------------------ state --
@@ -117,9 +125,26 @@ class Atlas:
         self.runs = RunManager()
         #: MCP connections live as long as the process, not as long as a turn.
         self.mcp = McpManager(self.settings)
+        self._modalities: dict[str, bool] | None = None
         if n := self.store.mark_interrupted():
             logger.info("%d turn(s) left running by a previous process are now interrupted", n)
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)
+
+    def modalities(self) -> dict[str, bool]:
+        """What the loaded model can take in (vision, audio), from llama-server.
+
+        Asked once and remembered: it changes only with the model, which needs
+        a restart anyway. Not remembered while llama-server is still loading.
+        """
+        if self._modalities is None:
+            try:
+                import httpx
+
+                props = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2).json()
+                self._modalities = {k: bool(v) for k, v in (props.get("modalities") or {}).items()}
+            except Exception:  # noqa: BLE001 - not up yet: ask again next time
+                return {}
+        return self._modalities
 
     def close(self) -> None:
         self.mcp.stop_all()
@@ -182,9 +207,26 @@ class Atlas:
         """The run body. One task per run; the frontend is not involved."""
         settings = self.settings
         files = json.loads(turn["files_json"] or "[]")
-        text = _agent_text(turn["user_text"], files)
+        # A passage selected in the preview names its file relative to the
+        # workspace; the model is given the full path, ready for edit_document.
+        workspace = self.chat_dir(run.chat_id)
+        refs = [{**r, "path": r.get("path") or str(workspace / str(r.get("file", "")))}
+                for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
+        media = [f for f in files if _media_kind(f) and Path(str(f.get("path", ""))).is_file()]
+        text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs,
+                           reader=lambda p, shown: reader_command(settings, p, shown),
+                           workspace=workspace)
+        if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
+            text = f"{text}\n\n{guidance}".strip()
+        # Only the model sees this; the chat shows the user's own text.
+        text = f"{text}\n\n{clock_note()}".strip()
         hint = retry_hint(settings, retry) if retry else ""
         sm = SessionManager(settings, run.chat_id)
+        # Recorded per turn, so each version shows the model that wrote it.
+        run.transcript.stats["model"] = settings.model.name
+        #: What the workspace held before the run, so the files this turn
+        #: created or changed can be offered as downloads afterwards.
+        run.workspace_before = _scan(self.chat_dir(run.chat_id))
         try:
             manager = sm.manager()
             # Building restores a snapshot from disk and constructs the harness:
@@ -193,6 +235,9 @@ class Atlas:
                 build_agent, settings, chat_id=run.chat_id, thinking=thinking,
                 restore_snapshot_id=turn["before_snap"], session_manager=manager,
                 retry=retry, observer=run.observe, tools=self.mcp.agent_tools(),
+                approver=lambda kind, detail: run.request_approval(
+                    kind, detail, settings.approvals.timeout),
+                sensitive=self.mcp.is_sensitive,
             )
             run.agent = agent
             if run.cancel.is_set():
@@ -200,7 +245,13 @@ class Atlas:
             run.emit({"type": "run_started", "chat_id": run.chat_id, "turn_id": run.turn_id})
 
             start = len(agent.messages)
-            prompt = f"{text}\n\n{hint}" if hint else text
+            prompt_text = f"{text}\n\n{hint}" if hint else text
+            # Images and recordings go to the model as content, after the text
+            # and in separate blocks (a combined block silently drops the text).
+            prompt: Any = prompt_text
+            if media:
+                blocks = await asyncio.to_thread(_media_blocks, media)
+                prompt = ([{"text": prompt_text}] if prompt_text else []) + blocks
             async for out in translate(_aiter(agent.stream_async(prompt))):
                 if run.cancel.is_set():
                     raise asyncio.CancelledError
@@ -227,6 +278,11 @@ class Atlas:
     def _finish(self, run: Run, status: str, *, after_snap: str | None = None,
                 error: str | None = None) -> None:
         stats = run.transcript.final_stats()
+        try:
+            stats["files"] = _changed(run.workspace_before,
+                                      _scan(self.chat_dir(run.chat_id)))
+        except OSError:
+            logger.warning("could not scan the workspace of chat %s", run.chat_id, exc_info=True)
         try:
             self.store.finish_turn(run.turn_id, status, after_snap=after_snap,
                                    render=run.transcript.parts, stats=stats, error=error)
@@ -343,16 +399,56 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         return {"name": name, "path": str(target), "size": target.stat().st_size,
                 "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
 
-    @api.get("/chats/{chat_id}/files/{name}")
-    async def download(chat_id: str, name: str) -> FileResponse:
+    def workspace_file(chat_id: str, name: str) -> Path:
         state.require_chat(chat_id)
         root = paths.chat_dir(state.settings, chat_id).resolve()
-        target = (root / Path(name).name).resolve()
+        target = (root / name).resolve()
         if root not in target.parents:
             raise HTTPException(400, "path escapes the chat directory")
         if not target.is_file():
             raise HTTPException(404, "no such file")
-        return FileResponse(target)
+        return target
+
+    @api.delete("/chats/{chat_id}/files/{name:path}")
+    async def remove_upload(chat_id: str, name: str) -> dict[str, Any]:
+        """Remove an upload the user took off a message before sending it.
+
+        Refused for a file any sent message used: that message's history, and
+        any document made from it, still point at it.
+        """
+        target = workspace_file(chat_id, name)
+        for row in state.store.export_rows(chat_id)["turns"]:
+            if any(f.get("name") == target.name for f in json.loads(row["files_json"] or "[]")):
+                raise HTTPException(409, f"{target.name} was sent with a message and is kept")
+        target.unlink()
+        return {"deleted": name}
+
+    @api.get("/chats/{chat_id}/workspace")
+    async def workspace(chat_id: str) -> list[dict[str, Any]]:
+        """Every file in the chat's workspace, newest first. Outlives any edit."""
+        state.require_chat(chat_id)
+        root = state.chat_dir(chat_id)
+        entries = [{"name": name, "size": size, "path": str(root / name),
+                    "modified": mtime // 1_000_000,
+                    "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
+                   for name, (size, mtime) in _scan(root).items()]
+        return sorted(entries, key=lambda e: e["modified"], reverse=True)
+
+    @api.get("/chats/{chat_id}/files/{name:path}")
+    async def download(chat_id: str, name: str, download: bool = False) -> FileResponse:
+        """Served inline for the preview panel; `?download=1` saves it instead."""
+        target = workspace_file(chat_id, name)
+        if download:
+            return FileResponse(target, filename=target.name)
+        return FileResponse(target, headers={"Cache-Control": "no-cache"})
+
+    @api.get("/chats/{chat_id}/preview/{name:path}")
+    async def preview(chat_id: str, name: str) -> dict[str, Any]:
+        """A spreadsheet as rows, for the preview panel. Capped, and says so."""
+        target = workspace_file(chat_id, name)
+        if target.suffix.lower() not in (".xlsx", ".xlsm"):
+            raise HTTPException(415, "only spreadsheets have a server-side preview")
+        return await asyncio.to_thread(_sheet_preview, target)
 
     # -------------------------------------------------------------- turns --
 
@@ -369,7 +465,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(409, "the last answer did not complete: retry or edit it first")
         turn = state.store.insert_turn(
             chat_id, body.text, parent_turn_id=leaf["id"] if leaf else None,
-            before_snap=leaf["after_snap"] if leaf else None, files=body.files,
+            before_snap=leaf["after_snap"] if leaf else None, files=body.files, refs=body.refs,
         )
         if first_words := " ".join(body.text.split())[:60]:
             state.store.set_title(chat_id, first_words, only_if_empty=True)
@@ -392,6 +488,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         new = state.store.insert_turn(
             turn["chat_id"], turn["user_text"], parent_turn_id=turn["parent_turn_id"],
             before_snap=turn["before_snap"], files=json.loads(turn["files_json"] or "[]"),
+            refs=json.loads(turn.get("refs_json") or "[]"),
         )
         run = state.launch(new, thinking=state.thinking(body.thinking if body else None),
                            retry=RetryPlan(previous=[p for p in previous if p.strip()]))
@@ -401,6 +498,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     async def edit(turn_id: str, body: EditTurn) -> dict[str, Any]:
         turn = state.require_turn(turn_id)
         files = body.files if body.files is not None else json.loads(turn["files_json"] or "[]")
+        refs = body.refs if body.refs is not None else json.loads(turn.get("refs_json") or "[]")
         if not body.text.strip() and not files:
             raise HTTPException(422, "empty message")
         state.ensure_run_slot()
@@ -412,9 +510,11 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         except TreeError as exc:
             raise HTTPException(404, str(exc)) from exc
         await SessionManager(state.settings, old["chat_id"]).delete_snapshots(snaps)
+        # Files in the workspace are never touched by an edit: documents the
+        # agent made or changed for the deleted turns stay, and stay listed.
         new = state.store.insert_turn(
             old["chat_id"], body.text, parent_turn_id=old["parent_turn_id"],
-            before_snap=old["before_snap"], files=files,
+            before_snap=old["before_snap"], files=files, refs=refs,
         )
         run = state.launch(new, thinking=state.thinking(body.thinking))
         return {"run": _run_view(run), "chat": state.view(old["chat_id"])}
@@ -455,6 +555,15 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         return StreamingResponse(sse(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    @api.post("/runs/{run_id}/approvals/{approval_id}")
+    async def answer_approval(run_id: str, approval_id: str, body: Answer) -> dict[str, Any]:
+        run = state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(404, f"no run {run_id}")
+        if not run.answer(approval_id, body.allow):
+            raise HTTPException(409, "that question was already answered or has expired")
+        return {"id": approval_id, "decision": "allowed" if body.allow else "denied"}
+
     @api.post("/runs/{run_id}/cancel")
     async def cancel_run(run_id: str) -> dict[str, Any]:
         run = state.runs.get(run_id)
@@ -476,6 +585,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             "skills": SkillManager(state.settings).catalogue(),
             "mcp": state.mcp.describe(),
             "paths": {"root": str(paths.ROOT), "data": str(paths.data_dir(state.settings))},
+            "modalities": state.modalities(),
         }
 
     @api.get("/settings")
@@ -497,6 +607,8 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         except SettingsError as exc:
             raise HTTPException(422, str(exc)) from exc
         state.settings = _live_settings(on_disk, state.boot)
+        # Servers whose arguments hold {atlas:folders} reconnect with the new list.
+        await asyncio.to_thread(state.mcp.set_settings, state.settings)
         return settings_view()
 
     app.state.settings_view = settings_view
@@ -537,12 +649,127 @@ def _launched_restart_values(state: Atlas) -> dict[str, Any]:
     return restart_tier_values(state.boot.model_dump(mode="json"))
 
 
+_IMAGE = {"png": "png", "jpg": "jpeg", "jpeg": "jpeg", "gif": "gif", "webp": "webp"}
+_AUDIO = {"wav": "wav", "mp3": "mp3"}
+
+
+def _media_kind(f: dict[str, Any]) -> str | None:
+    ext = Path(str(f.get("name", ""))).suffix.lower().lstrip(".")
+    return "image" if ext in _IMAGE else "audio" if ext in _AUDIO else None
+
+
+def _media_blocks(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Image and audio attachments as Strands content blocks."""
+    blocks = []
+    for f in files:
+        ext = Path(str(f["name"])).suffix.lower().lstrip(".")
+        data = Path(str(f["path"])).read_bytes()
+        if ext in _IMAGE:
+            blocks.append({"image": {"format": _IMAGE[ext], "source": {"bytes": data}}})
+        elif ext in _AUDIO:
+            blocks.append({"audio": {"format": _AUDIO[ext], "source": {"bytes": data}}})
+    return blocks
+
+
+#: `@name`, or `@"a name with spaces"` -- what the composer inserts.
+_MENTION = re.compile(r'(?<![\w@])@(?:"([^"\n]+)"|([\w.-]+))')
+
+
+def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
+                      workspace: Path | None = None) -> str:
+    """`@name` in a message, resolved against skills, tools and MCP servers.
+
+    The composer's @ menu inserts these. A small model needs the instruction
+    spelled out: asked to "use @fetch" it would otherwise still pick whichever
+    tool looked closest. Resolved at run time, so a retry or an edit of the
+    message gets the same instruction. Unknown names are left alone -- an
+    email address or a handle is not a mention.
+    """
+    names = list(dict.fromkeys(q or n for q, n in _MENTION.findall(user_text or "")))
+    if not names:
+        return ""
+    skills = {s["folder"]: s["name"] for s in SkillManager(settings).enabled()}
+    skills.update({s: s for s in list(skills.values())})
+    servers = {s["name"]: [t["agent_name"] for t in s["tools"] if t["enabled"]]
+               for s in mcp.describe() if s["status"] == "connected"}
+    tools = set(ToolManager(settings).builtin_tools())
+    if settings.tools.documents:
+        tools |= {"create_document", "edit_document"}
+    for server_tools in servers.values():
+        tools |= set(server_tools)
+
+    files = _scan(workspace) if workspace is not None else {}
+    lines = []
+    for name in names:
+        if name in files:
+            shown = model_path(str(workspace / name))  # type: ignore[operator]
+            command = reader_command(settings, name, name)
+            lines.append(f"- `{name}` is the file at {shown}"
+                         + (f"; read it with: {command}" if command else "."))
+        elif name in servers:
+            lines.append(f"- Use the tools of the MCP server `{name}` "
+                         f"({', '.join(servers[name]) or 'none enabled'}), not built-in tools that "
+                         "do something similar.")
+        elif name in tools:
+            lines.append(f"- Use the `{name}` tool for this.")
+        elif name in skills:
+            lines.append(f"- Use the `{skills[name]}` skill: load it with the `skills` tool first.")
+    if not lines:
+        return ""
+    return "The user picked these with @ in their message:\n" + "\n".join(lines)
+
+
+def _scan(root: Path) -> dict[str, tuple[int, int]]:
+    """`relative/path -> (size, mtime_ns)` for every file in a workspace."""
+    out: dict[str, tuple[int, int]] = {}
+    if not root.is_dir():
+        return out
+    for p in root.rglob("*"):
+        # Dot-files and dot-folders are Atlas's own bookkeeping (temp files,
+        # images a reader extracted): not the user's files, not download chips.
+        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(root).parts):
+            st = p.stat()
+            out[p.relative_to(root).as_posix()] = (st.st_size, st.st_mtime_ns)
+    return out
+
+
+def _changed(before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int]]) -> list[dict[str, Any]]:
+    """Files a run created or modified, for the download chips under its answer."""
+    out = []
+    for name, (size, mtime) in sorted(after.items()):
+        if name not in before:
+            out.append({"name": name, "size": size, "change": "created"})
+        elif before[name] != (size, mtime):
+            out.append({"name": name, "size": size, "change": "modified"})
+    return out
+
+
+def _sheet_preview(path: Path, max_rows: int = 500, max_cols: int = 50) -> dict[str, Any]:
+    from openpyxl import load_workbook
+
+    wb = load_workbook(str(path), read_only=True, data_only=True)
+    sheets = []
+    try:
+        for ws in wb.worksheets:
+            rows, truncated = [], False
+            for i, row in enumerate(ws.iter_rows(values_only=True)):
+                if i >= max_rows:
+                    truncated = True
+                    break
+                rows.append(["" if v is None else str(v) for v in row[:max_cols]])
+            sheets.append({"name": ws.title, "rows": rows, "truncated": truncated})
+    finally:
+        wb.close()
+    return {"kind": "sheet", "sheets": sheets}
+
+
 def _turn_view(turn: dict[str, Any], versions: list[str]) -> dict[str, Any]:
     return {
         "id": turn["id"],
         "parent_id": turn["parent_turn_id"],
         "user_text": turn["user_text"],
         "files": json.loads(turn["files_json"] or "[]"),
+        "refs": json.loads(turn.get("refs_json") or "[]"),
         "status": turn["status"],
         "created_at": turn["created_at"],
         "render": json.loads(turn["render_json"]) if turn["render_json"] else [],
@@ -557,7 +784,9 @@ def _run_view(run: Run) -> dict[str, Any]:
     return {"id": run.id, "chat_id": run.chat_id, "turn_id": run.turn_id, "status": run.status}
 
 
-def _agent_text(user_text: str, files: list[dict[str, Any]]) -> str:
+def _agent_text(user_text: str, files: list[dict[str, Any]],
+                refs: list[dict[str, Any]] | None = None,
+                reader: Any = None, workspace: Path | None = None) -> str:
     """What the agent is told, as opposed to what the user typed.
 
     Nothing is parsed at upload, but a file the model has never heard of is a
@@ -566,14 +795,35 @@ def _agent_text(user_text: str, files: list[dict[str, Any]]) -> str:
     stays exactly what was typed -- which is what the transcript shows and what
     a retry replays.
     """
-    listed = "\n".join(
-        f"- {f.get('name')} at {model_path(f['path'])} ({f.get('size', 0)} bytes)"
-        for f in files if isinstance(f, dict) and f.get("path")
-    )
-    if not listed:
-        return user_text
-    return (f"{user_text}\n\nFiles attached to this message. Read them with the matching "
-            f"skill; their exact paths are below, so use them verbatim:\n{listed}").strip()
+    parts = [user_text]
+    quoted = [r for r in refs or [] if isinstance(r, dict) and r.get("quote")]
+    if quoted:
+        # Selected in the preview panel. Named with the file's path, so a
+        # request like "reword this" can go straight to edit_document.
+        parts.append("The user selected these passages and is asking about them:\n" + "\n".join(
+            f"- from {r.get('file')} at {model_path(r['path']) if r.get('path') else r.get('file')}: "
+            f'"{r["quote"]}"' for r in quoted))
+    lines = []
+    for f in files:
+        if not isinstance(f, dict) or not f.get("path"):
+            continue
+        shown = model_path(f["path"])
+        line = f"- {f.get('name')} at {shown} ({f.get('size', 0)} bytes)"
+        # The exact command for a pdf/docx/xlsx: the model runs it directly
+        # instead of trying `read` first and loading the skill to find out.
+        # Commands start in the workspace, so a file there is named bare.
+        here = workspace is not None and Path(str(f["path"])).parent == workspace
+        if reader is not None and (command := reader(str(f["path"]), f["name"] if here else shown)):
+            line += f". Read it with: {command}"
+            # Without this the model read the file and rewrote it with
+            # create_document even when asked to merge or convert it.
+            skill = command.split("$ATLAS_SKILLS/", 1)[-1].split("/", 1)[0]
+            line +=f" (to merge, split, combine or convert it instead, load the {skill} skill first)"
+        lines.append(line)
+    if lines:
+        parts.append("Files attached to this message (use the paths exactly as written):\n"
+                     + "\n".join(lines))
+    return "\n\n".join(p for p in parts if p).strip()
 
 
 def _strip_hint(messages: list[dict[str, Any]], start: int, hint: str) -> None:

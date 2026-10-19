@@ -7,6 +7,7 @@ runs in a worker thread: a slow GitHub download must not freeze a live answer.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -17,10 +18,10 @@ from agent.core.mcp_manager import McpError, search_registry
 from agent.core.settings import write_settings
 from agent.core.skill_installer import (
     delete_skill,
-    install_requirements,
     install_zip,
     preview_or_install,
 )
+from agent.core import skill_requirements
 from agent.core.skill_manager import SkillError, SkillManager
 
 
@@ -32,6 +33,10 @@ class InstallSkill(BaseModel):
 
 class Toggle(BaseModel):
     enabled: bool
+
+
+class ToolMode(BaseModel):
+    mode: str
 
 
 class McpServerBody(BaseModel):
@@ -110,7 +115,7 @@ def register(app: FastAPI, state: Any) -> None:
         if match is None:
             raise HTTPException(404, f"no skill {folder}")
         try:
-            return await asyncio.to_thread(install_requirements, match["requirements"])
+            return await asyncio.to_thread(skill_requirements.install, Path(match["path"]), match["requirements"])
         except SkillError as exc:
             raise refuse(exc) from exc
 
@@ -147,8 +152,8 @@ def register(app: FastAPI, state: Any) -> None:
         return await mcp_call(state.mcp.describe)
 
     @api.put("/mcp/{name}/tools/{tool}")
-    async def toggle_mcp_tool(name: str, tool: str, body: Toggle) -> list[dict[str, Any]]:
-        await mcp_call(state.mcp.set_tool, name, tool, body.enabled)
+    async def set_mcp_tool(name: str, tool: str, body: ToolMode) -> list[dict[str, Any]]:
+        await mcp_call(state.mcp.set_tool, name, tool, body.mode)
         return await mcp_call(state.mcp.describe)
 
     @api.get("/mcp/registry")

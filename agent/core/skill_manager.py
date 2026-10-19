@@ -28,6 +28,7 @@ from typing import Any
 import yaml
 
 from agent.core import paths
+from agent.core import skill_requirements as requirements
 from agent.core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,9 @@ class SkillManager:
         root = self.skills_dir()
         if not root.is_dir():
             return []
+        # Here, not at the top: the installer imports this module.
+        from agent.core.skill_installer import body_tokens, origin_of
+
         disabled = set(self.settings.skills.disabled)
         found: list[dict[str, Any]] = []
         for child in root.iterdir():
@@ -82,7 +86,7 @@ class SkillManager:
                 path=str(child),
                 enabled=child.name not in disabled and entry["error"] is None,
                 scripts=_listing(child / "scripts"),
-                requirements=_requirements(child),
+                requirements=requirements.with_status(child, requirements.detect(child)),
                 bytes=sum(p.stat().st_size for p in child.rglob("*") if p.is_file()),
                 tokens=body_tokens(child),
                 origin=origin_of(child),
@@ -109,6 +113,35 @@ class SkillManager:
     def catalogue(self) -> list[dict[str, Any]]:
         """For `GET /skills`: every skill, with its switch and any error."""
         return self.discover()
+
+
+#: File type -> (skill folder, reader script). The bundled readers.
+READERS: dict[str, tuple[str, str]] = {
+    ".pdf": ("pdf", "read_pdf.py"),
+    ".docx": ("docx", "read_docx.py"),
+    ".xlsx": ("xlsx", "read_xlsx.py"),
+    ".xlsm": ("xlsx", "read_xlsx.py"),
+}
+
+
+def reader_command(settings: Settings, path: str, shown: str) -> str | None:
+    """The exact shell command that reads `path`, if an enabled skill can.
+
+    Named in the attachment list and in the `read` guard, so the model runs
+    the right script first time instead of trying `read`, getting nothing
+    useful back, and loading the skill to find out what to run.
+    """
+    reader = READERS.get(Path(path).suffix.lower())
+    if reader is None:
+        return None
+    folder, script = reader
+    if folder in settings.skills.disabled:
+        return None
+    script_path = paths.skills_dir(settings) / folder / "scripts" / script
+    if not script_path.is_file():
+        return None
+    extra = " --pages all" if folder == "pdf" else ""
+    return f'python "$ATLAS_SKILLS/{folder}/scripts/{script}" "{shown}"{extra}'
 
 
 def read_manifest(manifest: Path) -> dict[str, Any]:
@@ -156,19 +189,4 @@ def _listing(folder: Path) -> list[str]:
     return sorted(p.name for p in folder.iterdir() if p.is_file())
 
 
-def _requirements(folder: Path) -> list[str]:
-    """Python packages a skill declares, from a requirements.txt if it has one.
-
-    Shown to the user, never installed by the model: a `pip install` from the
-    agent lands in user site-packages and leaves the venv quietly diverged.
-    """
-    for candidate in (folder / "requirements.txt", folder / "scripts" / "requirements.txt"):
-        if candidate.is_file():
-            lines = candidate.read_text(encoding="utf-8", errors="replace").splitlines()
-            return [ln.strip() for ln in lines if ln.strip() and not ln.startswith("#")]
-    return []
-
-
-from agent.core.skill_installer import body_tokens, origin_of  # noqa: E402  (cycle-free: installer imports only read_manifest)
-
-__all__ = ["MANIFEST", "SkillError", "SkillManager", "read_manifest"]
+__all__ = ["MANIFEST", "READERS", "SkillError", "SkillManager", "read_manifest", "reader_command"]

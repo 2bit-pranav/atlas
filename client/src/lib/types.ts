@@ -31,6 +31,8 @@ export interface ChatSummary {
 export type Part =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
+  /** An answer the model gave before it was sent back to work after a failure. */
+  | { kind: "superseded"; text: string }
   | {
       kind: "tool"
       id: string
@@ -39,8 +41,47 @@ export type Part =
       status: "running" | "success" | "error"
       text: string
     }
+  | {
+      /** The agent asked to install something and is waiting for the user. */
+      kind: "approval"
+      id: string
+      /** What is asked: an install, a folder outside the allowed ones, or an MCP tool marked "ask". */
+      request?: "install" | "access" | "tool"
+      folder?: string | null
+      command: string
+      status: "pending" | "allowed" | "denied" | "expired"
+      expires_at: number
+    }
+
+/** A passage selected in the preview panel and attached to a question. */
+export interface Ref {
+  file: string
+  path: string | null
+  quote: string
+}
+
+/** A file the run created or changed, for the download chips. */
+export interface ChangedFile {
+  name: string
+  size: number
+  change: "created" | "modified"
+}
+
+export interface WorkspaceFile {
+  name: string
+  size: number
+  modified: number
+  type: string
+}
+
+export interface SheetPreview {
+  kind: "sheet"
+  sheets: { name: string; rows: string[][]; truncated: boolean }[]
+}
 
 export interface TurnStats {
+  model?: string
+  files?: ChangedFile[]
   context_size?: number
   context_used?: number
   prompt_tokens?: number
@@ -56,6 +97,7 @@ export interface Turn {
   parent_id: string | null
   user_text: string
   files: ChatFile[]
+  refs: Ref[]
   status: TurnStatus
   created_at: number
   render: Part[]
@@ -86,11 +128,15 @@ export type RunEvent = { seq: number } & (
   | { type: "run_started"; chat_id: string; turn_id: string }
   | { type: "call_start" }
   | { type: "model_retry"; reason: string; attempt: number; of: number }
+  | { type: "resumed"; reason: string }
   | { type: "thinking_delta"; text: string }
   | { type: "text_delta"; text: string }
   | { type: "tool_start"; id: string; name: string; args: unknown }
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
   | { type: "tool_end"; id: string; name: string; status: string; text: string }
+  | { type: "approval_request"; id: string; kind: "install" | "access" | "tool"; command: string; folder?: string;
+      timeout: number; expires_at: number }
+  | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
   | ({ type: "stats" } & TurnStats)
   | { type: "usage"; input: number; output: number; total: number; reported?: number }
   | { type: "done"; status: TurnStatus }
@@ -101,6 +147,15 @@ export type RunEvent = { seq: number } & (
 
 export type Tier = "live" | "restart"
 
+/** Something a skill needs installed, and whether it is. */
+export interface Requirement {
+  manager: "pip" | "npm"
+  package: string
+  /** env: Atlas's Python; global: npm -g; skill: the skill's own node_modules. */
+  scope: "env" | "global" | "skill"
+  installed: boolean
+}
+
 export interface Skill {
   name: string
   description: string
@@ -109,18 +164,22 @@ export interface Skill {
   path: string
   enabled: boolean
   scripts: string[]
-  requirements: string[]
+  requirements: Requirement[]
   bytes: number
   tokens: number
   bundled: boolean
   origin: { type: string; source?: string; command?: string; installed_at?: number } | null
 }
 
+export type ToolMode = "on" | "ask" | "off"
+
 export interface McpTool {
   name: string
   agent_name: string
   description: string
   enabled: boolean
+  /** "ask": the user approves each call. */
+  mode: ToolMode
   tokens: number
 }
 
@@ -131,6 +190,8 @@ export interface McpServer {
   status: "connected" | "connecting" | "failed" | "stopped" | "disabled"
   error: string | null
   enabled: boolean
+  /** Its arguments hold {atlas:folders}, filled with the allowed folders. */
+  uses_folders: boolean
   tools: McpTool[]
   tokens: number
 }
@@ -159,6 +220,8 @@ export interface SettingsView {
   skills: Skill[]
   mcp: McpServer[]
   paths: { root: string; data: string }
+  /** What the loaded model takes in, from llama-server's /props. */
+  modalities: { vision?: boolean; audio?: boolean }
 }
 
 export interface SkillInstallResult {

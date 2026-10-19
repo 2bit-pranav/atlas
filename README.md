@@ -39,7 +39,6 @@ skill fails with an empty error. `atlas start` never uses it.
 | `server/` | FastAPI: runs, the event stream, the HTTP API | [server/AGENTS.md](server/AGENTS.md) |
 | `client/` | The web UI | [client/AGENTS.md](client/AGENTS.md) |
 | `skills/` | Skills: a `SKILL.md` and ready-made scripts per document type | [skills/AGENTS.md](skills/AGENTS.md) |
-| `tests/` | Offline tests and a live end-to-end test | [agent/AGENTS.md](agent/AGENTS.md#checking-it) |
 | `docs/decisions.md` | Why things are the way they are, measured findings, dated | |
 | `settings.json` | Every setting. Per machine, not committed | |
 | `mcp.json` | MCP servers, standard `mcpServers` format. Per machine, not committed | |

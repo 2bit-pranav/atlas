@@ -31,6 +31,7 @@ import { ApiError } from "@/lib/types"
 import type {
   ChatFile,
   ChatSummary,
+  Ref,
   ChatView,
   RunEvent,
   RunRef,
@@ -61,6 +62,12 @@ export interface AtlasState {
   connected: boolean
   /** Bumps when something asks the composer to take focus. */
   focusTick: number
+  /** The workspace file open in the preview panel, if any. */
+  preview: string | null
+  /** Bumps when the open file may have changed on disk, so the panel reloads it. */
+  previewTick: number
+  /** Passages selected in the preview, waiting to go with the next message. */
+  refs: Ref[]
 }
 
 type Listener = () => void
@@ -79,6 +86,9 @@ class Store {
     error: null,
     connected: true,
     focusTick: 0,
+    preview: null,
+    previewTick: 0,
+    refs: [],
   }
 
   private listeners = new Set<Listener>()
@@ -151,7 +161,8 @@ class Store {
   /** Show an empty chat. Nothing is created until the first message. */
   newChat() {
     this.detach()
-    this.set({ chat: null, run: null, live: null, error: null, focusTick: this.state.focusTick + 1 })
+    this.set({ chat: null, run: null, live: null, error: null, preview: null, refs: [],
+               focusTick: this.state.focusTick + 1 })
   }
 
   async openChat(id: string) {
@@ -159,7 +170,7 @@ class Store {
     this.detach()
     try {
       const chat = await api.getChat(id)
-      this.set({ chat, run: chat.active_run, live: null, error: null,
+      this.set({ chat, run: chat.active_run, live: null, error: null, preview: null, refs: [],
                  staged: this.state.stagedChat === id ? this.state.staged : [],
                  focusTick: this.state.focusTick + 1 })
       if (chat.active_run) this.attach(chat.active_run)
@@ -229,8 +240,36 @@ class Store {
     }))
   }
 
+  /**
+   * Take a file off the message being written. It was already uploaded, so
+   * it is deleted too: otherwise it lingers in the workspace and in the @ menu
+   * as if it had been sent. (The backend keeps any file a sent message used.)
+   */
   unstage(key: string) {
+    const file = this.state.staged.find((s) => s.key === key)
     this.set({ staged: this.state.staged.filter((s) => s.key !== key) })
+    const chatId = this.state.chat?.id ?? this.state.stagedChat
+    if (file && !file.uploading && file.path && chatId)
+      void api.deleteUpload(chatId, file.name).catch(() => undefined)
+  }
+
+  // -------------------------------------------------------------- preview --
+
+  openPreview(path: string) {
+    this.set({ preview: path, previewTick: this.state.previewTick + 1 })
+  }
+
+  closePreview() {
+    this.set({ preview: null })
+  }
+
+  addRef(ref: Ref) {
+    if (this.state.refs.some((r) => r.file === ref.file && r.quote === ref.quote)) return
+    this.set({ refs: [...this.state.refs, ref], focusTick: this.state.focusTick + 1 })
+  }
+
+  removeRef(index: number) {
+    this.set({ refs: this.state.refs.filter((_, i) => i !== index) })
   }
 
   setThinking(thinking: boolean) {
@@ -246,11 +285,12 @@ class Store {
   async send(text: string): Promise<boolean> {
     if (this.busy || this.state.staged.some((s) => s.uploading)) return false
     const files = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
-    if (!text.trim() && !files.length) return false
+    const refs = this.state.refs
+    if (!text.trim() && !files.length && !refs.length) return false
     try {
       const chatId = await this.ensureChat()
-      const started = await api.send(chatId, { text, files, thinking: this.state.thinking })
-      this.set({ staged: [], stagedChat: null })
+      const started = await api.send(chatId, { text, files, refs, thinking: this.state.thinking })
+      this.set({ staged: [], stagedChat: null, refs: [] })
       this.begin(started)
       void this.refreshChats()
       return true
@@ -298,6 +338,16 @@ class Store {
       this.set({ chat: await api.select(turnId, delta) })
     } catch (error) {
       this.set({ chat })
+      this.fail(error)
+    }
+  }
+
+  async answerApproval(approvalId: string, allow: boolean) {
+    const run = this.state.run
+    if (!run) return
+    try {
+      await api.answerApproval(run.id, approvalId, allow)
+    } catch (error) {
       this.fail(error)
     }
   }
@@ -393,6 +443,9 @@ class Store {
       // Replace the live view and the stored transcript in one update, so the
       // answer never blinks out between the two.
       if (this.state.chat?.id === chatId) this.set({ chat })
+      const touched = chat.turns.at(-1)?.stats?.files ?? []
+      if (this.state.preview && touched.some((f) => f.name === this.state.preview))
+        this.set({ previewTick: this.state.previewTick + 1 })
     } catch {
       /* keep what was streamed */
     }

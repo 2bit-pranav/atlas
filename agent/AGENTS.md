@@ -10,6 +10,10 @@ agent/core/
   agent_factory.py   build_agent(): the one place that calls create_harness
   model.py           AtlasLlamaCppModel: thinking switch, streaming, timings
   resilience.py      LocalModelRetry, ToolFailureRecovery (Strands hooks)
+  documents.py       create_document / edit_document: Markdown -> docx, pdf, xlsx
+  policy.py          ToolPolicy: every check before a tool runs, in one order
+  approvals.py       the Approver type and what counts as an install
+  skill_requirements.py what a skill needs installed; installing it
   chats.py           ChatStore: the chat tree and display transcripts (SQLite)
   session_manager.py where Strands writes snapshots; deleting them on edit
   tool_manager.py    tools.builtin -> the harness's builtin_tools
@@ -96,7 +100,8 @@ Hooks, not prompt text: a 2B model does not reliably follow "retry on failure".
   - appends "attempt N of M, read the error, fix the arguments" to a failed
     result, and past the limit "stop and explain";
   - if the model stops right after a failure, resumes it once
-    (`AfterInvocationEvent.resume`).
+    (`AfterInvocationEvent.resume`). The run emits `resumed`, and the answer
+    the model gave up with is shown folded away as an earlier attempt.
 
 ## The model adapter (`model.py`)
 
@@ -107,20 +112,106 @@ The stock `LlamaCppModel` needed five things:
 - The response is **streamed** (`client.stream`). `client.post` buffered the
   whole body, so each model call arrived in one burst.
 - `timings` (per token) go to an observer: the context meter and tokens/s.
-- `reasoningContent` blocks are **dropped** from history before sending — the
-  base formatter raises on them, which broke every call after a tool call with
-  thinking on. Reasoning is never replayed anyway.
+- `reasoningContent` blocks are sent as each assistant message's
+  `reasoning_content`, not as content (the base formatter raises on them).
+  Gemma's template keeps the current turn's reasoning and drops older turns'
+  by itself; stripping it all made the model forget its plan after every tool
+  call and repeat its steps.
 - `document` blocks (what the harness `read` tool returns for a pdf/docx/xlsx)
   become a text note pointing at the skill; llama-server answers them with a 400.
 
+## Documents (`documents.py`)
+
+The model writes **Markdown**; `create_document` turns it into docx
+(python-docx), pdf (reportlab) or xlsx (openpyxl: every Markdown table becomes
+a sheet named after the heading above it; CSV or TSV lines work too). Every
+file is written to a temp file, reopened by its own library to prove it
+parses, and only then moved into place. A failure returns an *error* tool
+result in words the model can act on, so `ToolFailureRecovery` counts it.
+
+`edit_document` replaces exact text inside a docx paragraph or table cell, an
+xlsx cell, or a text file. A PDF cannot be edited in place; the model is told
+to create it again.
+
+The policy's documents step refuses the plain `write`/`edit` tools on
+.docx/.xlsx/.pdf/.pptx (writing text into one is how corrupt documents
+happened), and answers `read` on one at once with the command that does read it.
+
+Images: the pdf and docx readers save a document's images into a hidden
+`.atlas-images/<name>/` folder beside it and print each as `![caption](path)`.
+`create_document` embeds such lines in docx and pdf, so a rewrite keeps its
+figures. Images that cannot be found are left out and named in the result.
+
+## Tool policy (`policy.py`)
+
+Every check made before a tool runs is one `ToolPolicy` hook with ordered
+steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
+
+1. **normalise**: MCP arguments get Windows paths (`/c/Users/x` -> `C:/Users/x`).
+2. **access**: a path outside the scope asks the user (kind `access`).
+3. **install**: a `shell` command that installs asks (kind `install`).
+4. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
+5. **documents**: `read`/`write`/`edit` on a binary document is redirected.
+
+Recovery after a tool runs stays in `resilience.py`.
+
+### Access
+
+One model for every way the agent reaches a file. The **scope** is the chat
+workspace (always), `access.folders` (Settings > Access, subfolders included),
+and, read-only, the skills folder and Python install so scripts can be read.
+What is checked:
+
+- `read`, `write`, `edit`, `create_document`, `edit_document`: an absolute
+  `path` argument (relative paths are the workspace's).
+- `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
+  quoted or bare). `/tmp` and other POSIX paths are the shell's own.
+- MCP tools: any string argument that is a drive path.
+
+Outside the scope the user gets an Allow / Deny card naming the folder. Allow
+holds for that folder for the rest of the turn. With `access.ask_outside` off
+it is refused, and the model is told the user can add the folder in Settings.
+
+MCP servers get the same folders through their arguments: `{atlas:folders}` in
+a server's `args` expands to the chats folder plus each existing allowed
+folder. Strands' `MCPClient` does not implement the MCP roots protocol, so
+arguments are the only way in. Changing the folders reconnects those servers.
+The shell check is a guard against mistakes, not a sandbox: a script can open
+any path it builds itself.
+
+### Approvals
+
+Steps call `approver(kind, detail)`. The run emits `approval_request`, the UI
+shows Allow / Deny, and no answer within `approvals.timeout` seconds (60)
+counts as Deny, as does cancelling the run. The model is then told not to try
+another way. Python packages are installed with `python -m pip`, so they land
+in Atlas's own venv.
+
+### Skill requirements (`skill_requirements.py`)
+
+Read from `requirements.txt`, `package.json` dependencies, and install commands
+in SKILL.md code fences (`npm install -g x`, `pip install y`), each with its
+installed status. The Skills page lists them and installs the missing ones.
+That click is the approval; the model never has to.
+
 ## Windows (`shell_env.py`)
 
+- Every shell command starts in the **chat's workspace**, and `$ATLAS_SKILLS`
+  points at the skills folder. An attached file is named by its name alone
+  (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
+  `python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>"`. The attachment
+  list gives each pdf/docx/xlsx's exact command.
 - Commands run through Git Bash when it exists (`cmd.exe` as a fallback); the
   venv's `Scripts` is first on PATH, so a bare `python` is the project's.
 - The model is shown every path as `/c/Users/...` (`model_path`). That one form
   works unquoted in bash, as an argument to `python.exe` (MSYS converts it),
   and in the harness file tools, which reject any path not starting with `/`.
   `_resolve_path` turns it back into `C:/Users/...` for Python's file calls.
+  Other POSIX paths (`/tmp/...`, which `web_fetch` writes through curl) are
+  resolved with Git's `cygpath`.
+- Strands' default callback handler printed every token to the console; under
+  a cp1252 console an emoji failed the run. It is off (`callback_handler=None`)
+  and the backend and every skill script run in UTF-8 mode.
 
 ## Skills and MCP
 
@@ -135,6 +226,10 @@ The stock `LlamaCppModel` needed five things:
   stored as the server's standard `tool_filters.rejected` and applied when the
   turn's tool list is built, so switching needs no reconnect. Every tool schema
   costs prompt tokens on every request; the manager estimates them.
+- **Where tools come from.** Each MCP tool's description starts with
+  `[MCP: <server>]`, and the prompt lists tools grouped by source (built in,
+  skills, each MCP server). Without that, asked to use an MCP tool, the model
+  used the built-in one with the same purpose.
 
 ## Memory
 
@@ -146,13 +241,6 @@ keep it, and its tools, out of the request.
 
 ## Checking it
 
-```
-python -m pytest tests/test_control_pipeline.py   # offline: tree rules, settings, folding
-python tests/live_api.py                          # against a running stack and the real model
-```
-
-`live_api.py` checks properties, not wording: reasoning not doubled, text
-streamed in pieces, context stats reported, retry is a sibling and only on the
-last turn, `<` `>` keeps each version's follow-ups, edit deletes what follows.
-The other files in `tests/` are standalone Strands experiments kept as evidence
-for entries in `docs/decisions.md`.
+Atlas is tested by hand in the UI. The development tests and the benchmark
+(`tests/`: offline rule tests, a live API test, `bench.py`) are kept on the
+developer's machine and are not in the repository (`.gitignore`).

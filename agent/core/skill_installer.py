@@ -15,9 +15,8 @@ deleted from the UI, because deleting them would show up as a source change.
 
 Community skills are written for large coding agents. Two things are reported
 so the user can judge fit for a 2B model before relying on one: how many tokens
-the SKILL.md body costs when loaded, and the Python packages it declares. The
-packages are never installed by the model; `install_requirements` exists for
-the user to run from the UI after reading the list.
+the SKILL.md body costs when loaded, and what it needs installed
+(`skill_requirements.py`), which the user installs from the Skills page.
 """
 
 from __future__ import annotations
@@ -27,8 +26,6 @@ import json
 import re
 import shlex
 import shutil
-import subprocess
-import sys
 import tarfile
 import tempfile
 import time
@@ -271,24 +268,11 @@ def body_tokens(skill_dir: Path) -> int:
         return 0
 
 
-def install_requirements(requirements: list[str]) -> dict[str, Any]:
-    """`pip install` into the backend's own interpreter. Only ever user-initiated."""
-    if not requirements:
-        return {"ok": True, "output": "nothing to install"}
-    for req in requirements:
-        if req.startswith("-") or any(c in req for c in ";|&`$"):
-            raise SkillError(f"refusing an unusual requirement line: {req!r}")
-    proc = subprocess.run([sys.executable, "-m", "pip", "install", *requirements],
-                          capture_output=True, text=True, timeout=600)
-    return {"ok": proc.returncode == 0, "output": (proc.stdout + proc.stderr)[-6000:]}
-
-
 __all__ = [
     "SOURCE_FILE",
     "Source",
     "body_tokens",
     "delete_skill",
-    "install_requirements",
     "install_zip",
     "origin_of",
     "parse_source",

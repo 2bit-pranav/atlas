@@ -180,6 +180,8 @@ def cmd_start(args: argparse.Namespace) -> int:
                 backend_env = dict(os.environ)
                 backend_env["ATLAS_SETTINGS"] = str(Path(args.settings).resolve())
                 backend_env["ATLAS_ROOT"] = str(root)
+                backend_env["PYTHONUTF8"] = "1"
+                backend_env["PYTHONIOENCODING"] = "utf-8"
                 backend, _ = group.spawn(
                     "backend",
                     build_backend_args(settings),

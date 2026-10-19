@@ -11,6 +11,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { ArrowDown, Upload } from "lucide-react"
 
 import { atlas, useAtlas } from "@/lib/store"
+import { usePrefs } from "@/lib/prefs"
 import { TurnRow } from "@/components/chat/Messages"
 import { Composer } from "@/components/chat/Composer"
 import { cn } from "@/lib/utils"
@@ -19,6 +20,7 @@ export function ChatScreen() {
   const chat = useAtlas((s) => s.chat)
   const live = useAtlas((s) => s.live)
   const runTurn = useAtlas((s) => s.run?.turn_id ?? null)
+  const prefs = usePrefs()
   const turns = chat?.turns ?? []
   const empty = turns.length === 0
 
@@ -26,6 +28,7 @@ export function ChatScreen() {
   const pinned = useRef(true)
   const [showDown, setShowDown] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [viewport, setViewport] = useState(0)
   const dragDepth = useRef(0)
 
   const toBottom = useCallback((smooth = false) => {
@@ -33,16 +36,28 @@ export function ChatScreen() {
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" })
   }, [])
 
-  // A different chat: start at the bottom, following.
+  // A different chat: start at the bottom.
   useLayoutEffect(() => {
     pinned.current = true
     toBottom()
   }, [chat?.id, toBottom])
 
-  // New content: follow only if the reader has not scrolled away.
+  // A new run (send, regenerate, edit): bring its question to the top and let
+  // the answer grow below it, so it can be read from the first line while it
+  // is still being written.
   useLayoutEffect(() => {
-    if (pinned.current) toBottom()
-  }, [turns.length, live, toBottom])
+    const el = scroller.current
+    if (!runTurn || !el) return
+    const row = el.querySelector<HTMLElement>(`[data-turn-id="${runTurn}"]`)
+    if (!row) return
+    pinned.current = false
+    el.scrollTo({ top: row.offsetTop - 16, behavior: "smooth" })
+  }, [runTurn])
+
+  // Following the stream is opt-in, and stops as soon as the reader scrolls.
+  useLayoutEffect(() => {
+    if (prefs.autoScroll && runTurn && pinned.current) toBottom()
+  }, [live, prefs.autoScroll, runTurn, toBottom])
 
   useEffect(() => {
     const el = scroller.current
@@ -53,7 +68,12 @@ export function ChatScreen() {
       setShowDown(gap > 240)
     }
     el.addEventListener("scroll", onScroll, { passive: true })
-    return () => el.removeEventListener("scroll", onScroll)
+    const resize = new ResizeObserver(() => setViewport(el.clientHeight))
+    resize.observe(el)
+    return () => {
+      el.removeEventListener("scroll", onScroll)
+      resize.disconnect()
+    }
   }, [])
 
   return (
@@ -87,8 +107,8 @@ export function ChatScreen() {
             </div>
           ) : (
             turns.map((turn, i) => (
+              <div key={turn.id} style={i === turns.length - 1 ? { minHeight: Math.max(0, viewport - 40) } : undefined}>
               <TurnRow
-                key={turn.id}
                 turn={turn}
                 chatId={chat!.id}
                 isLast={i === turns.length - 1}
@@ -96,6 +116,7 @@ export function ChatScreen() {
                 liveParts={turn.id === runTurn ? live?.parts ?? [] : null}
                 liveStats={turn.id === runTurn ? live?.stats ?? null : null}
               />
+              </div>
             ))
           )}
         </div>

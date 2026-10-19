@@ -10,6 +10,10 @@ Parts:
     {"kind": "reasoning", "text": ...}
     {"kind": "text", "text": ...}
     {"kind": "tool", "id", "name", "args", "status", "text"}
+    {"kind": "approval", "id", "request", "command", "folder", "status", "expires_at"}
+        request is what is asked: "install", "access" (a folder outside the
+        allowed ones) or "tool" (an MCP tool the user marked "ask")
+    {"kind": "superseded", "text"}   an answer replaced after a resume
 
 Consecutive deltas of one kind merge into one part, otherwise a 400-token
 answer would be 400 parts.
@@ -42,6 +46,12 @@ class Transcript:
             self.stats["model_calls"] += 1
         elif kind == "model_retry":
             del self.parts[self._call_mark:]
+        elif kind == "resumed":
+            # The model gave up after a failure and was sent back to work. What
+            # it said when giving up is no longer the answer.
+            for part in self.parts:
+                if part["kind"] == "text":
+                    part["kind"] = "superseded"
         elif kind == "thinking_delta":
             self._append("reasoning", event.get("text", ""))
         elif kind == "text_delta":
@@ -56,6 +66,14 @@ class Transcript:
             for part in self._tools(event.get("id")):
                 part["status"] = "error" if event.get("status") == "error" else "success"
                 part["text"] = event.get("text", "")
+        elif kind == "approval_request":
+            self.parts.append({"kind": "approval", "id": event.get("id"), "command": event.get("command", ""),
+                               "request": event.get("kind", "install"), "folder": event.get("folder"),
+                               "status": "pending", "expires_at": event.get("expires_at")})
+        elif kind == "approval_result":
+            for part in self.parts:
+                if part["kind"] == "approval" and part["id"] == event.get("id"):
+                    part["status"] = event.get("decision", "denied")
         elif kind == "stats":
             self.stats.update({k: v for k, v in event.items() if k not in ("type", "seq")})
 

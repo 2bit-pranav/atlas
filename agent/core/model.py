@@ -93,20 +93,30 @@ class AtlasLlamaCppModel(LlamaCppModel):
         return request
 
     def _format_messages(self, messages: Messages, system_prompt: str | None = None) -> list[dict[str, Any]]:
-        """Drop reasoning from history before it is sent back to the model.
+        """Send reasoning back as `reasoning_content`, and let the template choose.
 
-        With thinking on, Strands keeps a `reasoningContent` block in the
-        assistant message, and the base formatter raises
-        `content_type=<reasoningContent> | unsupported type` on it -- so every
-        model call *after* a tool call failed. Reasoning is never replayed
-        anyway: the model thinks afresh each call, and old thoughts would only
-        spend context.
+        Strands keeps a `reasoningContent` block in each assistant message. The
+        base formatter raises on it (`content_type=<reasoningContent> |
+        unsupported type`), so it must come out of `content` -- but it must not
+        be thrown away. Gemma's chat template renders the reasoning of the
+        *current* turn's steps and drops earlier turns' by itself (measured with
+        `/apply-template`). Stripping it all made the model forget its own plan
+        after every tool call: it restated the task, reloaded the same skill
+        and re-ran the same tool, three times in one turn.
+
+        Messages are formatted one at a time, which is how the base formatter
+        treats them anyway, so each one's reasoning lands on its own message.
         """
-        stripped = [
-            {**m, "content": [_sendable(b) for b in m.get("content") or [] if "reasoningContent" not in b]}
-            for m in messages
-        ]
-        return super()._format_messages(stripped, system_prompt)
+        out: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}] if system_prompt else []
+        for m in messages:
+            blocks = m.get("content") or []
+            thought = "".join(_reasoning_of(b) for b in blocks)
+            kept = {**m, "content": [_sendable(b) for b in blocks if "reasoningContent" not in b]}
+            formatted = super()._format_messages([kept], None)
+            if thought and formatted and formatted[0].get("role") == "assistant":
+                formatted[0]["reasoning_content"] = thought
+            out.extend(formatted)
+        return out
 
     def _observe(self, event: dict[str, Any]) -> None:
         if self.observer is not None:
@@ -344,6 +354,14 @@ class AtlasLlamaCppModel(LlamaCppModel):
                     "latency_ms": latency_ms,
                 }
             )
+
+
+def _reasoning_of(block: Any) -> str:
+    if not isinstance(block, dict) or "reasoningContent" not in block:
+        return ""
+    inner = block["reasoningContent"] or {}
+    text = (inner.get("reasoningText") or {}).get("text") if isinstance(inner, dict) else None
+    return str(text or "")
 
 
 def _sendable(block: Any) -> Any:

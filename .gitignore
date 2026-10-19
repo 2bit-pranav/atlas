@@ -82,3 +82,15 @@ settings_*.json
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Skills: only Atlas's bundled core is tracked. Skills installed from skills.sh,
+# GitHub or a zip are per-machine (they carry .atlas-source.json) and stay out.
+skills/*
+!skills/AGENTS.md
+!skills/_shared.py
+!skills/pdf/
+!skills/docx/
+!skills/xlsx/
+
+# Local dev tests and the benchmark: kept on disk, not in the repo.
+tests/

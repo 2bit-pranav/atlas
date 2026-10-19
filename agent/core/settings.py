@@ -88,7 +88,9 @@ class SamplingSettings(StrictModel):
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)
     top_k: int = Field(default=40, ge=0)
     min_p: float = Field(default=0.05, ge=0.0, le=1.0)
-    max_tokens: int = Field(default=2048, gt=0)
+    #: Per model call, thinking included. 2048 cut long documents off in the
+    #: middle of the create_document call, so the tool got empty arguments.
+    max_tokens: int = Field(default=8192, gt=0)
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     repeat_penalty: float = Field(default=1.0, gt=0.0)
@@ -125,6 +127,8 @@ class BuiltinToolSettings(StrictModel):
 
 class ToolsSettings(StrictModel):
     builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
+    #: Atlas's own `create_document` and `edit_document` (agent/core/documents.py).
+    documents: bool = True
     #: Ask before running a shell command. Off for now because there is no
     #: frontend to show the prompt; revisit with the UI.
     interventions: bool = False
@@ -235,6 +239,29 @@ class ResilienceSettings(StrictModel):
     nudge_after_failure: bool = True
 
 
+class AccessSettings(StrictModel):
+    """Which folders the agent may touch beyond its chat workspace (agent/core/policy.py).
+
+    One list for every tool: the built-in file tools, the document tools,
+    absolute paths in shell commands (which is how skills run), and MCP servers
+    whose arguments use the `{atlas:folders}` placeholder. The chat workspace is
+    always allowed and never needs listing.
+    """
+
+    #: Absolute folders; `~` is the user's home. Subfolders are included.
+    folders: list[str] = Field(default_factory=list)
+    #: Outside these: ask the user (true) or refuse outright (false).
+    ask_outside: bool = True
+
+
+class ApprovalSettings(StrictModel):
+    """Questions the agent has to ask the user first (agent/core/approvals.py)."""
+
+    #: Seconds to wait for Allow or Deny. No answer counts as Deny, so a closed
+    #: tab can never leave a run waiting forever.
+    timeout: int = Field(default=60, ge=30, le=120)
+
+
 class SessionSettings(StrictModel):
     """Where Strands writes snapshots. Relative to `paths.data_dir`."""
 
@@ -288,6 +315,8 @@ class Settings(StrictModel):
     memory: MemorySettings = Field(default_factory=MemorySettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
     resilience: ResilienceSettings = Field(default_factory=ResilienceSettings)
+    approvals: ApprovalSettings = Field(default_factory=ApprovalSettings)
+    access: AccessSettings = Field(default_factory=AccessSettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
@@ -335,6 +364,7 @@ TIERS: dict[str, Tier] = {
     "tools.builtin.shell": Tier.LIVE,
     "tools.builtin.web_fetch": Tier.LIVE,
     "tools.builtin.subagent": Tier.LIVE,
+    "tools.documents": Tier.LIVE,
     "tools.interventions": Tier.LIVE,
     "skills.dir": Tier.LIVE,
     "skills.disabled": Tier.LIVE,
@@ -353,6 +383,9 @@ TIERS: dict[str, Tier] = {
     "resilience.tool_crash_retries": Tier.LIVE,
     "resilience.tool_failure_limit": Tier.LIVE,
     "resilience.nudge_after_failure": Tier.LIVE,
+    "approvals.timeout": Tier.LIVE,
+    "access.folders": Tier.LIVE,
+    "access.ask_outside": Tier.LIVE,
     "session.dir": Tier.RESTART,
     "context.conversation_manager": Tier.LIVE,
     "context.window": Tier.RESTART,
@@ -469,6 +502,8 @@ def load_settings(path: Path) -> Settings:
 
 
 __all__ = [
+    "AccessSettings",
+    "ApprovalSettings",
     "BuiltinToolSettings",
     "ContextSettings",
     "LlamaCppSettings",
