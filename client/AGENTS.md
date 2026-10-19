@@ -26,7 +26,9 @@ src/
   lib/settingsSchema.ts      how settings.json is grouped on the Settings page
   lib/shortcuts.ts           the shortcut table, read by the handler and the Shortcuts page
   components/Sidebar.tsx
-  components/chat/           ChatScreen, Messages, Composer, ContextGauge, Markdown, ToolBlock
+  lib/audio.ts               record the microphone; re-encode as 16 kHz mono WAV
+  components/chat/           ChatScreen, Messages, Composer, MentionMenu, ContextGauge, Markdown, ToolBlock
+  components/preview/        PreviewPanel, FileView (docx, pdf, xlsx, images, text)
   components/ui/kit.tsx      Button, Switch, Notice, PageShell, ...
   pages/                     SettingsPage, SkillsPage, McpPage
 ```
@@ -71,6 +73,7 @@ Taken from llama.cpp's source, not screenshots:
   - "Reasoning..." shimmer while streaming, collapsed when done;
   - stats badges ("N tokens", time, "X.XX t/s").
 - **Inline edit:** the composer replaces the message in place. Escape cancels.
+- **Settings search** filters every field across all sections.
 - **Shortcuts:** Ctrl/⌘ + K search, B sidebar, Shift+O new chat, Shift+E rename,
   Shift+S export, Shift+D delete, Shift+↑/↓ previous/next chat, `,` settings.
 
@@ -81,6 +84,32 @@ Where Atlas differs on purpose:
   point.
 - Regenerate appears on the last answer only.
 - Skills and MCP are full pages.
+
+## Working with files
+
+- **Download chips** under an answer list the files that turn created or
+  changed. Preview opens the panel; Download saves.
+- **The preview panel** (right side, resizable) renders a workspace file:
+  docx with `docx-preview`, pdf with pdf.js (canvas plus a text layer), xlsx
+  from the backend's sheet preview, images, and text. Its file menu lists the
+  whole workspace, so documents from turns that an edit removed are still
+  reachable. `?preview=<file>` in a chat URL opens it directly.
+- **Selecting text** in the panel offers "Ask about this": the passage goes to
+  the composer as a quote chip and is sent as a `ref`.
+
+## The composer
+
+- **`@`** opens a menu of this chat's files (picking one attaches it), skills,
+  tools and connected MCP servers (inserted as `@name`).
+- **Voice**: the mic appears when the message box is empty and llama-server
+  reports audio input. The recording is attached as a WAV, not transcribed.
+- **Scrolling**: a new run brings its question to the top and the answer grows
+  below. Following the stream is the "Auto-scroll while generating"
+  preference, off by default.
+
+Headless screenshots (`msedge --headless --screenshot`) use a virtual clock
+that does not run web workers, so pdf.js never finishes there. Drive the
+browser over DevTools with real waiting instead.
 
 ## Adding a setting to the UI
 
