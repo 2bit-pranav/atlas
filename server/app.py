@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import re
 import shutil
 import sys
 from contextlib import asynccontextmanager
@@ -124,9 +125,26 @@ class Atlas:
         self.runs = RunManager()
         #: MCP connections live as long as the process, not as long as a turn.
         self.mcp = McpManager(self.settings)
+        self._modalities: dict[str, bool] | None = None
         if n := self.store.mark_interrupted():
             logger.info("%d turn(s) left running by a previous process are now interrupted", n)
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)
+
+    def modalities(self) -> dict[str, bool]:
+        """What the loaded model can take in (vision, audio), from llama-server.
+
+        Asked once and remembered: it changes only with the model, which needs
+        a restart anyway. Not remembered while llama-server is still loading.
+        """
+        if self._modalities is None:
+            try:
+                import httpx
+
+                props = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2).json()
+                self._modalities = {k: bool(v) for k, v in (props.get("modalities") or {}).items()}
+            except Exception:  # noqa: BLE001 - not up yet: ask again next time
+                return {}
+        return self._modalities
 
     def close(self) -> None:
         self.mcp.stop_all()
@@ -194,7 +212,10 @@ class Atlas:
         workspace = self.chat_dir(run.chat_id)
         refs = [{**r, "path": r.get("path") or str(workspace / str(r.get("file", "")))}
                 for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
-        text = _agent_text(turn["user_text"], files, refs)
+        media = [f for f in files if _media_kind(f) and Path(str(f.get("path", ""))).is_file()]
+        text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs)
+        if guidance := _mention_guidance(turn["user_text"], settings, self.mcp):
+            text = f"{text}\n\n{guidance}".strip()
         hint = retry_hint(settings, retry) if retry else ""
         sm = SessionManager(settings, run.chat_id)
         # Recorded per turn, so each version shows the model that wrote it.
@@ -219,7 +240,13 @@ class Atlas:
             run.emit({"type": "run_started", "chat_id": run.chat_id, "turn_id": run.turn_id})
 
             start = len(agent.messages)
-            prompt = f"{text}\n\n{hint}" if hint else text
+            prompt_text = f"{text}\n\n{hint}" if hint else text
+            # Images and recordings go to the model as content, after the text
+            # and in separate blocks (a combined block silently drops the text).
+            prompt: Any = prompt_text
+            if media:
+                blocks = await asyncio.to_thread(_media_blocks, media)
+                prompt = ([{"text": prompt_text}] if prompt_text else []) + blocks
             async for out in translate(_aiter(agent.stream_async(prompt))):
                 if run.cancel.is_set():
                     raise asyncio.CancelledError
@@ -382,7 +409,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         """Every file in the chat's workspace, newest first. Outlives any edit."""
         state.require_chat(chat_id)
         root = state.chat_dir(chat_id)
-        entries = [{"name": name, "size": size,
+        entries = [{"name": name, "size": size, "path": str(root / name),
                     "modified": mtime // 1_000_000,
                     "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
                    for name, (size, mtime) in _scan(root).items()]
@@ -539,6 +566,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             "skills": SkillManager(state.settings).catalogue(),
             "mcp": state.mcp.describe(),
             "paths": {"root": str(paths.ROOT), "data": str(paths.data_dir(state.settings))},
+            "modalities": state.modalities(),
         }
 
     @api.get("/settings")
@@ -598,6 +626,68 @@ def _launched_restart_values(state: Atlas) -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             pass
     return restart_tier_values(state.boot.model_dump(mode="json"))
+
+
+_IMAGE = {"png": "png", "jpg": "jpeg", "jpeg": "jpeg", "gif": "gif", "webp": "webp"}
+_AUDIO = {"wav": "wav", "mp3": "mp3"}
+
+
+def _media_kind(f: dict[str, Any]) -> str | None:
+    ext = Path(str(f.get("name", ""))).suffix.lower().lstrip(".")
+    return "image" if ext in _IMAGE else "audio" if ext in _AUDIO else None
+
+
+def _media_blocks(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Image and audio attachments as Strands content blocks."""
+    blocks = []
+    for f in files:
+        ext = Path(str(f["name"])).suffix.lower().lstrip(".")
+        data = Path(str(f["path"])).read_bytes()
+        if ext in _IMAGE:
+            blocks.append({"image": {"format": _IMAGE[ext], "source": {"bytes": data}}})
+        elif ext in _AUDIO:
+            blocks.append({"audio": {"format": _AUDIO[ext], "source": {"bytes": data}}})
+    return blocks
+
+
+_MENTION = re.compile(r"(?<![\w@])@([\w.-]+)")
+
+
+def _mention_guidance(user_text: str, settings: Settings, mcp: Any) -> str:
+    """`@name` in a message, resolved against skills, tools and MCP servers.
+
+    The composer's @ menu inserts these. A small model needs the instruction
+    spelled out: asked to "use @fetch" it would otherwise still pick whichever
+    tool looked closest. Resolved at run time, so a retry or an edit of the
+    message gets the same instruction. Unknown names are left alone -- an
+    email address or a handle is not a mention.
+    """
+    names = list(dict.fromkeys(_MENTION.findall(user_text or "")))
+    if not names:
+        return ""
+    skills = {s["folder"]: s["name"] for s in SkillManager(settings).enabled()}
+    skills.update({s: s for s in list(skills.values())})
+    servers = {s["name"]: [t["agent_name"] for t in s["tools"] if t["enabled"]]
+               for s in mcp.describe() if s["status"] == "connected"}
+    tools = set(ToolManager(settings).builtin_tools())
+    if settings.tools.documents:
+        tools |= {"create_document", "edit_document"}
+    for server_tools in servers.values():
+        tools |= set(server_tools)
+
+    lines = []
+    for name in names:
+        if name in servers:
+            lines.append(f"- Use the tools of the MCP server `{name}` "
+                         f"({', '.join(servers[name]) or 'none enabled'}), not built-in tools that "
+                         "do something similar.")
+        elif name in tools:
+            lines.append(f"- Use the `{name}` tool for this.")
+        elif name in skills:
+            lines.append(f"- Use the `{skills[name]}` skill: load it with the `skills` tool first.")
+    if not lines:
+        return ""
+    return "The user picked these with @ in their message:\n" + "\n".join(lines)
 
 
 def _scan(root: Path) -> dict[str, tuple[int, int]]:

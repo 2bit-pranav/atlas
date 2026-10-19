@@ -25,6 +25,16 @@ reach a chat with history. The prompt is set again after every restore,
 recomposed with `build_system_prompt` so the harness's own guidance stays
 (assigning our text raw dropped it).
 
+**Turn off Strands' printing callback handler** (2026-10-19, found by test).
+`Agent` defaults to a `PrintingCallbackHandler` that writes every token to
+stdout. Started by `atlas start` the console was cp1252, so an emoji or `→`
+in an answer raised `UnicodeEncodeError` and failed the run.
+
+**MCP tools need their server in the description** (2026-10-19, found by
+test). Asked to "use the MCP tools", the model picked built-in tools or went
+looking for skills. With `[MCP: <server>]` on each description, and the
+prompt listing tools by source, it picked the server's tool.
+
 **Never write `snapshot_latest`** (2026-10-18, found by test). Strands writes
 it after every invocation and restores it automatically whenever an agent
 starts. A turn with no restore point (a first message, or a retry or edit of
@@ -105,6 +115,37 @@ would show the model a second shell and file tool beside the Strands ones.
 
 ---
 
+## Documents and installs
+
+**The model writes Markdown; Atlas makes the document** (2026-10-19, found by
+test). The docx writer read hand-written JSON from `echo '...' |`. An
+apostrophe in the text ended the shell quote, and slips in nested JSON were
+common, so the model fell back to writing plain text into a `.docx`: a corrupt
+file. `create_document` takes Markdown, writes to a temp file, reopens it to
+prove it parses, then moves it into place. The model also wrote
+tab-separated data for an xlsx, so TSV is accepted alongside Markdown tables
+and CSV.
+
+**Tool failures must be error results** (2026-10-19). A tool that returns
+"Error: ..." as ordinary text is a success as far as Strands is concerned,
+and the recovery hooks never see it. Atlas's tools return
+`{"status": "error", ...}`.
+
+**Installs are asked, not forbidden** (2026-10-19, decided). "NEVER run pip"
+in the prompt also stopped `npm install` for an npm-based skill. Every install
+now pauses for Allow / Deny, and 60 seconds with no answer is Deny.
+
+**Generated files outlive edits** (2026-10-19, decided). An edit deletes the
+turns that follow, never the files they produced or changed. The preview
+panel lists the whole workspace.
+
+**Voice is an audio attachment** (2026-10-19, decided). llama-server reports
+`audio` among the model's modalities, and Strands sends `audio` blocks as
+`input_audio`. The recording goes to the model as it is, with no
+speech-to-text step and nothing to install.
+
+---
+
 ## Recovery and retries
 
 **Recovery is hooks, not prompt text** (2026-10-18). The model read an empty
@@ -161,6 +202,11 @@ used to insert a turn first and leave a phantom `running` leaf.
   `write` and `edit` never worked on Windows.
 - The Git-Bash form fixes both. MSYS converts it for native programs, and the
   sandbox converts it for Python's own file calls.
+
+**`/tmp` is Git's, not `C:\tmp`** (2026-10-19, found by test). `web_fetch`
+has curl write `/tmp/strands-web-fetch-*` and reads it back; that path was
+resolved as `C:\tmp\...` and every fetch failed. POSIX paths go through
+`cygpath`.
 
 **Never `uvicorn --reload`** (2026-10-18). Its worker runs the Selector event
 loop, which cannot start subprocesses on Windows. Every shell call failed with

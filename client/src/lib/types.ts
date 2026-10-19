@@ -198,6 +198,8 @@ export interface SettingsView {
   skills: Skill[]
   mcp: McpServer[]
   paths: { root: string; data: string }
+  /** What the loaded model takes in, from llama-server's /props. */
+  modalities: { vision?: boolean; audio?: boolean }
 }
 
 export interface SkillInstallResult {

@@ -87,7 +87,7 @@ function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
       {turn.user_text && (
         <div className={cn("max-w-[80%] whitespace-pre-wrap break-words rounded-[1.125rem] bg-primary/5 px-3.5 text-[15px] leading-7 dark:bg-primary/15",
                            turn.user_text.includes("\n") ? "py-2.5" : "py-1.5")}>
-          {turn.user_text}
+          <WithMentions text={turn.user_text} />
         </div>
       )}
       <div className="flex h-6 items-center gap-2">
@@ -146,6 +146,18 @@ function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "approval" }
         </div>
       )}
     </div>
+  )
+}
+
+/** User text with each `@name` shown as a token, like the composer inserted it. */
+function WithMentions({ text }: { text: string }) {
+  const parts = text.split(/((?<![\w@])@[\w.-]+)/g)
+  return (
+    <>
+      {parts.map((p, i) => p.startsWith("@") && i % 2 === 1
+        ? <span key={i} className="rounded bg-primary/10 px-1 font-mono text-[0.9em]">{p}</span>
+        : p)}
+    </>
   )
 }
 

@@ -41,7 +41,7 @@ export function SettingsPage() {
   }, [])
 
   const dirty = Object.keys(draft).length > 0
-  const values = settings?.values ?? {}
+  const values = useMemo(() => settings?.values ?? {}, [settings])
   const value = (key: string) => (key in draft ? draft[key] : values[key])
   const set = (key: string, v: unknown) => {
     setSaved(false)

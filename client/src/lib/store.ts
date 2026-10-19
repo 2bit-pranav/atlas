@@ -240,6 +240,13 @@ class Store {
     }))
   }
 
+  /** Attach a file already in the chat's workspace (from the @ menu). No upload. */
+  stageExisting(file: ChatFile) {
+    if (this.state.staged.some((s) => s.path === file.path)) return
+    this.set({ staged: [...this.state.staged, { ...file, key: file.path, uploading: false }],
+               stagedChat: this.state.chat?.id ?? this.state.stagedChat })
+  }
+
   unstage(key: string) {
     this.set({ staged: this.state.staged.filter((s) => s.key !== key) })
   }

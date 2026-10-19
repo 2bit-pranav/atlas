@@ -10,6 +10,8 @@ agent/core/
   agent_factory.py   build_agent(): the one place that calls create_harness
   model.py           AtlasLlamaCppModel: thinking switch, streaming, timings
   resilience.py      LocalModelRetry, ToolFailureRecovery (Strands hooks)
+  documents.py       create_document / edit_document: Markdown -> docx, pdf, xlsx
+  approvals.py       InstallApproval: ask the user before any install runs
   chats.py           ChatStore: the chat tree and display transcripts (SQLite)
   session_manager.py where Strands writes snapshots; deleting them on edit
   tool_manager.py    tools.builtin -> the harness's builtin_tools
@@ -113,6 +115,31 @@ The stock `LlamaCppModel` needed five things:
 - `document` blocks (what the harness `read` tool returns for a pdf/docx/xlsx)
   become a text note pointing at the skill; llama-server answers them with a 400.
 
+## Documents (`documents.py`)
+
+The model writes **Markdown**; `create_document` turns it into docx
+(python-docx), pdf (reportlab) or xlsx (openpyxl: every Markdown table becomes
+a sheet named after the heading above it; CSV or TSV lines work too). Every
+file is written to a temp file, reopened by its own library to prove it
+parses, and only then moved into place. A failure returns an *error* tool
+result in words the model can act on, so `ToolFailureRecovery` counts it.
+
+`edit_document` replaces exact text inside a docx paragraph or table cell, an
+xlsx cell, or a text file. A PDF cannot be edited in place; the model is told
+to create it again.
+
+`DocumentGuard` refuses the plain `write`/`edit` tools on .docx/.xlsx/.pdf/
+.pptx: writing text into one is how corrupt documents happened.
+
+## Approvals (`approvals.py`)
+
+A `shell` command that installs (pip, npm, npx, uv, winget, apt, ...) pauses
+the run and asks the user. The run emits `approval_request`, the UI shows
+Allow / Deny, and no answer within `approvals.timeout` seconds (60) counts as
+Deny, as does cancelling the run. The model is then told not to try another
+way. Python packages are installed with `python -m pip`, so they land in
+Atlas's own venv.
+
 ## Windows (`shell_env.py`)
 
 - Commands run through Git Bash when it exists (`cmd.exe` as a fallback); the
@@ -121,6 +148,11 @@ The stock `LlamaCppModel` needed five things:
   works unquoted in bash, as an argument to `python.exe` (MSYS converts it),
   and in the harness file tools, which reject any path not starting with `/`.
   `_resolve_path` turns it back into `C:/Users/...` for Python's file calls.
+  Other POSIX paths (`/tmp/...`, which `web_fetch` writes through curl) are
+  resolved with Git's `cygpath`.
+- Strands' default callback handler printed every token to the console; under
+  a cp1252 console an emoji failed the run. It is off (`callback_handler=None`)
+  and the backend and every skill script run in UTF-8 mode.
 
 ## Skills and MCP
 
@@ -135,6 +167,10 @@ The stock `LlamaCppModel` needed five things:
   stored as the server's standard `tool_filters.rejected` and applied when the
   turn's tool list is built, so switching needs no reconnect. Every tool schema
   costs prompt tokens on every request; the manager estimates them.
+- **Where tools come from.** Each MCP tool's description starts with
+  `[MCP: <server>]`, and the prompt lists tools grouped by source (built in,
+  skills, each MCP server). Without that, asked to use an MCP tool, the model
+  used the built-in one with the same purpose.
 
 ## Memory
 

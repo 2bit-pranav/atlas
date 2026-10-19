@@ -13,9 +13,11 @@ skills/
   <installed>/  ...  .atlas-source.json                  (where it came from)
 ```
 
-Rich documents only work through skills. The harness `read` tool returns a
-pdf, docx or xlsx as a `document` block that llama.cpp cannot accept, and
-`write`/`edit` handle text only.
+Rich documents are *read* through skills: the harness `read` tool returns a
+pdf, docx or xlsx as a `document` block that llama.cpp cannot accept. They are
+*written* with Atlas's own `create_document` and `edit_document` tools, which
+take Markdown; the bundled skills say so. A skill that needs a package can now
+install it, with the user's approval each time.
 
 ## Writing one for a 2B model
 
@@ -34,8 +36,9 @@ pdf, docx or xlsx as a `document` block that llama.cpp cannot accept, and
   short message. A traceback is what provokes the model to `pip install`.
 - **Tolerate mangled quoting.** Paths may arrive with stray quotes or
   backslashes; `_shared.unquote` is there for that.
-- **Never install.** Declare packages in `requirements.txt`. The Skills page
-  lists them and installs them into the venv only when the user clicks.
+- **Declare what you need.** List packages in `requirements.txt`; the Skills
+  page shows them and can install them. If the model installs instead, the
+  user is asked to approve the command first.
 
 ## Installing
 
