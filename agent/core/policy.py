@@ -213,7 +213,9 @@ class ToolPolicy(HookProvider):
             command = self.reader(path) if self.reader else None
             return Decision(refuse=(
                 f"`read` only handles text files and images; {Path(path).name} is a binary {ext} "
-                + (f"file. Read it with: {command}" if command else "file. Use the matching skill's script.")))
+                + (f"file. Read it with: {command}" if command else "file. Use the matching skill's script.")
+                + " To merge, split, combine or convert it, load its skill first: the scripts do that "
+                  "in one call, without reading it."))
         what = "edit_document" if name == "edit" else "create_document"
         return Decision(refuse=(f"{Path(path).name} is a binary {ext} file; writing text into it would "
                                 f"corrupt it. Use the `{what}` tool instead."))

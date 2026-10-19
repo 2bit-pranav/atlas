@@ -3,9 +3,33 @@ name: pdf
 description: Read, search, merge, split and convert PDF documents. Use this whenever a PDF is attached or mentioned - to summarise it, quote a passage, find a number, answer a question about it, combine PDFs or chosen pages, split one into parts, or turn it into a Word document. Also creates PDFs from Markdown.
 ---
 
-# Reading PDFs
+# PDFs
 
 Use `shell` to run the script. Do not write PDF code yourself.
+
+## Merge, split, convert
+
+**For these, do not read the file first and do not rebuild it with `create_document`.** The scripts copy pages exactly, images included, in one call.
+
+Combine files, or chosen pages of them, in the order given (`5-` runs to the
+last page):
+
+```
+python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" combined.pdf "a.pdf" "b.pdf:2-5" "c.pdf:1,3"
+```
+
+Split into one file per page, or one per range:
+
+```
+python "$ATLAS_SKILLS/pdf/scripts/split_pdf.py" "<file>"
+python "$ATLAS_SKILLS/pdf/scripts/split_pdf.py" "<file>" 1-3 4-10 11-
+```
+
+Make an editable Word document (`--pages 1-3` for part of it):
+
+```
+python "$ATLAS_SKILLS/pdf/scripts/pdf_to_docx.py" "<file>"
+```
 
 ## Read pages
 
@@ -35,31 +59,6 @@ python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>" --search "coherence"
 Output is capped at about 1500 tokens. When the script says `[truncated ...]`,
 it names the flag that shows more -- usually `--max-tokens 3000`, or a narrower
 `--pages`. **Do not guess at what a truncated read left out.**
-
-## Merge, split, convert
-
-Combine files, or chosen pages of them, in the order given (`5-` runs to the
-last page):
-
-```
-python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" combined.pdf "a.pdf" "b.pdf:2-5" "c.pdf:1,3"
-```
-
-Split into one file per page, or one per range:
-
-```
-python "$ATLAS_SKILLS/pdf/scripts/split_pdf.py" "<file>"
-python "$ATLAS_SKILLS/pdf/scripts/split_pdf.py" "<file>" 1-3 4-10 11-
-```
-
-Make an editable Word document (`--pages 1-3` for part of it):
-
-```
-python "$ATLAS_SKILLS/pdf/scripts/pdf_to_docx.py" "<file>"
-```
-
-These copy pages exactly, images included. Use them rather than reading a PDF
-and rewriting it.
 
 ## Create or change a document
 

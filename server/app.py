@@ -815,6 +815,10 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
         here = workspace is not None and Path(str(f["path"])).parent == workspace
         if reader is not None and (command := reader(str(f["path"]), f["name"] if here else shown)):
             line += f". Read it with: {command}"
+            # Without this the model read the file and rewrote it with
+            # create_document even when asked to merge or convert it.
+            skill = command.split("$ATLAS_SKILLS/", 1)[-1].split("/", 1)[0]
+            line +=f" (to merge, split, combine or convert it instead, load the {skill} skill first)"
         lines.append(line)
     if lines:
         parts.append("Files attached to this message (use the paths exactly as written):\n"

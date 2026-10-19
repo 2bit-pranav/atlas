@@ -5,11 +5,32 @@ description: Read, query, combine and export Excel spreadsheets (.xlsx, .xlsm, .
 
 # Spreadsheets
 
-Run the scripts with `shell`. Two steps, always in this order.
+Run the scripts with `shell`. To answer a question about a spreadsheet, take
+the two numbered steps below, always in that order.
 
 `python` is already the right interpreter — do not look for another one, and do
 not run `pip install` to fix a complaint about a missing library. That is a
 setup problem to report to the user.
+
+## Combine and export
+
+These need no reading first, and one call does every file or sheet.
+
+Several workbooks, chosen sheets (`file.xlsx:Sheet`) or CSVs into one
+workbook, a sheet each:
+
+```
+python "$ATLAS_SKILLS/xlsx/scripts/combine_xlsx.py" combined.xlsx "jan.xlsx" "feb.xlsx:Sales" "mar.csv"
+```
+
+Add `--stack` to append all rows into one sheet instead (the headers must
+match; a `source` column records where each row came from).
+
+Export every sheet as CSV, one file each (add `--sheet Mar` for just one):
+
+```
+python "$ATLAS_SKILLS/xlsx/scripts/xlsx_to_csv.py" "<file>"
+```
 
 ## 1. Shape first
 
@@ -36,24 +57,6 @@ first row, exactly as they appear. Not sure of them? This needs no SQL:
 
 ```
 python "$ATLAS_SKILLS/xlsx/scripts/query_xlsx.py" "<file>" --schema
-```
-
-## Combine and export
-
-Several workbooks, chosen sheets (`file.xlsx:Sheet`) or CSVs into one
-workbook, a sheet each:
-
-```
-python "$ATLAS_SKILLS/xlsx/scripts/combine_xlsx.py" combined.xlsx "jan.xlsx" "feb.xlsx:Sales" "mar.csv"
-```
-
-Add `--stack` to append all rows into one sheet instead (the headers must
-match; a `source` column records where each row came from).
-
-Export as CSV (`--sheet Mar` for one sheet, `--all-sheets` for each):
-
-```
-python "$ATLAS_SKILLS/xlsx/scripts/xlsx_to_csv.py" "<file>"
 ```
 
 ---
