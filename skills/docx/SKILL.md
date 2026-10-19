@@ -24,21 +24,24 @@ python skills/docx/scripts/read_docx.py "<path>" --headings-only
 
 Cheap, and it tells you which section actually answers the question.
 
-## Write
+## Create or change a document
 
-Reads JSON on stdin, so you describe the document rather than code it:
+Do not use `shell` or `write` for this. Call the **`create_document`** tool
+with the whole document as **Markdown**:
+
+- `path`: a file name such as `summary.docx` (it is saved in your workspace)
+- `content`: Markdown -- `#` headings, paragraphs, `**bold**`, `- bullets`,
+  `1. numbered`, and tables:
 
 ```
-echo '{"title":"Findings","blocks":[
-  {"type":"heading","level":1,"text":"March total"},
-  {"type":"para","text":"The total for March was 425184.67."},
-  {"type":"bullet","text":"Confirmed against the workbook."},
-  {"type":"table","header":["sheet","total"],"rows":[["Jan","489337.15"]]}
-]}' | python skills/docx/scripts/write_docx.py "summary.docx"
+| Month | Total |
+|---|---|
+| Jan | 489337.15 |
 ```
 
-Block types: `heading` (with `level`), `para`, `bullet`, `table` (with
-`header` and `rows`).
+To change part of an existing file, call **`edit_document`** with the exact
+text to `find` and its `replace`ment. Read the file first and copy the text
+exactly.
 
 ## Things that bite
 

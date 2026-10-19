@@ -9,14 +9,14 @@
 
 import { memo, useEffect, useRef, useState } from "react"
 import {
-  BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Gauge, Lightbulb,
-  Pencil, RefreshCw, Sparkles, WholeWord, Wrench,
+  BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Download, Eye, Gauge,
+  Lightbulb, Pencil, Quote, RefreshCw, Sparkles, WholeWord, Wrench,
 } from "lucide-react"
 
 import { atlas, useAtlas } from "@/lib/store"
 import { usePrefs } from "@/lib/prefs"
 import { fileUrl } from "@/lib/api"
-import type { ChatFile, Part, Turn, TurnStats } from "@/lib/types"
+import type { ChangedFile, ChatFile, Part, Ref, Turn, TurnStats } from "@/lib/types"
 import { answerText } from "@/lib/transcript"
 import { cn } from "@/lib/utils"
 import { Markdown } from "@/components/chat/Markdown"
@@ -41,7 +41,7 @@ export const TurnRow = memo(function TurnRow({ turn, chatId, isLast, laterCount,
   return (
     <div className="w-full" data-turn-id={turn.id}>
       <UserMessage turn={turn} chatId={chatId} editing={editing} setEditing={setEditing} laterCount={laterCount} />
-      <AssistantMessage turn={turn} parts={parts} stats={liveStats ?? turn.stats} running={running} isLast={isLast} />
+      <AssistantMessage turn={turn} chatId={chatId} parts={parts} stats={liveStats ?? turn.stats} running={running} isLast={isLast} />
     </div>
   )
 })
@@ -83,6 +83,7 @@ function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
   return (
     <div className="mt-12 flex flex-col items-end gap-2">
       {turn.files.length > 0 && <Attachments files={turn.files} chatId={chatId} />}
+      {turn.refs?.length > 0 && <RefChips refs={turn.refs} />}
       {turn.user_text && (
         <div className={cn("max-w-[80%] whitespace-pre-wrap break-words rounded-[1.125rem] bg-primary/5 px-3.5 text-[15px] leading-7 dark:bg-primary/15",
                            turn.user_text.includes("\n") ? "py-2.5" : "py-1.5")}>
@@ -97,6 +98,59 @@ function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
   )
 }
 
+/** Passages selected in the preview panel that went with this question. */
+export function RefChips({ refs, onRemove }: { refs: Ref[]; onRemove?: (i: number) => void }) {
+  return (
+    <div className="flex max-w-[80%] flex-col items-end gap-1.5">
+      {refs.map((r, i) => (
+        <div key={i} className="group flex max-w-full items-start gap-2 rounded-lg border bg-muted/50 px-2.5 py-1.5 text-xs">
+          <Quote className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+          <span className="min-w-0">
+            <span className="line-clamp-2 italic text-foreground/80">{r.quote}</span>
+            <span className="block truncate text-[11px] text-muted-foreground">{r.file}</span>
+          </span>
+          {onRemove && (
+            <button type="button" onClick={() => onRemove(i)} aria-label="Remove passage"
+                    className="text-muted-foreground hover:text-foreground">×</button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Files this answer created or changed: open in the preview, or download. */
+function ProducedFiles({ files, chatId }: { files: ChangedFile[]; chatId: string }) {
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {files.map((f) => {
+        const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"
+        return (
+          <div key={f.name} className="flex items-center gap-3 rounded-lg border bg-muted p-2 pr-1.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">{ext}</span>
+            <span className="min-w-0">
+              <span className="block max-w-48 truncate text-sm font-medium" title={f.name}>{f.name}</span>
+              <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Created" : "Updated"} · {formatBytes(f.size)}</span>
+            </span>
+            <Tip label="Preview">
+              <button type="button" onClick={() => atlas.openPreview(f.name)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
+                <Eye className="h-3.5 w-3.5" />
+              </button>
+            </Tip>
+            <Tip label="Download">
+              <a href={fileUrl(chatId, f.name, true)}
+                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
+                <Download className="h-3.5 w-3.5" />
+              </a>
+            </Tip>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
   return (
     <div className="flex max-w-[80%] flex-wrap justify-end gap-2">
@@ -104,19 +158,19 @@ function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
         const image = f.type.startsWith("image/")
         const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"
         return image ? (
-          <a key={f.path} href={fileUrl(chatId, f.name)} target="_blank" rel="noreferrer"
-             className="overflow-hidden rounded-lg bg-muted shadow-lg">
+          <button key={f.path} type="button" onClick={() => atlas.openPreview(f.name)}
+                  className="overflow-hidden rounded-lg bg-muted shadow-lg">
             <img src={fileUrl(chatId, f.name)} alt={f.name} className="max-h-40" />
-          </a>
+          </button>
         ) : (
-          <a key={f.path} href={fileUrl(chatId, f.name)} target="_blank" rel="noreferrer"
-             className="flex items-center gap-3 rounded-lg border bg-muted p-2.5 hover:bg-accent">
+          <button key={f.path} type="button" onClick={() => atlas.openPreview(f.name)} title="Open in the preview panel"
+             className="flex items-center gap-3 rounded-lg border bg-muted p-2.5 text-left hover:bg-accent">
             <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">{ext}</span>
             <span className="min-w-0">
               <span className="block max-w-40 truncate text-sm font-medium">{f.name}</span>
               <span className="block text-xs text-muted-foreground">{formatBytes(f.size)}</span>
             </span>
-          </a>
+          </button>
         )
       })}
     </div>
@@ -125,8 +179,8 @@ function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
 
 // ------------------------------------------------------------- assistant --
 
-function AssistantMessage({ turn, parts, stats, running, isLast }: {
-  turn: Turn; parts: Part[]; stats: TurnStats | null; running: boolean; isLast: boolean
+function AssistantMessage({ turn, chatId, parts, stats, running, isLast }: {
+  turn: Turn; chatId: string; parts: Part[]; stats: TurnStats | null; running: boolean; isLast: boolean
 }) {
   const prefs = usePrefs()
   const busy = useAtlas((s) => s.run !== null)
@@ -158,6 +212,8 @@ function AssistantMessage({ turn, parts, stats, running, isLast }: {
           {isLast && " Regenerate or edit the question to continue."}
         </p>
       )}
+
+      {!running && stats?.files && stats.files.length > 0 && <ProducedFiles files={stats.files} chatId={chatId} />}
 
       {!running && (
         <>

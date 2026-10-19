@@ -40,8 +40,35 @@ export type Part =
       text: string
     }
 
+/** A passage selected in the preview panel and attached to a question. */
+export interface Ref {
+  file: string
+  path: string | null
+  quote: string
+}
+
+/** A file the run created or changed, for the download chips. */
+export interface ChangedFile {
+  name: string
+  size: number
+  change: "created" | "modified"
+}
+
+export interface WorkspaceFile {
+  name: string
+  size: number
+  modified: number
+  type: string
+}
+
+export interface SheetPreview {
+  kind: "sheet"
+  sheets: { name: string; rows: string[][]; truncated: boolean }[]
+}
+
 export interface TurnStats {
   model?: string
+  files?: ChangedFile[]
   context_size?: number
   context_used?: number
   prompt_tokens?: number
@@ -57,6 +84,7 @@ export interface Turn {
   parent_id: string | null
   user_text: string
   files: ChatFile[]
+  refs: Ref[]
   status: TurnStatus
   created_at: number
   render: Part[]

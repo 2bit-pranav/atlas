@@ -8,7 +8,7 @@ body when one applies, and then runs the skill's scripts through `shell`.
 skills/
   _shared.py           output budget, truncation notices, friendly import errors
   pdf/   SKILL.md  scripts/read_pdf.py
-  docx/  SKILL.md  scripts/read_docx.py, write_docx.py
+  docx/  SKILL.md  scripts/read_docx.py
   xlsx/  SKILL.md  scripts/read_xlsx.py, query_xlsx.py   (SQL via DuckDB)
   <installed>/  ...  .atlas-source.json                  (where it came from)
 ```

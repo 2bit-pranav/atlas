@@ -17,6 +17,7 @@ import { downloadJson, exportName } from "@/lib/download"
 import type { ChatSummary } from "@/lib/types"
 import { Sidebar } from "@/components/Sidebar"
 import { ChatScreen } from "@/components/chat/ChatScreen"
+import { PreviewPanel } from "@/components/preview/PreviewPanel"
 import { Button } from "@/components/ui/kit"
 import { SettingsPage } from "@/pages/SettingsPage"
 import { SkillsPage } from "@/pages/SkillsPage"
@@ -138,12 +139,15 @@ export function App() {
           </div>
         )}
 
-        <div className={onChatPage ? "min-h-0 flex-1" : "hidden"}>
-          <Routes>
-            <Route path="/" element={<ChatRoute />} />
-            <Route path="/c/:chatId" element={<ChatRoute />} />
-            <Route path="*" element={null} />
-          </Routes>
+        <div className={onChatPage ? "flex min-h-0 flex-1" : "hidden"}>
+          <div className="min-w-0 flex-1">
+            <Routes>
+              <Route path="/" element={<ChatRoute />} />
+              <Route path="/c/:chatId" element={<ChatRoute />} />
+              <Route path="*" element={null} />
+            </Routes>
+          </div>
+          <PreviewPanel />
         </div>
         {!onChatPage && (
           <div className="min-h-0 flex-1">
@@ -173,9 +177,14 @@ function ChatRoute() {
   const navigate = useNavigate()
   const openId = useAtlas((s) => s.chat?.id ?? null)
 
+  const location = useLocation()
   useEffect(() => {
-    if (chatId) void atlas.openChat(chatId)
-    else if (atlas.state.chat) atlas.newChat()
+    if (chatId) {
+      // `?preview=<file>` opens a workspace file in the panel: a link to a document.
+      const preview = new URLSearchParams(location.search).get("preview")
+      void atlas.openChat(chatId).then(() => preview && atlas.openPreview(preview))
+    } else if (atlas.state.chat) atlas.newChat()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId])
 
   // A first message creates the chat: move the URL to it.

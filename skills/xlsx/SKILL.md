@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: Read and query Excel spreadsheets (.xlsx, .xlsm, .xltx) - list sheets, inspect columns and formulas, and compute totals, sums, averages and group-by results with SQL. Use this whenever a spreadsheet is attached or mentioned and the answer is a number.
+description: Read and query Excel spreadsheets (.xlsx, .xlsm, .xltx) - list sheets, inspect columns and formulas, and compute totals, sums, averages and group-by results with SQL. Use this whenever a spreadsheet is attached or mentioned and the answer is a number. Also creates spreadsheets from Markdown tables.
 ---
 
 # Spreadsheets
@@ -39,6 +39,25 @@ python skills/xlsx/scripts/query_xlsx.py "<path>" --schema
 ```
 
 ---
+
+## Create or change a document
+
+Do not use `shell` or `write` for this. Call the **`create_document`** tool
+with the whole document as **Markdown**:
+
+- `path`: a file name such as `summary.xlsx` (it is saved in your workspace)
+- `content`: Markdown -- `#` headings, paragraphs, `**bold**`, `- bullets`,
+  `1. numbered`, and tables:
+
+```
+| Month | Total |
+|---|---|
+| Jan | 489337.15 |
+```
+
+To change part of an existing file, call **`edit_document`** with the exact
+text to `find` and its `replace`ment. Read the file first and copy the text
+exactly. Every Markdown table becomes a sheet, named after the heading above it; numbers become real numbers.
 
 ## Gotchas that produce wrong answers
 

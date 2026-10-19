@@ -54,6 +54,8 @@ class Run:
     #: What the UI shows for this turn, folded from the same events it streams.
     transcript: Transcript = field(default_factory=lambda: Transcript(0))
     _last_stats: float = 0.0
+    #: The chat workspace when the run began: `path -> (size, mtime_ns)`.
+    workspace_before: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     @property
     def done(self) -> bool:

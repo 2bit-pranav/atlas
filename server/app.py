@@ -83,6 +83,8 @@ class RenameChat(BaseModel):
 class SendMessage(BaseModel):
     text: str = ""
     files: list[dict[str, Any]] = Field(default_factory=list)
+    #: Passages selected in the preview panel: {"file", "path", "quote"}.
+    refs: list[dict[str, Any]] = Field(default_factory=list)
     thinking: bool | None = None
 
 
@@ -93,6 +95,7 @@ class RetryTurn(BaseModel):
 class EditTurn(BaseModel):
     text: str
     files: list[dict[str, Any]] | None = None
+    refs: list[dict[str, Any]] | None = None
     thinking: bool | None = None
 
 
@@ -182,11 +185,19 @@ class Atlas:
         """The run body. One task per run; the frontend is not involved."""
         settings = self.settings
         files = json.loads(turn["files_json"] or "[]")
-        text = _agent_text(turn["user_text"], files)
+        # A passage selected in the preview names its file relative to the
+        # workspace; the model is given the full path, ready for edit_document.
+        workspace = self.chat_dir(run.chat_id)
+        refs = [{**r, "path": r.get("path") or str(workspace / str(r.get("file", "")))}
+                for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
+        text = _agent_text(turn["user_text"], files, refs)
         hint = retry_hint(settings, retry) if retry else ""
         sm = SessionManager(settings, run.chat_id)
         # Recorded per turn, so each version shows the model that wrote it.
         run.transcript.stats["model"] = settings.model.name
+        #: What the workspace held before the run, so the files this turn
+        #: created or changed can be offered as downloads afterwards.
+        run.workspace_before = _scan(self.chat_dir(run.chat_id))
         try:
             manager = sm.manager()
             # Building restores a snapshot from disk and constructs the harness:
@@ -229,6 +240,11 @@ class Atlas:
     def _finish(self, run: Run, status: str, *, after_snap: str | None = None,
                 error: str | None = None) -> None:
         stats = run.transcript.final_stats()
+        try:
+            stats["files"] = _changed(run.workspace_before,
+                                      _scan(self.chat_dir(run.chat_id)))
+        except OSError:
+            logger.warning("could not scan the workspace of chat %s", run.chat_id, exc_info=True)
         try:
             self.store.finish_turn(run.turn_id, status, after_snap=after_snap,
                                    render=run.transcript.parts, stats=stats, error=error)
@@ -345,16 +361,42 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         return {"name": name, "path": str(target), "size": target.stat().st_size,
                 "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
 
-    @api.get("/chats/{chat_id}/files/{name}")
-    async def download(chat_id: str, name: str) -> FileResponse:
+    def workspace_file(chat_id: str, name: str) -> Path:
         state.require_chat(chat_id)
         root = paths.chat_dir(state.settings, chat_id).resolve()
-        target = (root / Path(name).name).resolve()
+        target = (root / name).resolve()
         if root not in target.parents:
             raise HTTPException(400, "path escapes the chat directory")
         if not target.is_file():
             raise HTTPException(404, "no such file")
-        return FileResponse(target)
+        return target
+
+    @api.get("/chats/{chat_id}/workspace")
+    async def workspace(chat_id: str) -> list[dict[str, Any]]:
+        """Every file in the chat's workspace, newest first. Outlives any edit."""
+        state.require_chat(chat_id)
+        root = state.chat_dir(chat_id)
+        entries = [{"name": name, "size": size,
+                    "modified": mtime // 1_000_000,
+                    "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
+                   for name, (size, mtime) in _scan(root).items()]
+        return sorted(entries, key=lambda e: e["modified"], reverse=True)
+
+    @api.get("/chats/{chat_id}/files/{name:path}")
+    async def download(chat_id: str, name: str, download: bool = False) -> FileResponse:
+        """Served inline for the preview panel; `?download=1` saves it instead."""
+        target = workspace_file(chat_id, name)
+        if download:
+            return FileResponse(target, filename=target.name)
+        return FileResponse(target, headers={"Cache-Control": "no-cache"})
+
+    @api.get("/chats/{chat_id}/preview/{name:path}")
+    async def preview(chat_id: str, name: str) -> dict[str, Any]:
+        """A spreadsheet as rows, for the preview panel. Capped, and says so."""
+        target = workspace_file(chat_id, name)
+        if target.suffix.lower() not in (".xlsx", ".xlsm"):
+            raise HTTPException(415, "only spreadsheets have a server-side preview")
+        return await asyncio.to_thread(_sheet_preview, target)
 
     # -------------------------------------------------------------- turns --
 
@@ -371,7 +413,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(409, "the last answer did not complete: retry or edit it first")
         turn = state.store.insert_turn(
             chat_id, body.text, parent_turn_id=leaf["id"] if leaf else None,
-            before_snap=leaf["after_snap"] if leaf else None, files=body.files,
+            before_snap=leaf["after_snap"] if leaf else None, files=body.files, refs=body.refs,
         )
         if first_words := " ".join(body.text.split())[:60]:
             state.store.set_title(chat_id, first_words, only_if_empty=True)
@@ -394,6 +436,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         new = state.store.insert_turn(
             turn["chat_id"], turn["user_text"], parent_turn_id=turn["parent_turn_id"],
             before_snap=turn["before_snap"], files=json.loads(turn["files_json"] or "[]"),
+            refs=json.loads(turn.get("refs_json") or "[]"),
         )
         run = state.launch(new, thinking=state.thinking(body.thinking if body else None),
                            retry=RetryPlan(previous=[p for p in previous if p.strip()]))
@@ -403,6 +446,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     async def edit(turn_id: str, body: EditTurn) -> dict[str, Any]:
         turn = state.require_turn(turn_id)
         files = body.files if body.files is not None else json.loads(turn["files_json"] or "[]")
+        refs = body.refs if body.refs is not None else json.loads(turn.get("refs_json") or "[]")
         if not body.text.strip() and not files:
             raise HTTPException(422, "empty message")
         state.ensure_run_slot()
@@ -414,9 +458,11 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         except TreeError as exc:
             raise HTTPException(404, str(exc)) from exc
         await SessionManager(state.settings, old["chat_id"]).delete_snapshots(snaps)
+        # Files in the workspace are never touched by an edit: documents the
+        # agent made or changed for the deleted turns stay, and stay listed.
         new = state.store.insert_turn(
             old["chat_id"], body.text, parent_turn_id=old["parent_turn_id"],
-            before_snap=old["before_snap"], files=files,
+            before_snap=old["before_snap"], files=files, refs=refs,
         )
         run = state.launch(new, thinking=state.thinking(body.thinking))
         return {"run": _run_view(run), "chat": state.view(old["chat_id"])}
@@ -539,12 +585,55 @@ def _launched_restart_values(state: Atlas) -> dict[str, Any]:
     return restart_tier_values(state.boot.model_dump(mode="json"))
 
 
+def _scan(root: Path) -> dict[str, tuple[int, int]]:
+    """`relative/path -> (size, mtime_ns)` for every file in a workspace."""
+    out: dict[str, tuple[int, int]] = {}
+    if not root.is_dir():
+        return out
+    for p in root.rglob("*"):
+        if p.is_file() and not p.name.startswith(".atlas-"):
+            st = p.stat()
+            out[p.relative_to(root).as_posix()] = (st.st_size, st.st_mtime_ns)
+    return out
+
+
+def _changed(before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int]]) -> list[dict[str, Any]]:
+    """Files a run created or modified, for the download chips under its answer."""
+    out = []
+    for name, (size, mtime) in sorted(after.items()):
+        if name not in before:
+            out.append({"name": name, "size": size, "change": "created"})
+        elif before[name] != (size, mtime):
+            out.append({"name": name, "size": size, "change": "modified"})
+    return out
+
+
+def _sheet_preview(path: Path, max_rows: int = 500, max_cols: int = 50) -> dict[str, Any]:
+    from openpyxl import load_workbook
+
+    wb = load_workbook(str(path), read_only=True, data_only=True)
+    sheets = []
+    try:
+        for ws in wb.worksheets:
+            rows, truncated = [], False
+            for i, row in enumerate(ws.iter_rows(values_only=True)):
+                if i >= max_rows:
+                    truncated = True
+                    break
+                rows.append(["" if v is None else str(v) for v in row[:max_cols]])
+            sheets.append({"name": ws.title, "rows": rows, "truncated": truncated})
+    finally:
+        wb.close()
+    return {"kind": "sheet", "sheets": sheets}
+
+
 def _turn_view(turn: dict[str, Any], versions: list[str]) -> dict[str, Any]:
     return {
         "id": turn["id"],
         "parent_id": turn["parent_turn_id"],
         "user_text": turn["user_text"],
         "files": json.loads(turn["files_json"] or "[]"),
+        "refs": json.loads(turn.get("refs_json") or "[]"),
         "status": turn["status"],
         "created_at": turn["created_at"],
         "render": json.loads(turn["render_json"]) if turn["render_json"] else [],
@@ -559,7 +648,8 @@ def _run_view(run: Run) -> dict[str, Any]:
     return {"id": run.id, "chat_id": run.chat_id, "turn_id": run.turn_id, "status": run.status}
 
 
-def _agent_text(user_text: str, files: list[dict[str, Any]]) -> str:
+def _agent_text(user_text: str, files: list[dict[str, Any]],
+                refs: list[dict[str, Any]] | None = None) -> str:
     """What the agent is told, as opposed to what the user typed.
 
     Nothing is parsed at upload, but a file the model has never heard of is a
@@ -568,14 +658,22 @@ def _agent_text(user_text: str, files: list[dict[str, Any]]) -> str:
     stays exactly what was typed -- which is what the transcript shows and what
     a retry replays.
     """
+    parts = [user_text]
+    quoted = [r for r in refs or [] if isinstance(r, dict) and r.get("quote")]
+    if quoted:
+        # Selected in the preview panel. Named with the file's path, so a
+        # request like "reword this" can go straight to edit_document.
+        parts.append("The user selected these passages and is asking about them:\n" + "\n".join(
+            f"- from {r.get('file')} at {model_path(r['path']) if r.get('path') else r.get('file')}: "
+            f'"{r["quote"]}"' for r in quoted))
     listed = "\n".join(
         f"- {f.get('name')} at {model_path(f['path'])} ({f.get('size', 0)} bytes)"
         for f in files if isinstance(f, dict) and f.get("path")
     )
-    if not listed:
-        return user_text
-    return (f"{user_text}\n\nFiles attached to this message. Read them with the matching "
-            f"skill; their exact paths are below, so use them verbatim:\n{listed}").strip()
+    if listed:
+        parts.append("Files attached to this message. Read them with the matching skill; their "
+                     f"exact paths are below, so use them verbatim:\n{listed}")
+    return "\n\n".join(p for p in parts if p).strip()
 
 
 def _strip_hint(messages: list[dict[str, Any]], start: int, hint: str) -> None:

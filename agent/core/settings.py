@@ -125,6 +125,8 @@ class BuiltinToolSettings(StrictModel):
 
 class ToolsSettings(StrictModel):
     builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
+    #: Atlas's own `create_document` and `edit_document` (agent/core/documents.py).
+    documents: bool = True
     #: Ask before running a shell command. Off for now because there is no
     #: frontend to show the prompt; revisit with the UI.
     interventions: bool = False
@@ -335,6 +337,7 @@ TIERS: dict[str, Tier] = {
     "tools.builtin.shell": Tier.LIVE,
     "tools.builtin.web_fetch": Tier.LIVE,
     "tools.builtin.subagent": Tier.LIVE,
+    "tools.documents": Tier.LIVE,
     "tools.interventions": Tier.LIVE,
     "skills.dir": Tier.LIVE,
     "skills.disabled": Tier.LIVE,

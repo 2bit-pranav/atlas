@@ -27,6 +27,8 @@ fastembed>=0.9          # CPU ONNX runtime; keeps torch out of the hot path
 
 # --- rendering (L5, L7) ---
 python-docx>=1.2
+reportlab>=4.0           # create_document: Markdown -> PDF
+markdown-it-py>=3.0      # create_document: the Markdown parser
 matplotlib>=3.11
 
 # --- tooling ---

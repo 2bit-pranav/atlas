@@ -12,7 +12,10 @@ import {
   type McpServer,
   type RegistryServer,
   type RunEvent,
+  type Ref,
   type SettingsView,
+  type SheetPreview,
+  type WorkspaceFile,
   type Skill,
   type SkillInstallResult,
   type StartedRun,
@@ -71,12 +74,16 @@ export async function uploadFile(chatId: string, file: File): Promise<ChatFile> 
   return request<ChatFile>(`/chats/${chatId}/files`, { method: "POST", body: form })
 }
 
-export const fileUrl = (chatId: string, name: string) =>
-  `${BASE}/chats/${chatId}/files/${encodeURIComponent(name)}`
+/** A workspace file. `name` may contain folders; each segment is encoded. */
+export const fileUrl = (chatId: string, name: string, download = false) =>
+  `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${download ? "?download=1" : ""}`
+export const listWorkspace = (chatId: string) => request<WorkspaceFile[]>(`/chats/${chatId}/workspace`)
+export const sheetPreview = (chatId: string, name: string) =>
+  request<SheetPreview>(`/chats/${chatId}/preview/${name.split("/").map(encodeURIComponent).join("/")}`)
 
 // ------------------------------------------------------------------ turns --
 
-export const send = (chatId: string, body: { text: string; files: ChatFile[]; thinking: boolean }) =>
+export const send = (chatId: string, body: { text: string; files: ChatFile[]; refs: Ref[]; thinking: boolean }) =>
   request<StartedRun>(`/chats/${chatId}/messages`, json("POST", body))
 export const retry = (turnId: string, thinking: boolean) =>
   request<StartedRun>(`/turns/${turnId}/retry`, json("POST", { thinking }))

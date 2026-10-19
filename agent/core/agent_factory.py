@@ -19,6 +19,7 @@ from agent.core import paths
 from agent.core.memory_manager import MemoryManager
 from agent.core.shell_env import default_environment, model_path
 from agent.core.model import AtlasLlamaCppModel
+from agent.core.documents import DocumentGuard, document_tools
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
 from agent.core.settings import Settings
@@ -214,8 +215,10 @@ def build_agent(
     # harness prompt, so the harness guidance is always retained.
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
+    atlas_tools = (document_tools(paths.chat_dir(settings, chat_id), model_path)
+                   if settings.tools.documents else [])
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
-        builtin, [s["name"] for s in skills], list(tools or [])))
+        [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
     agent = create_harness(
         model=model,
@@ -227,7 +230,7 @@ def build_agent(
         session=session_manager,
         skills=[s["path"] for s in skills] or False,
         interventions=tool_manager.interventions(),
-        tools=[*tool_manager.extra_tools(), *(tools or [])],
+        tools=[*tool_manager.extra_tools(), *atlas_tools, *(tools or [])],
         builtin_tools=builtin,
         # The four off-switches, together. Any one of them alone is not enough.
         **memory_manager.harness_args(),
@@ -240,7 +243,7 @@ def build_agent(
         callback_handler=None,
         # Recovery is hooks, not prompt text: see agent/core/resilience.py.
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
-        hooks=[ToolFailureRecovery(settings.resilience)],
+        hooks=[ToolFailureRecovery(settings.resilience), DocumentGuard()],
     )
 
     if restore_snapshot_id:
