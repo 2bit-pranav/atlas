@@ -19,6 +19,7 @@ from agent.core import paths
 from agent.core.memory_manager import MemoryManager
 from agent.core.shell_env import default_environment, model_path
 from agent.core.model import AtlasLlamaCppModel
+from agent.core.approvals import Approver, InstallApproval
 from agent.core.documents import DocumentGuard, document_tools
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
@@ -175,9 +176,10 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
         f"- Your workspace for this chat is `{model_path(workspace)}`. Uploaded files are "
         "there, and any file you create goes there unless the user names "
         "another place.\n"
-        "- NEVER run pip, pip install, conda, or any other installer. If a "
-        "script reports a missing library, that is a setup problem to tell the "
-        "user about, not something to fix."
+        "- You may install what a task needs (`python -m pip install ...` for "
+        "Python packages, so they go into Atlas's own environment; `npm install "
+        "-g ...` for Node tools). The user is asked to approve every install "
+        "first; if they decline, do not try another way."
     )
 
 
@@ -191,6 +193,7 @@ def build_agent(
     tools: list | None = None,
     retry: RetryPlan | None = None,
     observer: Callable[[dict[str, Any]], None] | None = None,
+    approver: Approver | None = None,
     sandbox: Any = None,
 ) -> Any:
     """Build one Strands `Agent` for one turn.
@@ -201,6 +204,8 @@ def build_agent(
         tools: extra tools (MCP) added beside the built-ins.
         retry: set on a retried turn, to widen sampling.
         observer: receives model-call stats and retry notices for the run.
+        approver: asks the user before an install runs. Without one, installs
+            are refused with an explanation.
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -243,7 +248,7 @@ def build_agent(
         callback_handler=None,
         # Recovery is hooks, not prompt text: see agent/core/resilience.py.
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
-        hooks=[ToolFailureRecovery(settings.resilience), DocumentGuard()],
+        hooks=[ToolFailureRecovery(settings.resilience), DocumentGuard(), InstallApproval(approver)],
     )
 
     if restore_snapshot_id:

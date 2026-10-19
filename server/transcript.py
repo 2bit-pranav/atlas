@@ -10,6 +10,7 @@ Parts:
     {"kind": "reasoning", "text": ...}
     {"kind": "text", "text": ...}
     {"kind": "tool", "id", "name", "args", "status", "text"}
+    {"kind": "approval", "id", "command", "status", "expires_at"}
 
 Consecutive deltas of one kind merge into one part, otherwise a 400-token
 answer would be 400 parts.
@@ -56,6 +57,13 @@ class Transcript:
             for part in self._tools(event.get("id")):
                 part["status"] = "error" if event.get("status") == "error" else "success"
                 part["text"] = event.get("text", "")
+        elif kind == "approval_request":
+            self.parts.append({"kind": "approval", "id": event.get("id"), "command": event.get("command", ""),
+                               "status": "pending", "expires_at": event.get("expires_at")})
+        elif kind == "approval_result":
+            for part in self.parts:
+                if part["kind"] == "approval" and part["id"] == event.get("id"):
+                    part["status"] = event.get("decision", "denied")
         elif kind == "stats":
             self.stats.update({k: v for k, v in event.items() if k not in ("type", "seq")})
 

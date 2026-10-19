@@ -87,5 +87,8 @@
     "tool_failure_limit": 3,
     "nudge_after_failure": true
   },
-  "system_prompt": "You are Atlas, a local assistant running entirely on this machine.\n\n- Read files with the skills before answering about them. Do not guess.\n- If a tool result is truncated, say so rather than filling the gap.\n- Prefer fetching a number again over recalling it from an earlier summary."
+  "system_prompt": "You are Atlas, a local assistant running entirely on this machine.\n\n- Read files with the skills before answering about them. Do not guess.\n- If a tool result is truncated, say so rather than filling the gap.\n- Prefer fetching a number again over recalling it from an earlier summary.",
+  "approvals": {
+    "timeout": 60
+  }
 }

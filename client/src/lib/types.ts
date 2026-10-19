@@ -39,6 +39,14 @@ export type Part =
       status: "running" | "success" | "error"
       text: string
     }
+  | {
+      /** The agent asked to install something and is waiting for the user. */
+      kind: "approval"
+      id: string
+      command: string
+      status: "pending" | "allowed" | "denied" | "expired"
+      expires_at: number
+    }
 
 /** A passage selected in the preview panel and attached to a question. */
 export interface Ref {
@@ -120,6 +128,8 @@ export type RunEvent = { seq: number } & (
   | { type: "tool_start"; id: string; name: string; args: unknown }
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
   | { type: "tool_end"; id: string; name: string; status: string; text: string }
+  | { type: "approval_request"; id: string; kind: string; command: string; timeout: number; expires_at: number }
+  | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
   | ({ type: "stats" } & TurnStats)
   | { type: "usage"; input: number; output: number; total: number; reported?: number }
   | { type: "done"; status: TurnStatus }

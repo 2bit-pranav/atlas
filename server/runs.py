@@ -54,6 +54,8 @@ class Run:
     #: What the UI shows for this turn, folded from the same events it streams.
     transcript: Transcript = field(default_factory=lambda: Transcript(0))
     _last_stats: float = 0.0
+    #: Questions waiting for the user: approval id -> future of the decision.
+    approvals: dict[str, asyncio.Future] = field(default_factory=dict)
     #: The chat workspace when the run began: `path -> (size, mtime_ns)`.
     workspace_before: dict[str, tuple[int, int]] = field(default_factory=dict)
 
@@ -90,6 +92,38 @@ class Run:
                 self.transcript.fold(stats)
         elif kind in ("call_start", "model_retry"):
             self.emit(event)
+
+    async def request_approval(self, kind: str, detail: dict[str, Any], timeout: float) -> str:
+        """Ask the user, and wait. Returns "allowed", "denied" or "expired".
+
+        The question and its answer are both events, so a reloaded page shows
+        the pending card, and the transcript keeps what was decided.
+        """
+        approval_id = uuid.uuid4().hex[:12]
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self.approvals[approval_id] = future
+        self.emit({"type": "approval_request", "id": approval_id, "kind": kind, **detail,
+                   "timeout": timeout, "expires_at": int((time.time() + timeout) * 1000)})
+        try:
+            decision = await asyncio.wait_for(future, timeout)
+        except asyncio.TimeoutError:
+            decision = "expired"
+        finally:
+            self.approvals.pop(approval_id, None)
+        self.emit({"type": "approval_result", "id": approval_id, "decision": decision})
+        return decision
+
+    def answer(self, approval_id: str, allow: bool) -> bool:
+        future = self.approvals.get(approval_id)
+        if future is None or future.done():
+            return False
+        future.set_result("allowed" if allow else "denied")
+        return True
+
+    def deny_all(self) -> None:
+        for future in list(self.approvals.values()):
+            if not future.done():
+                future.set_result("denied")
 
     def wake(self) -> None:
         for waiter in self.waiters:
@@ -157,6 +191,8 @@ class RunManager:
         if run is None or run.done:
             return run
         run.cancel.set()
+        # A pending question would otherwise hold the run until it times out.
+        run.deny_all()
         if run.agent is not None:
             # The documented path. Also sets the signal the model watches.
             try:

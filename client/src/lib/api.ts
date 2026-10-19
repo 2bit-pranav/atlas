@@ -91,6 +91,8 @@ export const edit = (turnId: string, body: { text: string; files?: ChatFile[]; t
   request<StartedRun>(`/turns/${turnId}/edit`, json("POST", body))
 export const select = (turnId: string, delta: number) =>
   request<ChatView>(`/turns/${turnId}/select`, json("POST", { delta }))
+export const answerApproval = (runId: string, approvalId: string, allow: boolean) =>
+  request<unknown>(`/runs/${runId}/approvals/${approvalId}`, json("POST", { allow }))
 export const cancel = (runId: string) => request<unknown>(`/runs/${runId}/cancel`, json("POST"))
 export const getRun = (runId: string) =>
   request<{ status: string; error: string | null }>(`/runs/${runId}`)

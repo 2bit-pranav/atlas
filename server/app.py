@@ -103,6 +103,10 @@ class SelectTurn(BaseModel):
     delta: int = 0
 
 
+class Answer(BaseModel):
+    allow: bool
+
+
 # ------------------------------------------------------------------ state --
 
 
@@ -206,6 +210,8 @@ class Atlas:
                 build_agent, settings, chat_id=run.chat_id, thinking=thinking,
                 restore_snapshot_id=turn["before_snap"], session_manager=manager,
                 retry=retry, observer=run.observe, tools=self.mcp.agent_tools(),
+                approver=lambda kind, detail: run.request_approval(
+                    kind, detail, settings.approvals.timeout),
             )
             run.agent = agent
             if run.cancel.is_set():
@@ -502,6 +508,15 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
 
         return StreamingResponse(sse(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @api.post("/runs/{run_id}/approvals/{approval_id}")
+    async def answer_approval(run_id: str, approval_id: str, body: Answer) -> dict[str, Any]:
+        run = state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(404, f"no run {run_id}")
+        if not run.answer(approval_id, body.allow):
+            raise HTTPException(409, "that question was already answered or has expired")
+        return {"id": approval_id, "decision": "allowed" if body.allow else "denied"}
 
     @api.post("/runs/{run_id}/cancel")
     async def cancel_run(run_id: str) -> dict[str, Any]:

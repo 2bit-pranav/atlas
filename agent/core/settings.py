@@ -237,6 +237,14 @@ class ResilienceSettings(StrictModel):
     nudge_after_failure: bool = True
 
 
+class ApprovalSettings(StrictModel):
+    """Questions the agent has to ask the user first (agent/core/approvals.py)."""
+
+    #: Seconds to wait for Allow or Deny. No answer counts as Deny, so a closed
+    #: tab can never leave a run waiting forever.
+    timeout: int = Field(default=60, ge=30, le=120)
+
+
 class SessionSettings(StrictModel):
     """Where Strands writes snapshots. Relative to `paths.data_dir`."""
 
@@ -290,6 +298,7 @@ class Settings(StrictModel):
     memory: MemorySettings = Field(default_factory=MemorySettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
     resilience: ResilienceSettings = Field(default_factory=ResilienceSettings)
+    approvals: ApprovalSettings = Field(default_factory=ApprovalSettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
@@ -356,6 +365,7 @@ TIERS: dict[str, Tier] = {
     "resilience.tool_crash_retries": Tier.LIVE,
     "resilience.tool_failure_limit": Tier.LIVE,
     "resilience.nudge_after_failure": Tier.LIVE,
+    "approvals.timeout": Tier.LIVE,
     "session.dir": Tier.RESTART,
     "context.conversation_manager": Tier.LIVE,
     "context.window": Tier.RESTART,

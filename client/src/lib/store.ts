@@ -333,6 +333,16 @@ class Store {
     }
   }
 
+  async answerApproval(approvalId: string, allow: boolean) {
+    const run = this.state.run
+    if (!run) return
+    try {
+      await api.answerApproval(run.id, approvalId, allow)
+    } catch (error) {
+      this.fail(error)
+    }
+  }
+
   async cancel() {
     const run = this.state.run
     if (!run) return

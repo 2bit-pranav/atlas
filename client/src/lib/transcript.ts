@@ -53,6 +53,16 @@ export function fold(live: LiveTurn, event: RunEvent): void {
         ...p, status: event.status === "error" ? "error" : "success", text: event.text,
       }))
       return
+    case "approval_request":
+      parts.push({ kind: "approval", id: event.id, command: event.command, status: "pending",
+                   expires_at: event.expires_at })
+      return
+    case "approval_result":
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i]
+        if (p.kind === "approval" && p.id === event.id) parts[i] = { ...p, status: event.decision }
+      }
+      return
     case "stats": {
       const { type: _t, seq: _s, ...stats } = event
       live.stats = { ...live.stats, ...stats }

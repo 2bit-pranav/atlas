@@ -10,7 +10,7 @@
 import { memo, useEffect, useRef, useState } from "react"
 import {
   BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Download, Eye, Gauge,
-  Lightbulb, Pencil, Quote, RefreshCw, Sparkles, WholeWord, Wrench,
+  Lightbulb, Pencil, Quote, RefreshCw, ShieldAlert, Sparkles, WholeWord, Wrench,
 } from "lucide-react"
 
 import { atlas, useAtlas } from "@/lib/store"
@@ -94,6 +94,57 @@ function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
         <CopyButton text={turn.user_text} />
         <Action label="Edit" onClick={() => setEditing(true)} disabled={busy}><Pencil className="h-3 w-3" /></Action>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The agent wants to install something. Allow or Deny; no answer by the
+ * deadline counts as Deny (the backend decides, this only shows the clock).
+ */
+function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "approval" }>; live: boolean }) {
+  const [now, setNow] = useState(() => Date.now())
+  const [sent, setSent] = useState(false)
+  const pending = part.status === "pending" && live
+  useEffect(() => {
+    if (!pending) return
+    const timer = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(timer)
+  }, [pending])
+  const left = Math.max(0, Math.ceil((part.expires_at - now) / 1000))
+  const outcome = {
+    pending: live ? null : "Not answered",
+    allowed: "Allowed",
+    denied: "Declined: not run",
+    expired: "No answer in time: not run",
+  }[part.status]
+  return (
+    <div className={cn("my-3 rounded-xl border p-3.5",
+                       pending ? "border-amber-500/50 bg-amber-500/5" : "bg-muted/30")}>
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <ShieldAlert className={cn("h-4 w-4", pending ? "text-amber-500" : "text-muted-foreground")} />
+        {pending ? "Atlas wants to install something" : "Install request"}
+        {pending && <span className="ml-auto font-mono text-xs text-muted-foreground">{left}s</span>}
+        {outcome && (
+          <span className={cn("ml-auto text-xs", part.status === "allowed" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+            {outcome}
+          </span>
+        )}
+      </div>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-code p-2.5 font-mono text-xs text-code-foreground">{part.command}</pre>
+      {pending && (
+        <div className="mt-3 flex items-center gap-2">
+          <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, true) }}
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
+            Allow
+          </button>
+          <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, false) }}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
+            Deny
+          </button>
+          <span className="text-[11px] text-muted-foreground">Runs on this computer with your permissions.</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -201,6 +252,8 @@ function AssistantMessage({ turn, chatId, parts, stats, running, isLast }: {
                             interrupted={!running && turn.status !== "completed"} defaultOpen={prefs.expandReasoning} />
         if (part.kind === "tool")
           return <ToolBlock key={part.id || i} part={part} defaultOpen={prefs.expandTools} />
+        if (part.kind === "approval")
+          return <ApprovalCard key={part.id} part={part} live={running} />
         return <Markdown key={i} text={part.text} />
       })}
 
