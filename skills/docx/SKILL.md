@@ -1,6 +1,6 @@
 ---
 name: docx
-description: Read, summarise and write Word documents (.docx). Use this whenever a .docx file is attached or mentioned - to summarise it, list its headings, read its tables, or produce a new Word document.
+description: Read, summarise, write and convert Word documents (.docx). Use this whenever a .docx file is attached or mentioned - to summarise it, list its headings, read its tables, turn it into a PDF, or produce a new Word document.
 ---
 
 # Word documents
@@ -29,6 +29,16 @@ Cheap, and it tells you which section actually answers the question.
 The reader saves the document's images and prints each one as a line like
 `![page 2, image 1](C:/.../page2-1.png)`. To keep an image in a new document,
 put that exact line in `create_document`'s Markdown where it belongs.
+
+## Convert to PDF
+
+```
+python "$ATLAS_SKILLS/docx/scripts/docx_to_pdf.py" "<file>"
+```
+
+This needs Microsoft Word or LibreOffice. If the script says neither is
+installed, follow its hint: read the document and create the PDF from that
+Markdown with `create_document`.
 
 ## Create or change a document
 

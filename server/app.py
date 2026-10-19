@@ -35,7 +35,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from agent.core import paths
-from agent.core.agent_factory import RetryPlan, build_agent, retry_hint
+from agent.core.agent_factory import RetryPlan, build_agent, clock_note, retry_hint
 from agent.core.chats import (
     CANCELLED,
     COMPLETED,
@@ -218,6 +218,8 @@ class Atlas:
                            workspace=workspace)
         if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
             text = f"{text}\n\n{guidance}".strip()
+        # Only the model sees this; the chat shows the user's own text.
+        text = f"{text}\n\n{clock_note()}".strip()
         hint = retry_hint(settings, retry) if retry else ""
         sm = SessionManager(settings, run.chat_id)
         # Recorded per turn, so each version shows the model that wrote it.

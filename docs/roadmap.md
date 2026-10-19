@@ -1,15 +1,15 @@
 # Roadmap
 
 Ordered so each phase builds on the one before it. Every phase ends with a
-gate: what must be true before the next starts. Quality changes are measured
-with `python tests/bench.py` against the last saved run (`.data/bench/`).
+gate: what must be true before the next starts. The user tests each phase by
+hand; a local benchmark (not in the repo) checks for regressions.
 
 ## Phase 0: fixes and a baseline (done, 2026-10-19)
 
 - `web_fetch` summariser cap 600 -> 2048 tokens (it raised `MaxTokensReachedException`).
 - MCP tools received `/c/...` paths; they now get `C:/...`.
 - Reasoning is passed back to llama.cpp as `reasoning_content`.
-- `tests/bench.py`: six tasks (F1 table to xlsx, research, PDF merge with images,
+- A local benchmark: six tasks (F1 table to xlsx, research, PDF merge with images,
   attachment Q&A, xlsx sum, plain chat), thinking off and on, synthetic fixtures.
 - Baseline: 5/12.
 
@@ -21,29 +21,35 @@ with `python tests/bench.py` against the last saved run (`.data/bench/`).
 - Approvals by kind: install, access, sensitive MCP tool (On / Ask / Off).
 - Skill requirements (pip, npm global, npm local) detected, shown and installed
   from the Skills page.
-- All pre-call checks in one ordered hook; offline tests in `tests/test_policy.py`.
+- All pre-call checks in one ordered hook.
 
 Gate: an MCP filesystem server reaches the allowed folders; a path outside asks;
 an install runs after Allow; tests pass; benchmark no worse than 5/12.
 
 ## Phase 2: answer quality
 
-One change at a time, each benchmarked; keep only what helps.
+Installing a search MCP (DuckDuckGo) and the filesystem MCP did most of what
+this phase was for: research answers now come from real pages. What is left
+is small:
 
-1. **System prompt**: today's date and time; gather -> checklist -> produce ->
-   verify; "never claim what a tool result contradicts".
-2. **Search**: the user's search MCP (SearXNG), so URLs are found, not guessed.
-3. **`todo_write`** (harness `Todos` plugin): a plan re-shown every turn.
-4. **`notebook`** (Strands vended tool): a scratchpad for gathered data;
-   `create_document` can render from a notebook; a page-break marker.
-5. **Subagent research preset**: delegate anything that is more than one tool
-   call to a child with its own notebook.
-6. **More core skill scripts**:
-   - pdf: merge / combine with page ranges, split;
-   - docx: convert to pdf, common edits;
-   - xlsx: convert to pdf/csv, common operations.
+1. **Date and time** (done): today's date in the system prompt, the send time
+   at the end of each user message (seen only by the model).
+2. **Prefer original sources** (done): one prompt line, plus "give the link".
+3. **Relative times in the chat** (done): "2 min ago" under each user message,
+   the exact time on hover.
+4. **More core skill scripts** (done):
+   - pdf: `merge_pdf.py` (files or page ranges, in order), `split_pdf.py`
+     (per page or per range), `pdf_to_docx.py` (pdf2docx);
+   - docx: `docx_to_pdf.py` (docx2pdf through Word, else LibreOffice, else
+     the model is told to read it and `create_document` a PDF);
+   - xlsx: `combine_xlsx.py` (workbooks, sheets or CSVs; `--stack`),
+     `xlsx_to_csv.py`. No xlsx to PDF: nothing does it without Excel.
 
-Gate: benchmark clearly above 5/12, with no single case regressing.
+Gate: the user's own testing.
+
+On hold, to try only if testing shows a need: `todo_write`, `notebook`, a
+subagent research preset (the F1 podium, which needs many pages, is the
+likely first case), a script that saves a web page or its tables to a file.
 
 ## Phase 3: features
 

@@ -185,11 +185,31 @@ community skill often says `npm install -g x` only in its SKILL.md, and the
 model then tried to install it mid-task. Requirements are read from all three
 places and installed from the Skills page; the click is the approval.
 
-**Benchmark baseline: 5/12** (2026-10-19, measured, `tests/bench.py`). Fails
+**Benchmark baseline: 5/12** (2026-10-19, measured with a local benchmark kept out of the repo). Fails
 are about quality, not plumbing: no date context, guessed URLs with no search
 engine, the `web_fetch` summariser mangling tables, dropped images in long
 copies, claimed-but-not-done steps, and giving up early with thinking off.
 Phase 2 measures each change against this. See `docs/roadmap.md`.
+
+**A search MCP mattered more than new tools** (2026-10-19, found by test).
+With a filesystem and a DuckDuckGo search MCP installed, a search-save-verify
+task ran cleanly in 5 calls, and the F1 task returned real, correct winners.
+What remained was the date: the model read "last season" as 2024 because it
+did not know the year. So `todo_write`, `notebook` and subagents are on hold.
+
+**The date in the prompt, the time in the message** (2026-10-19, decided).
+The system prompt carries today's date, which changes once a day, so
+llama.cpp's prompt cache is kept. Each user message ends with
+`[Sent Mon 19 Oct 2026, 18:38 (UTC+05:30)]`, which only the model sees.
+
+**docx to PDF needs Word or LibreOffice** (2026-10-19). `docx2pdf` drives Word
+over COM; without Word or LibreOffice the script says so and points the model
+to read the document and `create_document` the PDF instead. xlsx to PDF has no
+library that works without Excel, so it is not offered. `pdf2docx` (PDF to
+Word) pulls in PyMuPDF, which is AGPL-licensed.
+
+**Tests stay out of the repository** (2026-10-19, decided). The user tests by
+hand; the development tests and benchmark live in an ignored `tests/`.
 
 ---
 

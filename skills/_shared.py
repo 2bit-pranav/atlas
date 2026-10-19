@@ -239,3 +239,44 @@ def images_dir(source: Path) -> Path:
 def image_line(path: Path, caption: str) -> str:
     """How an image is printed: Markdown that create_document accepts as is."""
     return f"![{caption}]({path.resolve().as_posix()})"
+
+# ------------------------------------------------------------------ pages --
+
+
+def page_list(spec: str, total: int) -> list[int]:
+    """`1-3,7`, `5-`, `all` -> 0-based indices, **in the order given**.
+
+    Unlike `read_pdf.parse_pages` this keeps order and repeats, because
+    merging `3,1-2` means page 3 first. Raises ValueError on anything that
+    is not a page, so a typo fails instead of silently dropping pages.
+    """
+    spec = (spec or "all").strip().lower()
+    if spec in ("all", "*", ""):
+        return list(range(total))
+    out: list[int] = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        a, dash, b = part.partition("-")
+        start = int(a) if a.strip() else 1
+        end = (int(b) if b.strip() else total) if dash else start
+        if not (1 <= start <= total and 1 <= end <= total):
+            raise ValueError(f"page {part!r} is outside 1-{total}")
+        step = 1 if end >= start else -1
+        out.extend(i - 1 for i in range(start, end + step, step))
+    return out
+
+
+def output_path(name: str) -> Path:
+    """Where a script writes: a bare name lands in the chat workspace (cwd)."""
+    path = Path(unquote(name))
+    path = path if path.is_absolute() else Path.cwd() / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def created(names: Path | str, **details: Any) -> str:
+    """The lines every writing script ends with, so the model tells the user."""
+    names = names.name if isinstance(names, Path) else names
+    return header(created=names, **details) + "\nThe user sees it as a download in the chat."

@@ -91,3 +91,6 @@ skills/*
 !skills/pdf/
 !skills/docx/
 !skills/xlsx/
+
+# Local dev tests and the benchmark: kept on disk, not in the repo.
+tests/

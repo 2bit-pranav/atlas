@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: Read and query Excel spreadsheets (.xlsx, .xlsm, .xltx) - list sheets, inspect columns and formulas, and compute totals, sums, averages and group-by results with SQL. Use this whenever a spreadsheet is attached or mentioned and the answer is a number. Also creates spreadsheets from Markdown tables.
+description: Read, query, combine and export Excel spreadsheets (.xlsx, .xlsm, .xltx) - list sheets, inspect columns and formulas, compute totals, sums, averages and group-by results with SQL, combine workbooks or sheets, and export sheets as CSV. Use this whenever a spreadsheet is attached or mentioned. Also creates spreadsheets from Markdown tables.
 ---
 
 # Spreadsheets
@@ -36,6 +36,24 @@ first row, exactly as they appear. Not sure of them? This needs no SQL:
 
 ```
 python "$ATLAS_SKILLS/xlsx/scripts/query_xlsx.py" "<file>" --schema
+```
+
+## Combine and export
+
+Several workbooks, chosen sheets (`file.xlsx:Sheet`) or CSVs into one
+workbook, a sheet each:
+
+```
+python "$ATLAS_SKILLS/xlsx/scripts/combine_xlsx.py" combined.xlsx "jan.xlsx" "feb.xlsx:Sales" "mar.csv"
+```
+
+Add `--stack` to append all rows into one sheet instead (the headers must
+match; a `source` column records where each row came from).
+
+Export as CSV (`--sheet Mar` for one sheet, `--all-sheets` for each):
+
+```
+python "$ATLAS_SKILLS/xlsx/scripts/xlsx_to_csv.py" "<file>"
 ```
 
 ---

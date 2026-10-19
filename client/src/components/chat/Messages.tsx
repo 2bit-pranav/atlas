@@ -23,6 +23,7 @@ import { Markdown } from "@/components/chat/Markdown"
 import { Composer, formatBytes } from "@/components/chat/Composer"
 import { ToolBlock } from "@/components/chat/ToolBlock"
 import { Tip } from "@/components/ui/tip"
+import { fullTime, timeAgo, useNow } from "@/lib/time"
 
 // ------------------------------------------------------------------ turn --
 
@@ -91,11 +92,18 @@ function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
         </div>
       )}
       <div className="flex h-6 items-center gap-2">
+        <SentAt at={turn.created_at} />
         <CopyButton text={turn.user_text} />
         <Action label="Edit" onClick={() => setEditing(true)} disabled={busy}><Pencil className="h-3 w-3" /></Action>
       </div>
     </div>
   )
+}
+
+/** "2 min ago" under a user message; the exact time on hover. */
+function SentAt({ at }: { at: number }) {
+  const now = useNow()
+  return <span className="text-xs text-muted-foreground" title={fullTime(at)}>{timeAgo(at, now)}</span>
 }
 
 const ASK_TITLE = {

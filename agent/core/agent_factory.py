@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -172,11 +173,11 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
     * `python` resolves to the project's own interpreter, because the Windows
       environment puts the venv's `Scripts` directory first on PATH. So the
       commands written in every `SKILL.md` work exactly as printed.
-    * Never install anything. A missing library is reported to the user rather
-      than installed, because a `pip install` from the model writes to user
-      site-packages and leaves the environment quietly diverged from the
-      project. This one is still needed as an instruction: it is a rule, not a
-      fact, and rules do not follow from the PATH.
+    * Installs go through `python -m pip` so they land in Atlas's own venv,
+      and the user approves each one (`policy.py`).
+    * Today's date. Without it "last season" was read as two seasons ago. Only
+      the date is here: it changes once a day, so llama.cpp's prompt cache
+      survives. The time of day goes with each message (`clock_note`).
 
     Generated here rather than written into settings.json so it cannot drift
     from the interpreter that is actually running.
@@ -184,7 +185,14 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
     import sys
 
     workspace = paths.chat_dir(settings, chat_id)
+    today = datetime.now().astimezone()
     return (
+        f"Today is {today:%A, %d %B %Y}. Read \"last\", \"latest\", \"this year\" and "
+        "similar words against this date, not against what you remember. Each "
+        "message from the user ends with the time it was sent.\n"
+        "For facts from the web, prefer the original source (the organisation's "
+        "own site, official docs, PyPI or GitHub releases) over sites that "
+        "repeat it, and give the link you used.\n\n"
         "Running things on this machine:\n"
         f"- Python: `{sys.executable}`, and a bare `python` resolves to the "
         f"same interpreter. Either works.\n"
@@ -201,6 +209,13 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
         "-g ...` for Node tools). The user is asked to approve every install "
         "first; if they decline, do not try another way."
     )
+
+
+def clock_note(now: datetime | None = None) -> str:
+    """The send time appended to every user message: local time and its offset."""
+    now = (now or datetime.now()).astimezone()
+    offset = now.strftime("%z")
+    return f"[Sent {now:%a %d %b %Y, %H:%M} (UTC{offset[:3]}:{offset[3:]})]"
 
 
 def build_agent(
@@ -413,5 +428,6 @@ __all__ = [
     "build_agent",
     "build_conversation_manager",
     "build_model",
+    "clock_note",
     "retry_hint",
 ]

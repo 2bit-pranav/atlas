@@ -153,8 +153,7 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 4. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
 5. **documents**: `read`/`write`/`edit` on a binary document is redirected.
 
-Recovery after a tool runs stays in `resilience.py`. Tests:
-`tests/test_policy.py`, offline.
+Recovery after a tool runs stays in `resilience.py`.
 
 ### Access
 
@@ -242,13 +241,6 @@ keep it, and its tools, out of the request.
 
 ## Checking it
 
-```
-python -m pytest tests/test_control_pipeline.py   # offline: tree rules, settings, folding
-python tests/live_api.py                          # against a running stack and the real model
-```
-
-`live_api.py` checks properties, not wording: reasoning not doubled, text
-streamed in pieces, context stats reported, retry is a sibling and only on the
-last turn, `<` `>` keeps each version's follow-ups, edit deletes what follows.
-The other files in `tests/` are standalone Strands experiments kept as evidence
-for entries in `docs/decisions.md`.
+Atlas is tested by hand in the UI. The development tests and the benchmark
+(`tests/`: offline rule tests, a live API test, `bench.py`) are kept on the
+developer's machine and are not in the repository (`.gitignore`).
