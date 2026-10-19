@@ -85,6 +85,12 @@ Where Atlas differs on purpose:
 - Regenerate appears on the last answer only.
 - Skills and MCP are full pages.
 
+Control: Settings > Access holds the allowed folders, whether to ask outside
+them, and the approval timeout. The MCP page sets each tool On / Ask / Off.
+Approval cards in the chat are titled by kind (install, access, tool). The
+Skills page shows each requirement as installed or missing, with one button
+for the missing ones.
+
 ## Working with files
 
 - **Download chips** under an answer list the files that turn created or

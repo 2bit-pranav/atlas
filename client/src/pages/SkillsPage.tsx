@@ -82,8 +82,10 @@ export function SkillsPage() {
               }}
               onRequirements={async () => {
                 const out = await run(() => api.installRequirements(skill.folder))
-                if (out) setNotice(out.ok ? `Installed requirements for ${skill.name}.`
-                                          : `pip failed:\n${out.output}`)
+                if (out) setNotice(out.ok ? `Installed what ${skill.name} needs.`
+                                          : `Install failed:\n${out.output}`)
+                const next = await run(api.listSkills)
+                if (next) setSkills(next)
               }}
             />
           ))}
@@ -202,6 +204,7 @@ function SkillCard({ skill, onToggle, onDelete, onRequirements }: {
 }) {
   const [confirm, setConfirm] = useState(false)
   const heavy = skill.tokens > 2500
+  const missing = skill.requirements.filter((r) => !r.installed).length
   return (
     <div className={cn("flex flex-col rounded-xl border bg-card p-4", !skill.enabled && "opacity-70")}>
       <div className="flex items-start gap-3">
@@ -234,11 +237,24 @@ function SkillCard({ skill, onToggle, onDelete, onRequirements }: {
             </p>
           )}
           {skill.requirements.length > 0 && (
-            <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate font-mono text-muted-foreground" title={skill.requirements.join("\n")}>
-                needs {skill.requirements.join(", ")}
-              </span>
-              <Button size="sm" variant="outline" onClick={onRequirements}>pip install</Button>
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap gap-1">
+                {skill.requirements.map((r) => (
+                  <span key={r.manager + r.package}
+                        title={`${r.manager}${r.scope === "global" ? " (global)" : ""}: ${r.installed ? "installed" : "missing"}`}
+                        className={cn("rounded px-1.5 py-0.5 font-mono",
+                                      r.installed ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                                                  : "bg-amber-500/15 text-amber-700 dark:text-amber-400")}>
+                    {r.installed ? "✓" : "✗"} {r.package}
+                  </span>
+                ))}
+              </div>
+              {missing > 0 && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">{missing} missing: its scripts may fail.</span>
+                  <Button size="sm" variant="outline" onClick={onRequirements}>Install {missing}</Button>
+                </div>
+              )}
             </div>
           )}
         </div>

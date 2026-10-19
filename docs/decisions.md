@@ -169,6 +169,28 @@ panel lists the whole workspace.
 `input_audio`. The recording goes to the model as it is, with no
 speech-to-text step and nothing to install.
 
+**One policy hook, in a fixed order** (2026-10-19, decided). The document
+guard and install approval were separate hooks whose order depended on
+`build_agent`. `ToolPolicy` runs normalise, access, install, sensitive,
+documents in that order, and the first refusal wins.
+
+**One access model** (2026-10-19, decided). The workspace is always allowed;
+`access.folders` adds more; anything else asks. It covers the file tools,
+document tools, shell paths and MCP arguments, and MCP servers get the folders
+through `{atlas:folders}` because Strands' MCP client has no roots support.
+Skills are bounded at the tool boundary, not by a sandbox.
+
+**Skill requirements are installed by the user** (2026-10-19, decided). A
+community skill often says `npm install -g x` only in its SKILL.md, and the
+model then tried to install it mid-task. Requirements are read from all three
+places and installed from the Skills page; the click is the approval.
+
+**Benchmark baseline: 5/12** (2026-10-19, measured, `tests/bench.py`). Fails
+are about quality, not plumbing: no date context, guessed URLs with no search
+engine, the `web_fetch` summariser mangling tables, dropped images in long
+copies, claimed-but-not-done steps, and giving up early with thinking off.
+Phase 2 measures each change against this. See `docs/roadmap.md`.
+
 ---
 
 ## Recovery and retries

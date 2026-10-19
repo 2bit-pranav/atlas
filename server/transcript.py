@@ -10,7 +10,9 @@ Parts:
     {"kind": "reasoning", "text": ...}
     {"kind": "text", "text": ...}
     {"kind": "tool", "id", "name", "args", "status", "text"}
-    {"kind": "approval", "id", "command", "status", "expires_at"}
+    {"kind": "approval", "id", "request", "command", "folder", "status", "expires_at"}
+        request is what is asked: "install", "access" (a folder outside the
+        allowed ones) or "tool" (an MCP tool the user marked "ask")
     {"kind": "superseded", "text"}   an answer replaced after a resume
 
 Consecutive deltas of one kind merge into one part, otherwise a 400-token
@@ -66,6 +68,7 @@ class Transcript:
                 part["text"] = event.get("text", "")
         elif kind == "approval_request":
             self.parts.append({"kind": "approval", "id": event.get("id"), "command": event.get("command", ""),
+                               "request": event.get("kind", "install"), "folder": event.get("folder"),
                                "status": "pending", "expires_at": event.get("expires_at")})
         elif kind == "approval_result":
             for part in self.parts:

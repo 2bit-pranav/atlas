@@ -14,8 +14,8 @@ Three guarantees:
    place. A failure leaves the previous version untouched.
 2. **One precise error.** A failure says what was wrong in words the model can
    act on ("an xlsx needs a Markdown table"), not a traceback.
-3. **Binary files are only written through these tools.** `DocumentGuard`
-   refuses the plain `write`/`edit` tools on .docx/.xlsx/.pdf/.pptx.
+3. **Binary files are only written through these tools.** The tool policy
+   (`policy.py`) refuses the plain `write`/`edit` tools on .docx/.xlsx/.pdf/.pptx.
 
 Supported Markdown: headings, paragraphs, **bold**, *italic*, `code`, links,
 bullet and numbered lists (nested), tables, fenced code, block quotes,
@@ -35,8 +35,6 @@ from typing import Any, Callable
 
 from markdown_it import MarkdownIt
 from strands import tool
-from strands.hooks import HookProvider, HookRegistry
-from strands.hooks.events import BeforeToolCallEvent
 
 #: Formats `create_document` builds from Markdown. Text formats are written as is.
 BINARY = {".docx", ".pdf", ".xlsx"}
@@ -749,38 +747,4 @@ def document_tools(workspace: Path, shown: Callable[[Path], str]) -> list[Any]:
     return [create_document, edit_document]
 
 
-class DocumentGuard(HookProvider):
-    """Keep the plain file tools off binary documents; point at what works.
-
-    - `write`/`edit` on a .docx/.xlsx/.pdf would corrupt it: use the document tools.
-    - `read` on one returns nothing useful (llama.cpp cannot take a document
-      block), and the model used to spend a whole step finding that out. It is
-      answered at once with the exact command that does read it.
-    """
-
-    def __init__(self, reader: Callable[[str], str | None] | None = None) -> None:
-        self.reader = reader
-
-    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
-        registry.add_callback(BeforeToolCallEvent, self._before)
-
-    def _before(self, event: BeforeToolCallEvent) -> None:
-        use = event.tool_use
-        path = str((use.get("input") or {}).get("path", ""))
-        ext = Path(path).suffix.lower()
-        if use.get("name") == "read" and ext in GUARDED:
-            command = self.reader(path) if self.reader else None
-            event.cancel_tool = (
-                f"`read` only handles text files and images; {Path(path).name} is a binary {ext} "
-                + (f"file. Read it with: {command}" if command else "file. Use the matching skill's script.")
-            )
-            return
-        if use.get("name") not in ("write", "edit"):
-            return
-        if ext in GUARDED:
-            what = "edit_document" if use.get("name") == "edit" else "create_document"
-            event.cancel_tool = (f"{Path(path).name} is a binary {ext} file; writing text into it "
-                                 f"would corrupt it. Use the `{what}` tool instead.")
-
-
-__all__ = ["DocumentError", "DocumentGuard", "create", "document_tools", "edit", "parse_markdown"]
+__all__ = ["DocumentError", "GUARDED", "create", "document_tools", "edit", "parse_markdown"]

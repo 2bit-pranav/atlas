@@ -28,6 +28,7 @@ from typing import Any
 import yaml
 
 from agent.core import paths
+from agent.core import skill_requirements as requirements
 from agent.core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,9 @@ class SkillManager:
         root = self.skills_dir()
         if not root.is_dir():
             return []
+        # Here, not at the top: the installer imports this module.
+        from agent.core.skill_installer import body_tokens, origin_of
+
         disabled = set(self.settings.skills.disabled)
         found: list[dict[str, Any]] = []
         for child in root.iterdir():
@@ -82,7 +86,7 @@ class SkillManager:
                 path=str(child),
                 enabled=child.name not in disabled and entry["error"] is None,
                 scripts=_listing(child / "scripts"),
-                requirements=_requirements(child),
+                requirements=requirements.with_status(child, requirements.detect(child)),
                 bytes=sum(p.stat().st_size for p in child.rglob("*") if p.is_file()),
                 tokens=body_tokens(child),
                 origin=origin_of(child),
@@ -184,20 +188,5 @@ def _listing(folder: Path) -> list[str]:
         return []
     return sorted(p.name for p in folder.iterdir() if p.is_file())
 
-
-def _requirements(folder: Path) -> list[str]:
-    """Python packages a skill declares, from a requirements.txt if it has one.
-
-    Shown to the user, never installed by the model: a `pip install` from the
-    agent lands in user site-packages and leaves the venv quietly diverged.
-    """
-    for candidate in (folder / "requirements.txt", folder / "scripts" / "requirements.txt"):
-        if candidate.is_file():
-            lines = candidate.read_text(encoding="utf-8", errors="replace").splitlines()
-            return [ln.strip() for ln in lines if ln.strip() and not ln.startswith("#")]
-    return []
-
-
-from agent.core.skill_installer import body_tokens, origin_of  # noqa: E402  (cycle-free: installer imports only read_manifest)
 
 __all__ = ["MANIFEST", "READERS", "SkillError", "SkillManager", "read_manifest", "reader_command"]

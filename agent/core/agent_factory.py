@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from strands_harness import build_system_prompt, create_harness
@@ -19,8 +20,8 @@ from agent.core import paths
 from agent.core.memory_manager import MemoryManager
 from agent.core.shell_env import default_environment, model_path
 from agent.core.model import AtlasLlamaCppModel
-from agent.core.approvals import Approver, InstallApproval
-from agent.core.documents import DocumentGuard, document_tools
+from agent.core.documents import document_tools
+from agent.core.policy import Approver, Scope, ToolPolicy
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
 from agent.core.settings import Settings
@@ -105,7 +106,9 @@ def build_summarizer(settings: Settings) -> AtlasLlamaCppModel:
         base_url=f"http://127.0.0.1:{settings.ports.llama}",
         enable_thinking=False,
         context_window_limit=settings.context.window or settings.model.context_size,
-        params={"cache_prompt": True, "temperature": 0.2, "top_p": 0.9, "max_tokens": 600},
+        # 600 was too few: asked for a results table, the summariser hit the
+        # cap and web_fetch failed with MaxTokensReachedException.
+        params={"cache_prompt": True, "temperature": 0.2, "top_p": 0.9, "max_tokens": 2048},
     )
 
 
@@ -211,6 +214,7 @@ def build_agent(
     retry: RetryPlan | None = None,
     observer: Callable[[dict[str, Any]], None] | None = None,
     approver: Approver | None = None,
+    sensitive: Callable[[str], bool] | None = None,
     sandbox: Any = None,
 ) -> Any:
     """Build one Strands `Agent` for one turn.
@@ -221,11 +225,14 @@ def build_agent(
         tools: extra tools (MCP) added beside the built-ins.
         retry: set on a retried turn, to widen sampling.
         observer: receives model-call stats and retry notices for the run.
-        approver: asks the user before an install runs. Without one, installs
-            are refused with an explanation.
+        approver: asks the user (installs, paths outside the allowed folders,
+            sensitive MCP tools). Without one, those calls are refused with an
+            explanation.
+        sensitive: whether an MCP tool, by its agent-facing name, must ask first.
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
+    workspace_dir = paths.chat_dir(settings, chat_id)
     skill_manager = SkillManager(settings)
 
     if session_manager is None:
@@ -269,15 +276,40 @@ def build_agent(
         callback_handler=None,
         # Recovery is hooks, not prompt text: see agent/core/resilience.py.
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
-        hooks=[ToolFailureRecovery(settings.resilience, notify=observer),
-               DocumentGuard(lambda p: reader_command(settings, p, p)),
-               InstallApproval(approver)],
+        # Before a tool runs: one ordered policy (policy.py). After: recovery.
+        hooks=[ToolPolicy(_scope(settings, workspace_dir), approver=approver,
+                          ask_outside=settings.access.ask_outside, sensitive=sensitive,
+                          reader=lambda p: reader_command(settings, p, _shown(p, workspace_dir))),
+               ToolFailureRecovery(settings.resilience, notify=observer)],
     )
 
     if restore_snapshot_id:
         _restore(agent, session_manager, restore_snapshot_id, instructions)
 
     return agent
+
+
+def _scope(settings: Settings, workspace: Path) -> Scope:
+    """What a turn may touch without asking: its workspace and the allowed folders.
+
+    Readable as well: the skills (their SKILL.md and scripts) and the Python
+    environment that runs them.
+    """
+    import sys
+
+    return Scope(
+        workspace=workspace,
+        folders=[Path(f).expanduser() for f in settings.access.folders if f.strip()],
+        readable=[paths.skills_dir(settings), Path(sys.executable).resolve().parents[1]],
+    )
+
+
+def _shown(path: str, workspace: Path) -> str:
+    """A file in the workspace by its bare name (commands start there), else as given."""
+    from agent.core.shell_env import windows_path
+
+    p = Path(windows_path(path))
+    return p.name if p.parent.resolve() == workspace.resolve() else path
 
 
 def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> str:

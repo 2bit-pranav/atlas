@@ -235,6 +235,7 @@ class Atlas:
                 retry=retry, observer=run.observe, tools=self.mcp.agent_tools(),
                 approver=lambda kind, detail: run.request_approval(
                     kind, detail, settings.approvals.timeout),
+                sensitive=self.mcp.is_sensitive,
             )
             run.agent = agent
             if run.cancel.is_set():
@@ -604,6 +605,8 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         except SettingsError as exc:
             raise HTTPException(422, str(exc)) from exc
         state.settings = _live_settings(on_disk, state.boot)
+        # Servers whose arguments hold {atlas:folders} reconnect with the new list.
+        await asyncio.to_thread(state.mcp.set_settings, state.settings)
         return settings_view()
 
     app.state.settings_view = settings_view

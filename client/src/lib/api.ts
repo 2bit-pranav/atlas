@@ -171,7 +171,7 @@ export const toggleMcp = (name: string, enabled: boolean) =>
   request<McpServer[]>(`/mcp/${name}`, json("PUT", { enabled }))
 export const reconnectMcp = (name: string) =>
   request<McpServer[]>(`/mcp/${name}/reconnect`, json("POST"))
-export const toggleMcpTool = (name: string, tool: string, enabled: boolean) =>
-  request<McpServer[]>(`/mcp/${name}/tools/${encodeURIComponent(tool)}`, json("PUT", { enabled }))
+export const setMcpToolMode = (name: string, tool: string, mode: "on" | "ask" | "off") =>
+  request<McpServer[]>(`/mcp/${name}/tools/${encodeURIComponent(tool)}`, json("PUT", { mode }))
 export const searchRegistry = (q: string) =>
   request<RegistryServer[]>(`/mcp/registry?q=${encodeURIComponent(q)}`)

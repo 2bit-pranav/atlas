@@ -1,26 +1,15 @@
-"""Asking the user before the agent installs anything.
+"""Recognising installs, and the shape of the function that asks the user.
 
-The model may install packages -- an npm-based skill is useless otherwise --
-but never silently. Any shell command that installs (pip, npm, npx, winget,
-...) pauses the run and asks the user in the chat: Allow or Deny. No answer
-within `approvals.timeout` seconds counts as Deny, and so does cancelling the
-run, so a closed tab can never leave the agent waiting forever.
-
-The hook only decides *whether* to ask. Asking is the run's job
-(`server.runs.Run.request_approval`): it emits an event the UI renders as a
-card and waits for `POST /api/runs/{id}/approvals/{approval_id}`.
+A shell command that installs anything (pip, npm, npx, uv, winget, ...) is
+never run without the user's Allow. The asking itself is a step of the tool
+policy (`policy.py`); this module only decides what counts as an install.
 """
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any, Awaitable, Callable
 
-from strands.hooks import HookProvider, HookRegistry
-from strands.hooks.events import BeforeToolCallEvent
-
-logger = logging.getLogger(__name__)
 
 #: `(kind, detail) -> "allowed" | "denied" | "expired"`
 Approver = Callable[[str, dict[str, Any]], Awaitable[str]]
@@ -52,38 +41,4 @@ def is_install(command: str) -> bool:
     return bool(_INSTALL.search(command or ""))
 
 
-class InstallApproval(HookProvider):
-    """Pause installing shell commands until the user allows them."""
-
-    def __init__(self, approver: Approver | None) -> None:
-        self.approver = approver
-
-    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
-        registry.add_callback(BeforeToolCallEvent, self._before)
-
-    async def _before(self, event: BeforeToolCallEvent) -> None:
-        use = event.tool_use
-        if use.get("name") != "shell":
-            return
-        command = str((use.get("input") or {}).get("command", ""))
-        if not is_install(command):
-            return
-        if self.approver is None:
-            event.cancel_tool = ("Installing needs the user's approval, and there is no one to ask "
-                                 "here. Tell the user the exact command to run themselves.")
-            return
-        decision = await self.approver("install", {"tool": "shell", "command": command})
-        logger.info("install %s: %s", decision, command)
-        if decision == "allowed":
-            return
-        if decision == "expired":
-            event.cancel_tool = ("The user did not answer the install request in time, so it was "
-                                 "not run. Do not retry it. Tell the user what you wanted to install "
-                                 "and why, and that they can ask you again.")
-        else:
-            event.cancel_tool = ("The user declined this install, so it was not run. Do not try to "
-                                 "install it another way. Continue without it, or explain what it "
-                                 "was needed for.")
-
-
-__all__ = ["Approver", "InstallApproval", "is_install"]
+__all__ = ["Approver", "is_install"]

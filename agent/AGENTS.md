@@ -11,7 +11,9 @@ agent/core/
   model.py           AtlasLlamaCppModel: thinking switch, streaming, timings
   resilience.py      LocalModelRetry, ToolFailureRecovery (Strands hooks)
   documents.py       create_document / edit_document: Markdown -> docx, pdf, xlsx
-  approvals.py       InstallApproval: ask the user before any install runs
+  policy.py          ToolPolicy: every check before a tool runs, in one order
+  approvals.py       the Approver type and what counts as an install
+  skill_requirements.py what a skill needs installed; installing it
   chats.py           ChatStore: the chat tree and display transcripts (SQLite)
   session_manager.py where Strands writes snapshots; deleting them on edit
   tool_manager.py    tools.builtin -> the harness's builtin_tools
@@ -131,23 +133,67 @@ result in words the model can act on, so `ToolFailureRecovery` counts it.
 xlsx cell, or a text file. A PDF cannot be edited in place; the model is told
 to create it again.
 
-`DocumentGuard` refuses the plain `write`/`edit` tools on .docx/.xlsx/.pdf/
-.pptx (writing text into one is how corrupt documents happened), and answers
-`read` on one at once with the command that does read it.
+The policy's documents step refuses the plain `write`/`edit` tools on
+.docx/.xlsx/.pdf/.pptx (writing text into one is how corrupt documents
+happened), and answers `read` on one at once with the command that does read it.
 
 Images: the pdf and docx readers save a document's images into a hidden
 `.atlas-images/<name>/` folder beside it and print each as `![caption](path)`.
 `create_document` embeds such lines in docx and pdf, so a rewrite keeps its
 figures. Images that cannot be found are left out and named in the result.
 
-## Approvals (`approvals.py`)
+## Tool policy (`policy.py`)
 
-A `shell` command that installs (pip, npm, npx, uv, winget, apt, ...) pauses
-the run and asks the user. The run emits `approval_request`, the UI shows
-Allow / Deny, and no answer within `approvals.timeout` seconds (60) counts as
-Deny, as does cancelling the run. The model is then told not to try another
-way. Python packages are installed with `python -m pip`, so they land in
-Atlas's own venv.
+Every check made before a tool runs is one `ToolPolicy` hook with ordered
+steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
+
+1. **normalise**: MCP arguments get Windows paths (`/c/Users/x` -> `C:/Users/x`).
+2. **access**: a path outside the scope asks the user (kind `access`).
+3. **install**: a `shell` command that installs asks (kind `install`).
+4. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
+5. **documents**: `read`/`write`/`edit` on a binary document is redirected.
+
+Recovery after a tool runs stays in `resilience.py`. Tests:
+`tests/test_policy.py`, offline.
+
+### Access
+
+One model for every way the agent reaches a file. The **scope** is the chat
+workspace (always), `access.folders` (Settings > Access, subfolders included),
+and, read-only, the skills folder and Python install so scripts can be read.
+What is checked:
+
+- `read`, `write`, `edit`, `create_document`, `edit_document`: an absolute
+  `path` argument (relative paths are the workspace's).
+- `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
+  quoted or bare). `/tmp` and other POSIX paths are the shell's own.
+- MCP tools: any string argument that is a drive path.
+
+Outside the scope the user gets an Allow / Deny card naming the folder. Allow
+holds for that folder for the rest of the turn. With `access.ask_outside` off
+it is refused, and the model is told the user can add the folder in Settings.
+
+MCP servers get the same folders through their arguments: `{atlas:folders}` in
+a server's `args` expands to the chats folder plus each existing allowed
+folder. Strands' `MCPClient` does not implement the MCP roots protocol, so
+arguments are the only way in. Changing the folders reconnects those servers.
+The shell check is a guard against mistakes, not a sandbox: a script can open
+any path it builds itself.
+
+### Approvals
+
+Steps call `approver(kind, detail)`. The run emits `approval_request`, the UI
+shows Allow / Deny, and no answer within `approvals.timeout` seconds (60)
+counts as Deny, as does cancelling the run. The model is then told not to try
+another way. Python packages are installed with `python -m pip`, so they land
+in Atlas's own venv.
+
+### Skill requirements (`skill_requirements.py`)
+
+Read from `requirements.txt`, `package.json` dependencies, and install commands
+in SKILL.md code fences (`npm install -g x`, `pip install y`), each with its
+installed status. The Skills page lists them and installs the missing ones.
+That click is the approval; the model never has to.
 
 ## Windows (`shell_env.py`)
 

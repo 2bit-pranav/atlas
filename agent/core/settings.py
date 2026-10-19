@@ -239,6 +239,21 @@ class ResilienceSettings(StrictModel):
     nudge_after_failure: bool = True
 
 
+class AccessSettings(StrictModel):
+    """Which folders the agent may touch beyond its chat workspace (agent/core/policy.py).
+
+    One list for every tool: the built-in file tools, the document tools,
+    absolute paths in shell commands (which is how skills run), and MCP servers
+    whose arguments use the `{atlas:folders}` placeholder. The chat workspace is
+    always allowed and never needs listing.
+    """
+
+    #: Absolute folders; `~` is the user's home. Subfolders are included.
+    folders: list[str] = Field(default_factory=list)
+    #: Outside these: ask the user (true) or refuse outright (false).
+    ask_outside: bool = True
+
+
 class ApprovalSettings(StrictModel):
     """Questions the agent has to ask the user first (agent/core/approvals.py)."""
 
@@ -301,6 +316,7 @@ class Settings(StrictModel):
     retry: RetrySettings = Field(default_factory=RetrySettings)
     resilience: ResilienceSettings = Field(default_factory=ResilienceSettings)
     approvals: ApprovalSettings = Field(default_factory=ApprovalSettings)
+    access: AccessSettings = Field(default_factory=AccessSettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
@@ -368,6 +384,8 @@ TIERS: dict[str, Tier] = {
     "resilience.tool_failure_limit": Tier.LIVE,
     "resilience.nudge_after_failure": Tier.LIVE,
     "approvals.timeout": Tier.LIVE,
+    "access.folders": Tier.LIVE,
+    "access.ask_outside": Tier.LIVE,
     "session.dir": Tier.RESTART,
     "context.conversation_manager": Tier.LIVE,
     "context.window": Tier.RESTART,
@@ -484,6 +502,8 @@ def load_settings(path: Path) -> Settings:
 
 
 __all__ = [
+    "AccessSettings",
+    "ApprovalSettings",
     "BuiltinToolSettings",
     "ContextSettings",
     "LlamaCppSettings",

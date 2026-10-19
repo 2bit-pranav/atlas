@@ -45,6 +45,9 @@ export type Part =
       /** The agent asked to install something and is waiting for the user. */
       kind: "approval"
       id: string
+      /** What is asked: an install, a folder outside the allowed ones, or an MCP tool marked "ask". */
+      request?: "install" | "access" | "tool"
+      folder?: string | null
       command: string
       status: "pending" | "allowed" | "denied" | "expired"
       expires_at: number
@@ -131,7 +134,8 @@ export type RunEvent = { seq: number } & (
   | { type: "tool_start"; id: string; name: string; args: unknown }
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
   | { type: "tool_end"; id: string; name: string; status: string; text: string }
-  | { type: "approval_request"; id: string; kind: string; command: string; timeout: number; expires_at: number }
+  | { type: "approval_request"; id: string; kind: "install" | "access" | "tool"; command: string; folder?: string;
+      timeout: number; expires_at: number }
   | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
   | ({ type: "stats" } & TurnStats)
   | { type: "usage"; input: number; output: number; total: number; reported?: number }
@@ -143,6 +147,15 @@ export type RunEvent = { seq: number } & (
 
 export type Tier = "live" | "restart"
 
+/** Something a skill needs installed, and whether it is. */
+export interface Requirement {
+  manager: "pip" | "npm"
+  package: string
+  /** env: Atlas's Python; global: npm -g; skill: the skill's own node_modules. */
+  scope: "env" | "global" | "skill"
+  installed: boolean
+}
+
 export interface Skill {
   name: string
   description: string
@@ -151,18 +164,22 @@ export interface Skill {
   path: string
   enabled: boolean
   scripts: string[]
-  requirements: string[]
+  requirements: Requirement[]
   bytes: number
   tokens: number
   bundled: boolean
   origin: { type: string; source?: string; command?: string; installed_at?: number } | null
 }
 
+export type ToolMode = "on" | "ask" | "off"
+
 export interface McpTool {
   name: string
   agent_name: string
   description: string
   enabled: boolean
+  /** "ask": the user approves each call. */
+  mode: ToolMode
   tokens: number
 }
 
@@ -173,6 +190,8 @@ export interface McpServer {
   status: "connected" | "connecting" | "failed" | "stopped" | "disabled"
   error: string | null
   enabled: boolean
+  /** Its arguments hold {atlas:folders}, filled with the allowed folders. */
+  uses_folders: boolean
   tools: McpTool[]
   tokens: number
 }

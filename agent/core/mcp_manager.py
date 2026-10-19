@@ -12,11 +12,18 @@ when the agent is built and stop it when the agent goes away -- relaunching
 server once, holds it open as a permanent consumer, and gives each turn the
 server's individual tool objects. A turn's agent never owns a connection.
 
-**Per-tool switches** are stored in the server's standard
-`tool_filters.rejected` list. The pool itself connects *without* filters, so
-the UI can still list a switched-off tool and switch it back on; filtering
-happens when a turn's tool list is built. Changing a switch therefore needs no
-reconnect.
+**Per-tool modes: on, ask, off.** "Off" is stored in the server's standard
+`tool_filters.rejected` list; "ask" (the user must Allow each call, see
+`policy.py`) in an Atlas-only `atlas.ask` list. The pool connects *without*
+either, so the UI can still list a switched-off tool and switch it back on;
+filtering happens when a turn's tool list is built, and changing a mode needs
+no reconnect.
+
+**Allowed folders.** Atlas cannot know what an arbitrary server's arguments
+mean, and Strands' MCP client does not implement the MCP "roots" protocol, so
+the link is explicit: an argument `"{atlas:folders}"` is replaced, when the
+server connects, by the chats folder and every folder in `access.folders`,
+one argument each. Changing that list reconnects the servers that use it.
 
 **Cost.** Every tool schema is sent with every request. On a 32k window and a
 2B model that is the real constraint on MCP, so each tool reports an estimate
@@ -66,6 +73,14 @@ class _Server:
         filters = self.config.get("tool_filters") or {}
         return {str(n) for n in filters.get("rejected") or [] if isinstance(n, str)}
 
+    @property
+    def ask(self) -> set[str]:
+        atlas = self.config.get("atlas") or {}
+        return {str(n) for n in atlas.get("ask") or [] if isinstance(n, str)}
+
+    def mode(self, tool: str) -> str:
+        return "off" if tool in self.rejected else "ask" if tool in self.ask else "on"
+
     def describe(self) -> dict[str, Any]:
         tools = []
         for tool in self.tools:
@@ -76,6 +91,7 @@ class _Server:
                 "agent_name": tool.tool_name,
                 "description": spec.get("description", "").removeprefix(MCP_LABEL.format(self.name)),
                 "enabled": original not in self.rejected,
+                "mode": self.mode(original),
                 "tokens": _estimate_tokens(spec),
             })
         return {
@@ -85,12 +101,16 @@ class _Server:
             "status": self.status,
             "error": self.error,
             "enabled": not self.config.get("disabled", False),
+            "uses_folders": FOLDERS in (self.config.get("args") or []),
             "tools": tools,
             "tokens": sum(t["tokens"] for t in tools if t["enabled"]),
         }
 
 
 MCP_LABEL = "[MCP: {}] "
+
+#: Replaced, in a server's `args`, by the folders Atlas allows.
+FOLDERS = "{atlas:folders}"
 
 
 def _label(tool: Any, server: str) -> None:
@@ -177,9 +197,12 @@ class McpManager:
 
         server.status = "connecting"
         try:
-            # Connected without tool_filters, so a switched-off tool can still
-            # be listed and switched back on. Filtering happens per turn.
-            unfiltered = {k: v for k, v in config.items() if k != "tool_filters"}
+            # Connected without tool_filters (or Atlas's own keys), so a
+            # switched-off tool can still be listed and switched back on.
+            # Filtering happens per turn.
+            unfiltered = {k: v for k, v in config.items() if k not in ("tool_filters", "atlas")}
+            if FOLDERS in (unfiltered.get("args") or []):
+                unfiltered["args"] = self._expand_folders(unfiltered["args"])
             unfiltered.setdefault("startup_timeout", int(self.settings.mcp.startup_timeout))
             (client,) = MCPClient.load_servers({name: unfiltered}, prefix_with_server_name=True)
             client.add_consumer(POOL)
@@ -197,6 +220,42 @@ class McpManager:
             logger.warning("mcp %s failed: %s", name, server.error)
             self._disconnect(server)
         return server
+
+    def _expand_folders(self, args: list[Any]) -> list[Any]:
+        folders = [str(paths.data_dir(self.settings) / "chats")]
+        for f in self.settings.access.folders:
+            p = Path(f).expanduser()
+            if f.strip() and p.is_dir():
+                folders.append(str(p.resolve()))
+        out: list[Any] = []
+        for arg in args:
+            out.extend(folders if arg == FOLDERS else [arg])
+        return out
+
+    def set_settings(self, settings: Settings) -> None:
+        """Take new settings; reconnect the servers whose folders changed."""
+        before = list(self.settings.access.folders)
+        self.settings = settings
+        if before == list(settings.access.folders):
+            return
+        try:
+            config = self.read_config()
+        except McpError:
+            return
+        for name, server in config.items():
+            if FOLDERS in (server.get("args") or []) and not server.get("disabled"):
+                logger.info("mcp %s: allowed folders changed, reconnecting", name)
+                self._connect(name, server)
+
+    def is_sensitive(self, agent_name: str) -> bool:
+        """Whether this tool (by its agent-facing name) must ask the user first."""
+        with self._lock:
+            for server in self._servers.values():
+                for tool in server.tools:
+                    if tool.tool_name == agent_name:
+                        original = getattr(getattr(tool, "mcp_tool", None), "name", agent_name)
+                        return server.mode(original) == "ask"
+        return False
 
     @staticmethod
     def _disconnect(server: _Server) -> None:
@@ -246,9 +305,10 @@ class McpManager:
             raise McpError("a server needs either a `command` (local) or a `url` (remote)")
         servers = self.read_config()
         keep = servers.get(name, {})
-        # Keep the user's tool switches across an edit of the launch command.
-        if "tool_filters" in keep and "tool_filters" not in config:
-            config = {**config, "tool_filters": keep["tool_filters"]}
+        # Keep the user's tool modes across an edit of the launch command.
+        for key in ("tool_filters", "atlas"):
+            if key in keep and key not in config:
+                config = {**config, key: keep[key]}
         servers[name] = config
         self._write_config(servers)
         return self._connect(name, config).describe()
@@ -272,16 +332,20 @@ class McpManager:
         self._write_config(servers)
         return self._connect(name, servers[name]).describe()
 
-    def set_tool(self, name: str, tool: str, enabled: bool) -> dict[str, Any]:
+    def set_tool(self, name: str, tool: str, mode: str) -> dict[str, Any]:
+        """`mode` is "on", "ask" (the user approves each call) or "off"."""
+        if mode not in ("on", "ask", "off"):
+            raise McpError(f"a tool mode is on, ask or off, not {mode!r}")
         servers = self.read_config()
         if name not in servers:
             raise McpError(f"no MCP server {name!r}")
         filters = dict(servers[name].get("tool_filters") or {})
-        rejected = [t for t in filters.get("rejected") or [] if t != tool]
-        if not enabled:
-            rejected.append(tool)
-        filters["rejected"] = sorted(set(rejected))
-        servers[name] = {**servers[name], "tool_filters": filters}
+        rejected = {t for t in filters.get("rejected") or [] if t != tool} | ({tool} if mode == "off" else set())
+        filters["rejected"] = sorted(rejected)
+        atlas = dict(servers[name].get("atlas") or {})
+        ask = {t for t in atlas.get("ask") or [] if t != tool} | ({tool} if mode == "ask" else set())
+        atlas["ask"] = sorted(ask)
+        servers[name] = {**servers[name], "tool_filters": filters, "atlas": atlas}
         self._write_config(servers)
         with self._lock:
             if name in self._servers:
@@ -326,6 +390,9 @@ def registry_entry_to_config(server: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         config["args"] += [str(a.get("value")) for a in pkg.get("packageArguments") or []
                            if a.get("type") == "positional" and a.get("value")]
+        if "server-filesystem" in ident:
+            # Its allowed folders are its arguments: let Atlas fill them in.
+            config["args"].append(FOLDERS)
         env = pkg.get("environmentVariables") or []
         if env:
             config["env"] = {e["name"]: str(e.get("default") or "") for e in env if e.get("name")}
@@ -388,4 +455,4 @@ def search_registry(query: str, limit: int = 30) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["McpError", "McpManager", "mcp_server_of", "registry_entry_to_config", "search_registry"]
+__all__ = ["FOLDERS", "McpError", "McpManager", "mcp_server_of", "registry_entry_to_config", "search_registry"]

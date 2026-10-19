@@ -284,6 +284,20 @@ _MSYS = re.compile(r"^/([A-Za-z])(?:/|$)(.*)$")
 _SLASH_DRIVE = re.compile(r"^/([A-Za-z]):[/\\]?(.*)$")
 
 
+def drive_path(path: str) -> str:
+    """`/c/Users/x` or `/C:/Users/x` -> `C:/Users/x`; anything else unchanged.
+
+    Only the drive forms, never other POSIX paths: used on MCP arguments,
+    where a string that merely starts with `/` may be a URL path or a pattern.
+    """
+    if sys.platform != "win32" or not path.startswith("/"):
+        return path
+    for pattern in (_SLASH_DRIVE, _MSYS):
+        if (m := pattern.match(path)) is not None:
+            return f"{m.group(1).upper()}:/{m.group(2)}"
+    return path
+
+
 def windows_path(path: str) -> str:
     """`/c/Users/x` or `/C:/Users/x` -> `C:/Users/x`. Anything else unchanged."""
     if sys.platform != "win32":
@@ -549,4 +563,4 @@ def default_environment(cwd: Path | None = None, skills: Path | None = None) -> 
     return WindowsLocalEnvironment(cwd=cwd, skills=skills)
 
 
-__all__ = ["WindowsLocalEnvironment", "default_environment", "model_path", "windows_path"]
+__all__ = ["WindowsLocalEnvironment", "default_environment", "drive_path", "model_path", "windows_path"]

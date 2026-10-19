@@ -98,9 +98,18 @@ function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
   )
 }
 
+const ASK_TITLE = {
+  install: "Atlas wants to install something",
+  access: "Atlas wants to use a folder outside its allowed ones",
+  tool: "Atlas wants to use a tool that needs your approval",
+} as const
+const DONE_TITLE = { install: "Install request", access: "Folder access request", tool: "Tool approval" } as const
+
 /**
- * The agent wants to install something. Allow or Deny; no answer by the
- * deadline counts as Deny (the backend decides, this only shows the clock).
+ * The agent wants to do something that needs the user: install a package,
+ * reach a folder outside the allowed ones, or call an MCP tool marked "ask".
+ * Allow or Deny; no answer by the deadline counts as Deny (the backend
+ * decides, this only shows the clock).
  */
 function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "approval" }>; live: boolean }) {
   const [now, setNow] = useState(() => Date.now())
@@ -123,7 +132,7 @@ function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "approval" }
                        pending ? "border-amber-500/50 bg-amber-500/5" : "bg-muted/30")}>
       <div className="flex items-center gap-2 text-sm font-medium">
         <ShieldAlert className={cn("h-4 w-4", pending ? "text-amber-500" : "text-muted-foreground")} />
-        {pending ? "Atlas wants to install something" : "Install request"}
+        {(pending ? ASK_TITLE : DONE_TITLE)[part.request ?? "install"]}
         {pending && <span className="ml-auto font-mono text-xs text-muted-foreground">{left}s</span>}
         {outcome && (
           <span className={cn("ml-auto text-xs", part.status === "allowed" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
@@ -142,7 +151,11 @@ function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "approval" }
                   className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
             Deny
           </button>
-          <span className="text-[11px] text-muted-foreground">Runs on this computer with your permissions.</span>
+          <span className="text-[11px] text-muted-foreground">
+            {part.request === "access" && part.folder
+              ? <>Allows {part.folder} for the rest of this answer. To allow it always, add it under Settings &gt; Access.</>
+              : "Runs on this computer with your permissions."}
+          </span>
         </div>
       )}
     </div>
