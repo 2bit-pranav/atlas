@@ -4,7 +4,7 @@ Atlas CLI: start, stop, and settings.
 Primary commands:
   atlas start     Start llama-server, FastAPI backend, and Vite frontend
   atlas stop      Stop all running Atlas processes and verify ports are free
-  atlas settings  Validate or display settings.json
+  atlas settings  Validate or display `settings.json`
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ import sys
 import threading
 import time
 from pathlib import Path
+
+import httpx
 
 from agent.cli.launch import (
     build_backend_args,
@@ -38,6 +40,7 @@ from agent.cli.launched import (
     write_launched,
 )
 from agent.cli.processes import ProcessGroup, SpawnFailed, banner, kill_pid_tree
+from agent.core import llama as router, paths
 from agent.core.settings import Settings, SettingsError, load_settings
 
 logger = logging.getLogger("atlas")
@@ -87,7 +90,8 @@ def _print_restart_status(settings: Settings, launched_path: Path) -> list[str]:
 def cmd_settings_check(args: argparse.Namespace) -> int:
     settings = _load_or_die(Path(args.settings))
     print(f"{args.settings}: OK")
-    print(f"  model.path        = {settings.model.path}")
+    print(f"  models folder     = {paths.models_dir(settings)}")
+    print(f"  default model     = {settings.model.name}")
     print(f"  context_size      = {settings.model.context_size}")
     print(f"  parallel_slots    = {settings.model.parallel_slots}")
     print(f"  llama port        = {settings.ports.llama}")
@@ -120,6 +124,10 @@ def cmd_start(args: argparse.Namespace) -> int:
     llama_pid: int | None = None
 
     try:
+        if already_running_llama and not router.is_router(base_url):
+            logger.error("a llama-server on %s is not in router mode (started by an older Atlas, or by hand). "
+                         "Run `atlas stop`, then `atlas start`.", base_url)
+            return 1
         if already_running_llama:
             banner(sys.stdout, "llama-server", f"reusing running instance on {base_url}")
             llama_pids = find_pids_by_port(settings.ports.llama)
@@ -137,7 +145,7 @@ def cmd_start(args: argparse.Namespace) -> int:
                 sink=sys.stdout,
             )
             llama_pid = llama.pid
-            logger.info("waiting for llama-server to load the model (up to %.0fs)...", args.health_timeout)
+            logger.info("waiting for llama-server to start (up to %.0fs)...", args.health_timeout)
 
             ok, reason = wait_until_ready(llama, relay, base_url, timeout=args.health_timeout)
             if not ok:
@@ -149,13 +157,30 @@ def cmd_start(args: argparse.Namespace) -> int:
 
             logger.info("llama-server ready in %.1fs (%s)", time.monotonic() - started, reason)
 
+        # The router is up with nothing loaded: load the default model now, so
+        # the first message does not also wait for it.
+        default_model: dict = {}
+        if not args.no_llama or already_running_llama:
+            name = settings.model.name
+            logger.info("loading model %r (up to %.0fs)...", name, args.health_timeout)
+            started = time.monotonic()
+            try:
+                default_model = router.load(base_url, name, timeout=args.health_timeout)
+            except (router.ModelError, httpx.HTTPError) as exc:
+                logger.error("%s", exc)
+                logger.error("set model.name to a subfolder of %s (Settings > Model & server)",
+                             paths.models_dir(settings))
+                return 1
+            logger.info("model %r ready in %.1fs", name, time.monotonic() - started)
+        model_file, mmproj_file = router.files(default_model) if default_model else (None, None)
+
         # Baseline launched.json record
         info = build_launched_info(
             llama_base_url=base_url,
             llama_args=llama_args,
             settings_dict=settings.model_dump(mode="json"),
-            model_path=settings.model.path or None,
-            mmproj_path=settings.model.mmproj_path,
+            model_path=model_file,
+            mmproj_path=mmproj_file,
             previous=load_launched(launched_path),
             llama_pid=llama_pid,
         )

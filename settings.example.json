@@ -1,8 +1,7 @@
 {
   "model": {
-    "path": "C:\\Users\\prana\\Desktop\\atlas\\llm\\gemma\\unsloth_e2b_qat.gguf",
-    "mmproj_path": "C:\\Users\\prana\\Desktop\\atlas\\llm\\gemma\\mmproj-F16.gguf",
-    "name": "unsloth_e2b_qat",
+    "dir": "llm",
+    "name": "gemma",
     "context_size": 32768,
     "gpu_layers": "all",
     "batch_size": 2048,

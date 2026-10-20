@@ -55,13 +55,25 @@ likely first case), a script that saves a web page or its tables to a file.
 
 In this order:
 
-1. Hugging Face models: download, a router and a model picker.
-2. Cloud models.
-3. A CLI for chatting.
-4. Triggers.
-5. Schedules and notifications.
-6. A browser extension.
-7. Google and Microsoft accounts, through MCP.
+1. **llama-server router mode** (done): serves every model in `llm/`, loads
+   the default at start, every request names its model. Still one model in
+   use; no picker yet.
+2. **Unattended runs**: a run queue (a scheduled run must wait behind a chat,
+   not be refused), notifications, then schedules, then triggers (file,
+   webhook). Webhooks need a local API key first.
+3. **Google and Microsoft accounts, through MCP.** Sending or deleting tools
+   default to Ask.
+4. **Browser extension.** Needs the API key; another origin calling the backend.
+5. **CLI and release**, together at the end:
+   - a TUI (Textual): startup screen with per-process status and logs, and a
+     chat screen over the same API;
+   - onboarding: dependencies, first-run settings with defaults, pick or
+     download a model;
+   - Hugging Face downloads into `llm/` and a model picker;
+   - packaging for a GitHub release with a CLI install.
+
+On hold: cloud models (a separate Strands model class per provider; the
+llama.cpp patches do not apply).
 
 ## Backlog
 

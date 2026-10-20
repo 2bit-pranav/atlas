@@ -16,10 +16,14 @@ switch on `web_fetch`.
 
 ```
 pip install -e .                 # once, into .venv; provides the `atlas` command
-cp settings.example.json settings.json   # then set model.path and model.mmproj_path
+cp settings.example.json settings.json   # then set model.name (see below)
 atlas start                      # llama-server :8080, backend :8000, web UI :5173
 atlas stop                       # stops all three and checks the ports are free
 ```
+
+Models live in `llm/`, one subfolder each with its `.gguf` (and an `mmproj`
+file for image input): `llm/gemma/`. llama-server runs in router mode and
+serves all of them; `model.name` is the subfolder loaded at start.
 
 `atlas start --no-llama`, `--no-backend` and `--no-client` start a subset.
 `atlas settings check` validates `settings.json`; `atlas settings show

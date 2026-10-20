@@ -208,6 +208,18 @@ to read the document and `create_document` the PDF instead. xlsx to PDF has no
 library that works without Excel, so it is not offered. `pdf2docx` (PDF to
 Word) pulls in PyMuPDF, which is AGPL-licensed.
 
+**llama-server runs in router mode** (2026-10-20, measured on build b11429).
+`--models-dir llm` lists each subfolder as a model and finds its mmproj; the
+startup flags (`-c`, `-ngl`, `-fa`, `--jinja`, ...) are passed to every
+model. `/health` is ok before any model is loaded, so `atlas start` loads the
+default with `POST /models/load` and waits on `/models`. Every request must
+name its model: Strands' default `model_id` "default" is refused ("model
+'default' not found"), and `/props`, `/apply-template` and `/tokenize` fail
+without one. A model's input types are in `/models` before it is loaded, so
+the backend reads vision and audio support there. `--models-max 1`: one 4 GB
+GPU holds one model. Old settings with `model.path` still load: the file's
+folder becomes the model name.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

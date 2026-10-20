@@ -48,6 +48,11 @@ def skills_dir(settings: Settings) -> Path:
     return resolve(settings.skills.dir)
 
 
+def models_dir(settings: Settings) -> Path:
+    """llama-server's router serves one model per subfolder of this."""
+    return resolve(settings.model.dir)
+
+
 def mcp_config(settings: Settings) -> Path:
     return resolve(settings.mcp.config)
 
@@ -58,6 +63,7 @@ __all__ = [
     "data_dir",
     "database",
     "mcp_config",
+    "models_dir",
     "resolve",
     "sessions_dir",
     "skills_dir",

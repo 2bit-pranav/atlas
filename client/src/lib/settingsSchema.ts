@@ -171,10 +171,12 @@ export const SECTIONS: Section[] = [
       {
         title: "Model",
         fields: [
-          { key: "model.path", label: "GGUF path", control: text },
-          { key: "model.mmproj_path", label: "mmproj path", control: text, help: "For image input. Empty to disable." },
-          { key: "model.name", label: "Display name", control: text },
-          { key: "model.context_size", label: "Context size", control: num(512, 262144, 512) },
+          { key: "model.dir", label: "Models folder", control: text,
+            help: "One subfolder per model, holding its .gguf (and an mmproj file for image input). Relative to the application folder." },
+          { key: "model.name", label: "Default model", control: text,
+            help: "The subfolder name of the model to load at start and use for chats, e.g. gemma." },
+          { key: "model.context_size", label: "Context size", control: num(512, 262144, 512),
+            help: "These values apply to every model in the folder." },
           { key: "model.gpu_layers", label: "GPU layers", control: text, help: "A number, or 'all'." },
           { key: "model.threads", label: "CPU threads", control: num(1, 128, 1) },
           { key: "model.batch_size", label: "Batch size", control: num(1, 16384, 1) },

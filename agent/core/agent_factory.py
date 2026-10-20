@@ -85,6 +85,8 @@ def build_model(
 
     return AtlasLlamaCppModel(
         base_url=f"http://127.0.0.1:{settings.ports.llama}",
+        # The router serves several models; every request names one.
+        model_id=settings.model.name,
         enable_thinking=thinking,
         context_window_limit=settings.context.window or settings.model.context_size,
         params=params,
@@ -105,6 +107,8 @@ def build_summarizer(settings: Settings) -> AtlasLlamaCppModel:
     """
     return AtlasLlamaCppModel(
         base_url=f"http://127.0.0.1:{settings.ports.llama}",
+        # The router serves several models; every request names one.
+        model_id=settings.model.name,
         enable_thinking=False,
         context_window_limit=settings.context.window or settings.model.context_size,
         # 600 was too few: asked for a results table, the summariser hit the

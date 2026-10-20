@@ -1,5 +1,5 @@
 ﻿"""
-launched.json tracking, port inspection, and process termination helpers.
+`launched.json` tracking, port inspection, and process termination helpers.
 
 Maintains runtime status and provides port-scanning to ensure
 no orphaned processes linger across launches.

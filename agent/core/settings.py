@@ -1,20 +1,16 @@
-"""Settings: the single source of truth (spec sections 4 and 1a).
+"""
+Settings: the single source of truth.
 
 `settings.json` is read, validated, and split into two tiers:
 
-- **restart** - read once at launch and baked into the spawned llama-server.
+- restart: read once at launch and baked into the spawned llama-server.
   Changing one requires a restart.
-- **live** - read fresh for every turn. A run snapshots the resolved live
+- live: read fresh for every turn. A run snapshots the resolved live
   values, so a run is reproducible even if the file changes mid-flight. This
   is why the agent is rebuilt on every turn rather than cached.
 
 Every new knob is added here first, then read by exactly one manager in
 `agent/core/`. A manager never parses the file itself.
-
-What was removed, and why: the previous schema had `ingest`, `ingest.vlm`,
-`ingest.docling`, `context` and `results`. Documents are read through skills
-now, and no VLM pipeline is configured, so those keys had no
-consumer. Leaving them would have meant settings that silently do nothing.
 """
 
 from __future__ import annotations
@@ -35,8 +31,8 @@ class Tier(str, Enum):
 
 
 class StrictModel(BaseModel):
-    """Refuse unknown keys.
-
+    """
+    Refuse unknown keys.
     A typo in `settings.json` is otherwise silently ignored, and the symptom
     is a behaviour that does not change no matter what you set.
     """
@@ -44,15 +40,36 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# ---------------------------------------------------------------- model ----
-
-
 class ModelSettings(StrictModel):
-    """The local model and the llama-server that serves it."""
+    """The local models and the llama-server that serves them.
 
-    path: str
-    mmproj_path: str = ""
-    name: str = "local"
+    llama-server runs in router mode: it serves every model under `dir`, one
+    subfolder each (`llm/gemma/` -> model `gemma`, its mmproj found beside it),
+    loading on demand. `name` is the one loaded at start and used for chats.
+    The other values are llama-server flags and apply to every model.
+    """
+
+    #: The models folder, relative to the application root.
+    dir: str = "llm"
+    #: The default model: a subfolder of `dir`.
+    name: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_single_model(cls, data: Any) -> Any:
+        """settings.json from before router mode named one GGUF file.
+
+        `path: llm/gemma/x.gguf` becomes `dir: llm`, `name: gemma`, so an old
+        file still loads and means the same model.
+        """
+        if not isinstance(data, dict) or "path" not in data:
+            return data
+        data = dict(data)
+        gguf = Path(str(data.pop("path")))
+        data.pop("mmproj_path", None)
+        data.setdefault("dir", str(gguf.parent.parent))
+        data["name"] = gguf.parent.name
+        return data
     context_size: int = Field(default=32768, gt=0)
     gpu_layers: str | int = "all"
     batch_size: int = Field(default=2048, gt=0)
@@ -61,23 +78,20 @@ class ModelSettings(StrictModel):
     flash_attention: bool = True
     jinja: bool = True
     reasoning: str = "auto"
-    #: One slot. Atlas runs a single agent with a single llama-server, and
-    #: more slots only divide the same context window between parallel
-    #: requests we never make.
-    parallel_slots: int = Field(default=1, gt=0)
+    parallel_slots: int = Field(default=1, gt=0) # 1 slot only since no parallel work 
     supports_thinking: bool = True
     supports_vision: bool = True
 
 
 class PortSettings(StrictModel):
     llama: int = 8080
-    #: The previous build used 8760; changed deliberately.
     backend: int = 8000
     client: int = 5173
 
 
 class SamplingSettings(StrictModel):
-    """Sent to the model on every request.
+    """
+    Sent to the model on every request.
 
     Penalties act on the tokens being generated, so they change the *wording* of
     an answer, not its approach. What makes a retry genuinely different lives in
@@ -88,16 +102,11 @@ class SamplingSettings(StrictModel):
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)
     top_k: int = Field(default=40, ge=0)
     min_p: float = Field(default=0.05, ge=0.0, le=1.0)
-    #: Per model call, thinking included. 2048 cut long documents off in the
-    #: middle of the create_document call, so the tool got empty arguments.
     max_tokens: int = Field(default=8192, gt=0)
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     repeat_penalty: float = Field(default=1.0, gt=0.0)
-    #: The UI's thinking toggle is a boolean only. llama.cpp supports an effort
-    #: or budget for reasoning, but the per-request field for those was not
-    #: documented, and ON/OFF is what we can verify.
-    thinking: bool = False
+    thinking: bool = False # no effort level settings yet
 
 
 class LlamaCppSettings(StrictModel):
@@ -106,57 +115,45 @@ class LlamaCppSettings(StrictModel):
     extra_args: list[str] = Field(default_factory=list)
 
 
-# --------------------------------------------------------------- agents ----
-
-
 class BuiltinToolSettings(StrictModel):
-    """Which of the harness's built-in tools the agent gets, one switch each.
-
-    Not cosmetic. Every tool schema costs prompt tokens on a 32k window, and a
-    smaller set is also a safety control: dropping `shell` removes the ability
-    to run anything at all -- including every skill script.
-    """
+    """Which of the harness's built-in tools the agent gets, one switch each."""
 
     read: bool = True
     write: bool = True
     edit: bool = True
     shell: bool = True
-    web_fetch: bool = False
-    subagent: bool = False
+    web_fetch: bool = False # prone to give bad results
+    subagent: bool = False # untested
 
 
 class ToolsSettings(StrictModel):
     builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
-    #: Atlas's own `create_document` and `edit_document` (agent/core/documents.py).
-    documents: bool = True
-    #: Ask before running a shell command. Off for now because there is no
-    #: frontend to show the prompt; revisit with the UI.
-    interventions: bool = False
+    documents: bool = True # built-in `create_document` and `edit_document` (agent/core/documents.py).
+    interventions: bool = False # off for now because of missing UI
 
 
 class SkillSettings(StrictModel):
     dir: str = "skills"
-    #: Skill folder names to switch off. Every other discovered skill is on, so
-    #: a newly installed skill works without a second step. An unknown name is
-    #: ignored: it usually means the skill was deleted after being disabled.
+    # skills to turn off. might contain dead/unknown values of deleted disabled skills
     disabled: list[str] = Field(default_factory=list)
 
 
 class McpSettings(StrictModel):
-    """MCP servers, in the standard `mcpServers` JSON format.
+    """
+    MCP servers, in the standard `mcpServers` JSON format.
 
     Kept in its own file rather than inside settings.json because that format is
     what every MCP server's README shows: a block can be pasted in unchanged.
     """
 
-    #: Relative to the application root.
-    config: str = "mcp.json"
-    #: Seconds to wait for one server to start and list its tools.
-    startup_timeout: float = Field(default=30.0, gt=0)
+    config: str = "mcp.json" # relative to the application root.
+    startup_timeout: float = Field(default=30.0, gt=0) # seconds to wait for one server to start and list its tools.
 
 
+# turned off indefinitely because information leaks across branches for edits
 class MemorySettings(StrictModel):
-    """Long-term memory (docs/decisions.md).
+    """
+    Long-term memory (docs/decisions.md).
 
     **Hard-wired off.** This is not merely a default we might revisit: with a
     `Model` instance the harness reuses that same model to distil facts, and
@@ -186,7 +183,8 @@ class MemorySettings(StrictModel):
 
 
 class RetrySettings(StrictModel):
-    """What makes a retried answer genuinely different from the one before it.
+    """
+    What makes a retried answer genuinely different from the one before it.
 
     A retry restores the same state and asks the same question, so on its own
     it gets a near-copy: the sampler is the only thing that changed, and a small
@@ -218,7 +216,8 @@ class RetrySettings(StrictModel):
 
 
 class ResilienceSettings(StrictModel):
-    """How a run recovers from failures without a human (agent/core/resilience.py).
+    """
+    How a run recovers from failures without a human (agent/core/resilience.py).
 
     Built on Strands' own hooks rather than on prompt text: a 2B model does not
     reliably follow "retry on failure", but a hook always runs.
@@ -240,7 +239,8 @@ class ResilienceSettings(StrictModel):
 
 
 class AccessSettings(StrictModel):
-    """Which folders the agent may touch beyond its chat workspace (agent/core/policy.py).
+    """
+    Which folders the agent may touch beyond its chat workspace (agent/core/policy.py).
 
     One list for every tool: the built-in file tools, the document tools,
     absolute paths in shell commands (which is how skills run), and MCP servers
@@ -320,17 +320,14 @@ class Settings(StrictModel):
     session: SessionSettings = Field(default_factory=SessionSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
-    #: Appended to Strands' harness system prompt, not a replacement for it.
-    #: Measured: `instructions=` appends, so the harness guidance is retained.
-    system_prompt: str = ""
+    system_prompt: str = "" # anything here gets appended to the harness' prompt, not replaced
 
 
 #: The only place that knows which key is which tier. `test_settings_tiers.py`
 #: asserts this covers every leaf of the schema, so a new setting cannot
 #: silently escape tiering.
 TIERS: dict[str, Tier] = {
-    "model.path": Tier.RESTART,
-    "model.mmproj_path": Tier.RESTART,
+    "model.dir": Tier.RESTART,
     "model.name": Tier.RESTART,
     "model.context_size": Tier.RESTART,
     "model.gpu_layers": Tier.RESTART,
@@ -395,9 +392,6 @@ TIERS: dict[str, Tier] = {
     "paths.data_dir": Tier.RESTART,
     "system_prompt": Tier.LIVE,
 }
-
-
-# ------------------------------------------------------------- helpers ----
 
 
 def get_path(data: Any, dotted: str) -> Any:

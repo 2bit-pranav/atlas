@@ -34,7 +34,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from agent.core import paths
+from agent.core import llama, paths
 from agent.core.agent_factory import RetryPlan, build_agent, clock_note, retry_hint
 from agent.core.chats import (
     CANCELLED,
@@ -131,19 +131,20 @@ class Atlas:
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)
 
     def modalities(self) -> dict[str, bool]:
-        """What the loaded model can take in (vision, audio), from llama-server.
+        """What the default model can take in (vision, audio), from llama-server.
 
-        Asked once and remembered: it changes only with the model, which needs
-        a restart anyway. Not remembered while llama-server is still loading.
+        Read from the router's model list, which knows it before the model is
+        loaded. Asked once and remembered: the default model changes only at a
+        restart. Not remembered while llama-server is not up yet.
         """
         if self._modalities is None:
             try:
-                import httpx
-
-                props = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2).json()
-                self._modalities = {k: bool(v) for k, v in (props.get("modalities") or {}).items()}
+                model = llama.find(llama.base_url(self.boot.ports.llama), self.boot.model.name)
             except Exception:  # noqa: BLE001 - not up yet: ask again next time
                 return {}
+            if model is None:
+                return {}
+            self._modalities = llama.modalities(model)
         return self._modalities
 
     def close(self) -> None:
