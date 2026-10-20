@@ -208,17 +208,26 @@ to read the document and `create_document` the PDF instead. xlsx to PDF has no
 library that works without Excel, so it is not offered. `pdf2docx` (PDF to
 Word) pulls in PyMuPDF, which is AGPL-licensed.
 
-**llama-server runs in router mode** (2026-10-20, measured on build b11429).
-`--models-dir llm` lists each subfolder as a model and finds its mmproj; the
-startup flags (`-c`, `-ngl`, `-fa`, `--jinja`, ...) are passed to every
-model. `/health` is ok before any model is loaded, so `atlas start` loads the
-default with `POST /models/load` and waits on `/models`. Every request must
-name its model: Strands' default `model_id` "default" is refused ("model
-'default' not found"), and `/props`, `/apply-template` and `/tokenize` fail
-without one. A model's input types are in `/models` before it is loaded, so
-the backend reads vision and audio support there. `--models-max 1`: one 4 GB
-GPU holds one model. Old settings with `model.path` still load: the file's
-folder becomes the model name.
+**One model at a time, switched by restart** (2026-10-20, measured, decided).
+llama-server's router mode (`--models-dir`, loading models on demand) was
+built and then dropped. The router itself costs nothing (226 ms vs 221 ms to
+first token with the prompt cached, 84 t/s either way), but every switch
+costs a full load (7.6-11 s for Gemma on a 4 GB GPU) plus re-reading the
+prompt with an empty cache (4.1 s for 7.9k tokens), so per-turn switching
+is out on one small GPU; cloud harnesses can do it because their models stay
+loaded. A model that does not fit (Agents-A1-4B at 32k context crashed with
+0xC0000409, most likely out of GPU memory) also failed only when first used.
+So llama-server runs `-m <gguf> --mmproj <file>` for the model chosen in
+Settings > Model, found by folder name in `llm/`, and Restart (sidebar)
+applies it: the backend writes `restart.request`, `atlas start`'s supervisor
+restarts llama-server and the backend, and `restart.json` says how it went.
+A restart is no slower than the router's load, and a failure shows at once.
+Measured: switching Gemma to Agents-A1 on CPU took 13 s end to end.
+
+**Sampling settings are not per model** (2026-10-20, decided). Temperature,
+top-p/k, min-p, penalties, max tokens, context size and the thinking switch
+are request or server parameters with the same meaning for any model,
+fine-tune or quant. No model profiles.
 
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.

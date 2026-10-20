@@ -18,8 +18,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-
-import httpx
+from typing import Any, Callable
 
 from agent.cli.launch import (
     build_backend_args,
@@ -40,7 +39,7 @@ from agent.cli.launched import (
     write_launched,
 )
 from agent.cli.processes import ProcessGroup, SpawnFailed, banner, kill_pid_tree
-from agent.core import llama as router, paths
+from agent.core import llama, paths
 from agent.core.settings import Settings, SettingsError, load_settings
 
 logger = logging.getLogger("atlas")
@@ -91,7 +90,7 @@ def cmd_settings_check(args: argparse.Namespace) -> int:
     settings = _load_or_die(Path(args.settings))
     print(f"{args.settings}: OK")
     print(f"  models folder     = {paths.models_dir(settings)}")
-    print(f"  default model     = {settings.model.name}")
+    print(f"  model             = {settings.model.name}")
     print(f"  context_size      = {settings.model.context_size}")
     print(f"  parallel_slots    = {settings.model.parallel_slots}")
     print(f"  llama port        = {settings.ports.llama}")
@@ -110,24 +109,112 @@ def cmd_settings_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _start_llama(group: ProcessGroup, settings: Settings, args: argparse.Namespace,
+                 root: Path) -> tuple[int | None, str | None]:
+    """Spawn llama-server with the chosen model and wait until it serves.
+
+    Returns (pid, error). On an error nothing is left running.
+    """
+    try:
+        llama_args = build_llamacpp_args(settings)
+    except llama.ModelError as exc:
+        return None, f"{exc}. Pick one under Settings > Model."
+    base_url = f"http://127.0.0.1:{settings.ports.llama}"
+    started = time.monotonic()
+    try:
+        proc, relay = group.spawn("llama", llama_args, cwd=root, ready_pattern=r"listening on ",
+                                  sink=sys.stdout)
+    except SpawnFailed as exc:
+        return None, str(exc)
+    logger.info("waiting for llama-server to load %r (up to %.0fs)...", settings.model.name, args.health_timeout)
+    ok, reason = wait_until_ready(proc, relay, base_url, timeout=args.health_timeout)
+    if not ok:
+        tail = relay.tail_text()
+        if tail:
+            logger.error("last output from llama-server:\n%s", tail)
+        group.stop("llama")
+        return None, f"llama-server did not start with {settings.model.name!r}: {reason}"
+    logger.info("llama-server ready in %.1fs (%s)", time.monotonic() - started, reason)
+    return proc.pid, None
+
+
+def _start_backend(group: ProcessGroup, settings: Settings, args: argparse.Namespace, root: Path,
+                   launched_path: Path) -> Any:
+    """Spawn the backend. It can ask for a restart through the request file."""
+    stale = find_pids_by_port(settings.ports.backend)
+    if stale:
+        banner(sys.stdout, "backend", f"clearing stale process on port {settings.ports.backend}")
+        for pid in stale:
+            kill_pid_tree(pid)
+        time.sleep(0.5)
+    env = dict(os.environ)
+    env["ATLAS_SETTINGS"] = str(Path(args.settings).resolve())
+    env["ATLAS_ROOT"] = str(root)
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    request, status = _restart_files(launched_path)
+    env["ATLAS_RESTART_REQUEST"] = str(request)
+    env["ATLAS_RESTART_STATUS"] = str(status)
+    env["ATLAS_LAUNCHED"] = str(launched_path.resolve())
+    backend, _ = group.spawn("backend", build_backend_args(settings), cwd=root, env=env, sink=sys.stdout)
+    logger.info("backend starting on http://127.0.0.1:%d", settings.ports.backend)
+    return backend
+
+
+def _restart_files(launched_path: Path) -> tuple[Path, Path]:
+    """The backend creates the first to ask for a restart; the second says how it went."""
+    return launched_path.with_name("restart.request"), launched_path.with_name("restart.json")
+
+
+def _write_status(path: Path, state: str, **fields: Any) -> None:
+    path.write_text(json.dumps({"state": state, "at": int(time.time() * 1000), **fields}), encoding="utf-8")
+
+
+def _record(launched_path: Path, settings: Settings, group: ProcessGroup, llama_pid: int | None) -> None:
+    """launched.json: what is running, and the settings it was started with."""
+    try:
+        chosen = llama.current(settings)
+        model_file, mmproj_file = str(chosen.gguf), str(chosen.mmproj) if chosen.mmproj else None
+    except llama.ModelError:
+        model_file = mmproj_file = None
+    try:
+        llama_args = build_llamacpp_args(settings)
+    except llama.ModelError:
+        llama_args = []
+    info = build_launched_info(
+        llama_base_url=f"http://127.0.0.1:{settings.ports.llama}",
+        llama_args=llama_args,
+        settings_dict=settings.model_dump(mode="json"),
+        model_path=model_file,
+        mmproj_path=mmproj_file,
+        previous=load_launched(launched_path),
+        llama_pid=llama_pid,
+    )
+    info.processes = {}
+    if llama_pid:
+        record_process(info, "llama", llama_pid)
+    for name, proc in group.running():
+        if name != "llama":
+            record_process(info, name, proc)
+    if any(n == "backend" for n, _ in group.running()):
+        info.backend_url = f"http://127.0.0.1:{settings.ports.backend}"
+    write_launched(launched_path, info)
+
+
 def cmd_start(args: argparse.Namespace) -> int:
     settings = _load_or_die(Path(args.settings))
     launched_path = Path(args.launched)
     root = REPO_ROOT
-
-    llama_args = build_llamacpp_args(settings)
     base_url = f"http://127.0.0.1:{settings.ports.llama}"
 
     already_running_llama = wait_for_health(base_url, timeout=0.8, interval=0.2)
     group = ProcessGroup()
     stopping = threading.Event()
     llama_pid: int | None = None
+    request, status = _restart_files(launched_path)
+    request.unlink(missing_ok=True)
 
     try:
-        if already_running_llama and not router.is_router(base_url):
-            logger.error("a llama-server on %s is not in router mode (started by an older Atlas, or by hand). "
-                         "Run `atlas stop`, then `atlas start`.", base_url)
-            return 1
         if already_running_llama:
             banner(sys.stdout, "llama-server", f"reusing running instance on {base_url}")
             llama_pids = find_pids_by_port(settings.ports.llama)
@@ -136,87 +223,16 @@ def cmd_start(args: argparse.Namespace) -> int:
         elif args.no_llama:
             banner(sys.stdout, "llama-server", "not started (--no-llama)")
         else:
-            started = time.monotonic()
-            llama, relay = group.spawn(
-                "llama",
-                llama_args,
-                cwd=root,
-                ready_pattern=r"listening on ",
-                sink=sys.stdout,
-            )
-            llama_pid = llama.pid
-            logger.info("waiting for llama-server to start (up to %.0fs)...", args.health_timeout)
-
-            ok, reason = wait_until_ready(llama, relay, base_url, timeout=args.health_timeout)
-            if not ok:
-                logger.error("llama-server did not start: %s", reason)
-                tail = relay.tail_text()
-                if tail:
-                    logger.error("last output from llama-server:\n%s", tail)
+            llama_pid, error = _start_llama(group, settings, args, root)
+            if error:
+                logger.error("%s", error)
                 return 1
 
-            logger.info("llama-server ready in %.1fs (%s)", time.monotonic() - started, reason)
-
-        # The router is up with nothing loaded: load the default model now, so
-        # the first message does not also wait for it.
-        default_model: dict = {}
-        if not args.no_llama or already_running_llama:
-            name = settings.model.name
-            logger.info("loading model %r (up to %.0fs)...", name, args.health_timeout)
-            started = time.monotonic()
-            try:
-                default_model = router.load(base_url, name, timeout=args.health_timeout)
-            except (router.ModelError, httpx.HTTPError) as exc:
-                logger.error("%s", exc)
-                logger.error("set model.name to a subfolder of %s (Settings > Model & server)",
-                             paths.models_dir(settings))
-                return 1
-            logger.info("model %r ready in %.1fs", name, time.monotonic() - started)
-        model_file, mmproj_file = router.files(default_model) if default_model else (None, None)
-
-        # Baseline launched.json record
-        info = build_launched_info(
-            llama_base_url=base_url,
-            llama_args=llama_args,
-            settings_dict=settings.model_dump(mode="json"),
-            model_path=model_file,
-            mmproj_path=mmproj_file,
-            previous=load_launched(launched_path),
-            llama_pid=llama_pid,
-        )
-        if llama_pid:
-            record_process(info, "llama", llama_pid)
-        write_launched(launched_path, info)
-
-        # Backend setup
-        backend_url = f"http://127.0.0.1:{settings.ports.backend}"
         if args.no_backend:
             banner(sys.stdout, "backend", "not started (--no-backend)")
         else:
-            # Clean up stale backend if port 8000 is occupied
-            stale_backend_pids = find_pids_by_port(settings.ports.backend)
-            if stale_backend_pids:
-                banner(sys.stdout, "backend", f"clearing stale process on port {settings.ports.backend}")
-                for pid in stale_backend_pids:
-                    kill_pid_tree(pid)
-                time.sleep(0.5)
-
             try:
-                backend_env = dict(os.environ)
-                backend_env["ATLAS_SETTINGS"] = str(Path(args.settings).resolve())
-                backend_env["ATLAS_ROOT"] = str(root)
-                backend_env["PYTHONUTF8"] = "1"
-                backend_env["PYTHONIOENCODING"] = "utf-8"
-                backend, _ = group.spawn(
-                    "backend",
-                    build_backend_args(settings),
-                    cwd=root,
-                    env=backend_env,
-                    sink=sys.stdout,
-                )
-                record_process(info, "backend", backend)
-                info.backend_url = backend_url
-                logger.info("backend starting on %s", backend_url)
+                _start_backend(group, settings, args, root, launched_path)
             except SpawnFailed as exc:
                 logger.error("%s", exc)
                 return 1
@@ -242,7 +258,7 @@ def cmd_start(args: argparse.Namespace) -> int:
             client_env = dict(os.environ)
             client_env["VITE_ATLAS_BACKEND_PORT"] = str(settings.ports.backend)
             try:
-                frontend, _ = group.spawn(
+                group.spawn(
                     "frontend",
                     build_frontend_args(settings),
                     cwd=client_dir,
@@ -250,13 +266,13 @@ def cmd_start(args: argparse.Namespace) -> int:
                     ready_pattern=r"Local:\s+http://",
                     sink=sys.stdout,
                 )
-                record_process(info, "frontend", frontend)
                 logger.info("frontend starting on %s", client_url)
             except (SpawnFailed, FileNotFoundError) as exc:
                 logger.error("%s", exc)
                 return 1
 
-        write_launched(launched_path, info)
+        _record(launched_path, settings, group, llama_pid)
+        _write_status(status, "ready", model=settings.model.name)
 
         if not group.children():
             banner(sys.stdout, "atlas", "nothing to supervise")
@@ -264,7 +280,14 @@ def cmd_start(args: argparse.Namespace) -> int:
             return 0
 
         logger.info("Atlas is running. Press Ctrl+C or run 'atlas stop' to shut down.")
-        _supervise(group, stopping)
+
+        def restart() -> None:
+            nonlocal llama_pid, settings
+            _restart(group, args, root, launched_path, own_llama=not already_running_llama)
+            settings = load_settings(Path(args.settings))
+            llama_pid = next((p.pid for n, p in group.running() if n == "llama"), None)
+
+        _supervise(group, stopping, request, restart)
         return 0
 
     except KeyboardInterrupt:
@@ -287,11 +310,53 @@ def cmd_start(args: argparse.Namespace) -> int:
                 kill_pid_tree(pid)
 
         launched_path.unlink(missing_ok=True)
+        request.unlink(missing_ok=True)
+        status.unlink(missing_ok=True)
         print("Atlas stopped cleanly.")
 
 
-def _supervise(group: ProcessGroup, stopping: threading.Event) -> None:
+def _restart(group: ProcessGroup, args: argparse.Namespace, root: Path, launched_path: Path,
+             *, own_llama: bool) -> None:
+    """Restart llama-server and the backend with the settings now on disk.
+
+    Asked for from the UI (Settings > Restart), so a model change or another
+    restart setting applies without leaving the browser. The web UI keeps
+    running and reconnects. The backend comes back even when llama-server
+    fails, so the UI can say why and the user can pick another model.
+    """
+    _request, status = _restart_files(launched_path)
+    _write_status(status, "restarting")
+    try:
+        settings = load_settings(Path(args.settings))
+    except SettingsError as exc:
+        _write_status(status, "failed", error=str(exc))
+        return
+    banner(sys.stdout, "atlas", f"restarting with model {settings.model.name!r}")
+    group.stop("backend")
+    error = None
+    if own_llama and not args.no_llama:
+        group.stop("llama")
+        _pid, error = _start_llama(group, settings, args, root)
+    elif not own_llama:
+        error = "llama-server was not started by Atlas, so it was not restarted"
+    if error:
+        logger.error("%s", error)
+    if not args.no_backend:
+        try:
+            _start_backend(group, settings, args, root, launched_path)
+        except SpawnFailed as exc:
+            error = error or str(exc)
+    llama_pid = next((p.pid for n, p in group.running() if n == "llama"), None)
+    _record(launched_path, settings, group, llama_pid)
+    _write_status(status, "failed" if error else "ready", model=settings.model.name, error=error)
+
+
+def _supervise(group: ProcessGroup, stopping: threading.Event, request: Path,
+               restart: Callable[[], None]) -> None:
     while not stopping.is_set():
+        if request.exists():
+            request.unlink(missing_ok=True)
+            restart()
         alive = group.running()
         if not alive:
             logger.warning("All child processes have stopped.")

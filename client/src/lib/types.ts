@@ -212,6 +212,32 @@ export interface RegistryServer {
   options: RegistryOption[]
 }
 
+/** A model in the models folder (one subfolder each). */
+export interface LocalModel {
+  name: string
+  file: string
+  mmproj: string | null
+  bytes: number
+}
+
+export interface ModelList {
+  models: LocalModel[]
+  /** The model llama-server was started with. */
+  loaded: string
+  /** The model in settings.json; differs from `loaded` until a restart. */
+  selected: string
+}
+
+/** How the last restart (Settings > Restart) went. */
+export interface RestartStatus {
+  /** False when Atlas was not started by `atlas start` and cannot restart itself. */
+  available: boolean
+  state?: "restarting" | "ready" | "failed"
+  at?: number
+  model?: string
+  error?: string | null
+}
+
 export interface SettingsView {
   values: Record<string, unknown>
   tiers: Record<string, Tier>

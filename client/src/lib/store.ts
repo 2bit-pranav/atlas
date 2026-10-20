@@ -68,6 +68,8 @@ export interface AtlasState {
   previewTick: number
   /** Passages selected in the preview, waiting to go with the next message. */
   refs: Ref[]
+  /** A restart from the UI in progress (llama-server and the backend). */
+  restarting: boolean
 }
 
 type Listener = () => void
@@ -89,6 +91,7 @@ class Store {
     preview: null,
     previewTick: 0,
     refs: [],
+    restarting: false,
   }
 
   private listeners = new Set<Listener>()
@@ -114,6 +117,43 @@ class Store {
   }
 
   clearError = () => this.set({ error: null })
+
+  /**
+   * Restart llama-server and the backend with the saved settings: how a new
+   * model or another restart setting takes effect. The backend goes away
+   * while it happens, so this polls until the restart it asked for reports
+   * back (its `at` is newer than the request), then reloads settings.
+   */
+  async restart(): Promise<boolean> {
+    if (this.state.restarting) return false
+    const asked = Date.now()
+    try {
+      await api.restart()
+    } catch (error) {
+      this.fail(error)
+      return false
+    }
+    this.set({ restarting: true, error: null })
+    const deadline = asked + 10 * 60_000
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1000))
+      try {
+        const status = await api.restartStatus()
+        if (status.at && status.at >= asked && status.state !== "restarting") {
+          this.set({ restarting: false, connected: true, settings: await api.getSettings() })
+          if (status.state === "failed") {
+            this.set({ error: `Restart: ${status.error ?? "failed"}` })
+            return false
+          }
+          return true
+        }
+      } catch {
+        // The backend is down while it restarts; keep waiting.
+      }
+    }
+    this.set({ restarting: false, error: "Restart is taking too long. Check the terminal running `atlas start`." })
+    return false
+  }
 
   // ---------------------------------------------------------------- boot --
 

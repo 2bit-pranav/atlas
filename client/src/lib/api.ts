@@ -10,7 +10,9 @@ import {
   type ChatSummary,
   type ChatView,
   type McpServer,
+  type ModelList,
   type RegistryServer,
+  type RestartStatus,
   type RunEvent,
   type Ref,
   type SettingsView,
@@ -142,6 +144,9 @@ export function streamRun(runId: string, after: number, onEvent: (e: RunEvent) =
 // --------------------------------------------------------------- settings --
 
 export const getSettings = () => request<SettingsView>("/settings")
+export const listModels = () => request<ModelList>("/models")
+export const restartStatus = () => request<RestartStatus>("/restart")
+export const restart = () => request<{ ok: boolean }>("/restart", json("POST"))
 export const putSettings = (patch: Record<string, unknown>) =>
   request<SettingsView>("/settings", json("PUT", patch))
 

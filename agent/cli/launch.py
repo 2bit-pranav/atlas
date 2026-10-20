@@ -14,7 +14,7 @@ import os
 import shutil
 import sys
 
-from agent.core import paths
+from agent.core import llama
 from agent.core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -29,10 +29,13 @@ def build_llamacpp_args(settings: Settings) -> list[str]:
     if settings.llamacpp.subcommand:
         args.append(settings.llamacpp.subcommand)
 
-    # Router mode: every subfolder of the models folder is a model, its mmproj
-    # found beside it; the flags below apply to each. One at a time, because
-    # one GPU holds one model; the default is loaded once the router is up.
-    args += ["--models-dir", str(paths.models_dir(settings)), "--models-max", "1"]
+    # The model chosen in Settings, found in the models folder; its mmproj
+    # (image and audio input) is picked up from the same folder. Raises
+    # ModelError when the name is not there.
+    chosen = llama.current(settings)
+    args += ["-m", str(chosen.gguf), "--alias", chosen.name]
+    if chosen.mmproj is not None:
+        args += ["--mmproj", str(chosen.mmproj)]
 
     args += ["--no-ui"] # skip webui permanently
     args += ["-c", str(model.context_size)]

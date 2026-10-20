@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom"
 import * as Dialog from "@radix-ui/react-dialog"
-import { AlertTriangle, PanelLeftOpen, X } from "lucide-react"
+import { AlertTriangle, Loader2, PanelLeftOpen, X } from "lucide-react"
 
 import { atlas, useAtlas } from "@/lib/store"
 import { matchShortcut } from "@/lib/shortcuts"
@@ -39,6 +39,8 @@ export function App() {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<ChatSummary | null>(null)
   const error = useAtlas((s) => s.error)
+  const restarting = useAtlas((s) => s.restarting)
+  const model = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
   const title = useAtlas((s) => s.chat?.title)
 
   useEffect(() => {
@@ -129,6 +131,14 @@ export function App() {
                   className="absolute left-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full hover:bg-accent md:hidden">
             <PanelLeftOpen className="h-4 w-4" />
           </button>
+        )}
+
+        {restarting && (
+          <div className="mx-auto mt-3 flex w-full max-w-3xl items-center gap-2 rounded-lg border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            Restarting with {model ? <span className="font-mono">{model}</span> : "the saved settings"}: loading the model.
+            Chats are kept; send once this is gone.
+          </div>
         )}
 
         {error && (

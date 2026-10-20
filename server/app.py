@@ -23,9 +23,11 @@ import asyncio
 import json
 import logging
 import mimetypes
+import os
 import re
 import shutil
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -131,20 +133,20 @@ class Atlas:
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)
 
     def modalities(self) -> dict[str, bool]:
-        """What the default model can take in (vision, audio), from llama-server.
+        """What the loaded model can take in (vision, audio), from llama-server.
 
-        Read from the router's model list, which knows it before the model is
-        loaded. Asked once and remembered: the default model changes only at a
-        restart. Not remembered while llama-server is not up yet.
+        Asked once and remembered: it changes only with the model, which needs
+        a restart, and a restart starts a new backend. Not remembered while
+        llama-server is still loading.
         """
         if self._modalities is None:
             try:
-                model = llama.find(llama.base_url(self.boot.ports.llama), self.boot.model.name)
+                import httpx
+
+                props = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2).json()
+                self._modalities = {k: bool(v) for k, v in (props.get("modalities") or {}).items()}
             except Exception:  # noqa: BLE001 - not up yet: ask again next time
                 return {}
-            if model is None:
-                return {}
-            self._modalities = llama.modalities(model)
         return self._modalities
 
     def close(self) -> None:
@@ -612,6 +614,44 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         await asyncio.to_thread(state.mcp.set_settings, state.settings)
         return settings_view()
 
+    # ------------------------------------------------------------- models --
+
+    @api.get("/models")
+    async def list_models() -> dict[str, Any]:
+        """The models in the models folder, for the Settings picker."""
+        found = await asyncio.to_thread(llama.discover, paths.models_dir(state.settings))
+        return {"models": [m.describe() for m in found], "loaded": state.boot.model.name,
+                "selected": state.settings.model.name}
+
+    # ------------------------------------------------------------ restart --
+
+    @api.get("/restart")
+    async def restart_status() -> dict[str, Any]:
+        """How the last restart went: restarting, ready or failed (with why)."""
+        status = os.environ.get("ATLAS_RESTART_STATUS")
+        available = bool(os.environ.get("ATLAS_RESTART_REQUEST"))
+        try:
+            data = json.loads(Path(status).read_text(encoding="utf-8")) if status else {}
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        return {"available": available, **data}
+
+    @api.post("/restart")
+    async def restart() -> dict[str, Any]:
+        """Ask `atlas start` to restart llama-server and this backend.
+
+        The CLI watches for the request file; this process is replaced, so the
+        UI polls GET /restart until it answers again.
+        """
+        request = os.environ.get("ATLAS_RESTART_REQUEST")
+        if not request:
+            raise HTTPException(409, "Atlas was not started with `atlas start`, so it cannot restart itself. "
+                                     "Stop it and start it again by hand.")
+        if state.runs.active():
+            raise HTTPException(409, "An answer is being written. Stop it or wait, then restart.")
+        Path(request).write_text(str(int(time.time() * 1000)), encoding="utf-8")
+        return {"ok": True}
+
     app.state.settings_view = settings_view
     app.include_router(api)
 
@@ -639,7 +679,7 @@ def _launched_restart_values(state: Atlas) -> dict[str, Any]:
     launched.json when the CLI wrote one (its `restart_settings` block is flat,
     `{"model.path": ...}`), otherwise this process's own start-up values.
     """
-    launched = paths.ROOT / "launched.json"
+    launched = Path(os.environ.get("ATLAS_LAUNCHED") or paths.ROOT / "launched.json")
     if launched.is_file():
         try:
             flat = json.loads(launched.read_text(encoding="utf-8")).get("restart_settings")

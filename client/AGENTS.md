@@ -85,6 +85,11 @@ Where Atlas differs on purpose:
 - Regenerate appears on the last answer only.
 - Skills and MCP are full pages.
 
+Settings are ordered by what changes results most: Agent, Skills & MCP,
+Access, Model; Recovery & context, Generation, and Server & storage are under
+Advanced. Restart in the sidebar (a dot when saved settings wait for it)
+applies a new model or any other restart setting; a notice shows while it runs.
+
 Control: Settings > Access holds the allowed folders, whether to ask outside
 them, and the approval timeout. The MCP page sets each tool On / Ask / Off.
 Approval cards in the chat are titled by kind (install, access, tool). The

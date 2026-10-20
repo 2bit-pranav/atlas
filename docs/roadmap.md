@@ -55,9 +55,11 @@ likely first case), a script that saves a web page or its tables to a file.
 
 In this order:
 
-1. **llama-server router mode** (done): serves every model in `llm/`, loads
-   the default at start, every request names its model. Still one model in
-   use; no picker yet.
+1. **Model picker and Restart** (done): pick a model folder in Settings >
+   Model, Restart from the sidebar. Router mode was tried and dropped
+   (docs/decisions.md): per-turn switching costs a full load each time on one
+   small GPU. Settings reordered: Agent, Skills & MCP, Access, Model first;
+   tuning under Advanced.
 2. **Unattended runs**: a run queue (a scheduled run must wait behind a chat,
    not be refused), notifications, then schedules, then triggers (file,
    webhook). Webhooks need a local API key first.
