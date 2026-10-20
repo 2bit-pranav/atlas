@@ -23,7 +23,8 @@ atlas stop                       # stops all three and checks the ports are free
 
 Models live in `llm/`, one subfolder each with its `.gguf` (and an `mmproj`
 file for image input): `llm/gemma/`. Pick one under Settings > Model and
-press Restart in the sidebar; llama-server and the backend restart with it.
+press "Restart now" at the top of Settings; llama-server and the backend
+restart with it.
 
 `atlas start --no-llama`, `--no-backend` and `--no-client` start a subset.
 `atlas settings check` validates `settings.json`; `atlas settings show

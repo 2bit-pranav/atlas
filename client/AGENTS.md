@@ -87,8 +87,9 @@ Where Atlas differs on purpose:
 
 Settings are ordered by what changes results most: Agent, Skills & MCP,
 Access, Model; Recovery & context, Generation, and Server & storage are under
-Advanced. Restart in the sidebar (a dot when saved settings wait for it)
-applies a new model or any other restart setting; a notice shows while it runs.
+Advanced. "Restart now" appears at the top of Settings only when saved settings
+wait for a restart or the last restart failed; it applies a new model or any
+other restart setting, and a notice shows on every page while it runs.
 
 Control: Settings > Access holds the allowed folders, whether to ask outside
 them, and the approval timeout. The MCP page sets each tool On / Ask / Off.

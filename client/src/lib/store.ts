@@ -70,6 +70,8 @@ export interface AtlasState {
   refs: Ref[]
   /** A restart from the UI in progress (llama-server and the backend). */
   restarting: boolean
+  /** Why the last restart failed; the model is not running until another one works. */
+  restartError: string | null
 }
 
 type Listener = () => void
@@ -92,6 +94,7 @@ class Store {
     previewTick: 0,
     refs: [],
     restarting: false,
+    restartError: null,
   }
 
   private listeners = new Set<Listener>()
@@ -140,19 +143,26 @@ class Store {
       try {
         const status = await api.restartStatus()
         if (status.at && status.at >= asked && status.state !== "restarting") {
-          this.set({ restarting: false, connected: true, settings: await api.getSettings() })
-          if (status.state === "failed") {
-            this.set({ error: `Restart: ${status.error ?? "failed"}` })
-            return false
-          }
-          return true
+          const failed = status.state === "failed" ? status.error ?? "failed" : null
+          this.set({ restarting: false, connected: true, restartError: failed, settings: await api.getSettings() })
+          return failed === null
         }
       } catch {
         // The backend is down while it restarts; keep waiting.
       }
     }
-    this.set({ restarting: false, error: "Restart is taking too long. Check the terminal running `atlas start`." })
+    this.set({ restarting: false, restartError: "Restart is taking too long. Check the terminal running `atlas start`." })
     return false
+  }
+
+  /** Whether the last restart failed, e.g. after reloading the page. */
+  async checkRestart() {
+    try {
+      const status = await api.restartStatus()
+      this.set({ restartError: status.state === "failed" ? status.error ?? "failed" : null })
+    } catch {
+      // Not critical: the Settings page simply shows no restart notice.
+    }
   }
 
   // ---------------------------------------------------------------- boot --

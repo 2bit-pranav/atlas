@@ -218,7 +218,7 @@ is out on one small GPU; cloud harnesses can do it because their models stay
 loaded. A model that does not fit (Agents-A1-4B at 32k context crashed with
 0xC0000409, most likely out of GPU memory) also failed only when first used.
 So llama-server runs `-m <gguf> --mmproj <file>` for the model chosen in
-Settings > Model, found by folder name in `llm/`, and Restart (sidebar)
+Settings > Model, found by folder name in `llm/`, and "Restart now" in Settings
 applies it: the backend writes `restart.request`, `atlas start`'s supervisor
 restarts llama-server and the backend, and `restart.json` says how it went.
 A restart is no slower than the router's load, and a failure shows at once.

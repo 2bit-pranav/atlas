@@ -8,7 +8,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import * as Dropdown from "@radix-ui/react-dropdown-menu"
 import {
-  Download, Loader2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plug, RotateCw, Search,
+  Download, Loader2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plug, Search,
   Settings, Sparkles, SquarePen, Trash2, X,
 } from "lucide-react"
 
@@ -36,30 +36,18 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
   const activeId = useAtlas((s) => s.chat?.id ?? s.stagedChat)
   const runningChat = useAtlas((s) => s.run?.chat_id ?? null)
   const [query, setQuery] = useState("")
-  const restarting = useAtlas((s) => s.restarting)
-  const pendingRestart = useAtlas((s) => Object.keys(s.settings?.pending_restart ?? {}).length > 0)
-  const answering = useAtlas((s) => s.run !== null)
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return q ? chats.filter((c) => (c.title || "New chat").toLowerCase().includes(q)) : chats
   }, [chats, query])
 
-  const actions: {
-    icon: typeof Search; label: string; action?: ShortcutAction; run: () => void; path?: string
-    /** A dot: something is waiting on this action. */
-    dot?: boolean; busy?: boolean; disabled?: boolean; hint?: string
-  }[] = [
+  const actions: { icon: typeof Search; label: string; action?: ShortcutAction; run: () => void; path?: string }[] = [
     { icon: SquarePen, label: "New chat", action: "newChat", run: () => { atlas.newChat(); navigate("/") } },
     { icon: Search, label: "Search", action: "search", run: () => { if (!open) onToggle(); setSearching(true) } },
     { icon: Sparkles, label: "Skills", path: "/skills", run: () => navigate("/skills") },
     { icon: Plug, label: "MCP", path: "/mcp", run: () => navigate("/mcp") },
     { icon: Settings, label: "Settings", action: "settings", path: "/settings", run: () => navigate("/settings") },
-    { icon: RotateCw, label: restarting ? "Restarting..." : "Restart", run: () => void atlas.restart(),
-      dot: pendingRestart, busy: restarting, disabled: restarting || answering,
-      hint: answering ? "Wait for the answer to finish"
-        : pendingRestart ? "Saved settings (such as the model) take effect after a restart"
-        : "Restart llama-server and the backend" },
   ]
 
   return (
@@ -104,13 +92,10 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
           ) : actions.map((a) => {
             const active = a.path && location.pathname.startsWith(a.path)
             return open ? (
-              <button key={a.label} type="button" onClick={a.run} disabled={a.disabled} title={a.hint}
-                      className={cn("group flex h-9 w-full items-center justify-between rounded-lg px-2 text-sm transition-colors hover:bg-foreground/10 disabled:opacity-60 disabled:hover:bg-transparent",
+              <button key={a.label} type="button" onClick={a.run}
+                      className={cn("group flex h-9 w-full items-center justify-between rounded-lg px-2 text-sm transition-colors hover:bg-foreground/10",
                                     active && "bg-accent text-accent-foreground")}>
-                <span className="flex items-center gap-2.5">
-                  <a.icon className={cn("h-4 w-4", a.busy && "animate-spin")} />{a.label}
-                  {a.dot && !a.busy && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
-                </span>
+                <span className="flex items-center gap-2.5"><a.icon className="h-4 w-4" />{a.label}</span>
                 {a.action && (
                   <kbd className="font-sans text-[11px] font-medium text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                     {shortcutKeys(a.action).join(" ")}
@@ -118,11 +103,10 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
                 )}
               </button>
             ) : (
-              <Tip key={a.label} label={a.hint ?? a.label} side="right">
-                <button type="button" onClick={a.run} disabled={a.disabled}
-                        className={cn("relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-accent disabled:opacity-60", active && "bg-accent")}>
-                  <a.icon className={cn("h-4 w-4", a.busy && "animate-spin")} />
-                  {a.dot && !a.busy && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-500" />}
+              <Tip key={a.label} label={a.label} side="right">
+                <button type="button" onClick={a.run}
+                        className={cn("flex h-9 w-9 items-center justify-center rounded-full hover:bg-accent", active && "bg-accent")}>
+                  <a.icon className="h-4 w-4" />
                 </button>
               </Tip>
             )

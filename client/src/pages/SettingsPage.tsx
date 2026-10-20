@@ -44,6 +44,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     void atlas.refreshSettings()
+    void atlas.checkRestart()
   }, [])
 
   const dirty = Object.keys(draft).length > 0
@@ -67,6 +68,7 @@ export function SettingsPage() {
 
   const pending = Object.keys(settings?.pending_restart ?? {})
   const restarting = useAtlas((s) => s.restarting)
+  const restartError = useAtlas((s) => s.restartError)
   const answering = useAtlas((s) => s.run !== null)
   const [query, setQuery] = useState("")
   const q = query.trim().toLowerCase()
@@ -116,12 +118,15 @@ export function SettingsPage() {
             </select>
             <div className="mb-4 md:hidden"><SettingsSearch value={query} onChange={setQuery} /></div>
 
-            {pending.length > 0 && (
-              <Notice tone="info">
+            {/* Only when there is something to restart for: saved restart settings, or a failed restart. */}
+            {(pending.length > 0 || restartError || restarting) && (
+              <Notice tone={restartError && !restarting ? "error" : "info"}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>
-                    {pending.length} saved {pending.length === 1 ? "setting takes" : "settings take"} effect after a
-                    restart: {pending.join(", ")}
+                  <span className="min-w-0">
+                    {restarting ? "Restarting llama-server and the backend..."
+                      : restartError ? `The last restart failed: ${restartError}`
+                      : <>{pending.length} saved {pending.length === 1 ? "setting takes" : "settings take"} effect
+                          after a restart: {pending.join(", ")}</>}
                   </span>
                   <Button size="sm" onClick={() => void atlas.restart()} disabled={restarting || answering}>
                     {restarting ? "Restarting..." : "Restart now"}

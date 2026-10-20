@@ -56,7 +56,7 @@ likely first case), a script that saves a web page or its tables to a file.
 In this order:
 
 1. **Model picker and Restart** (done): pick a model folder in Settings >
-   Model, Restart from the sidebar. Router mode was tried and dropped
+   Model, "Restart now" in Settings. Router mode was tried and dropped
    (docs/decisions.md): per-turn switching costs a full load each time on one
    small GPU. Settings reordered: Agent, Skills & MCP, Access, Model first;
    tuning under Advanced.
