@@ -1,26 +1,20 @@
-"""`AtlasLlamaCppModel` (agent/AGENTS.md).
+"""`AtlasLlamaCppModel`: the stock `LlamaCppModel`, fixed for llama-server.
 
-Two jobs, and both exist because something upstream does not do what the docs
-imply:
-
-1. **Thinking.** The stock `LlamaCppModel` builds the request body by copying a
-   whitelist of keys, so anything else is silently dropped -- including
-   `chat_template_kwargs`. Without this override `enable_thinking=False` never
-   reaches the server, and the template's own default wins.
-
-2. **Reasoning passthrough.** `delta.reasoning_content` is forwarded as a
-   `reasoning_content` chunk, which Strands' `_format_chunk` already converts to
-   `contentBlockDelta.delta.reasoningContent`, allowing Atlas to display thinking
-   separately from the answer.
-
-3. **Real streaming.** The response is read with `client.stream(...)`. A plain
-   `client.post(...)` makes httpx buffer the whole body before returning, so
-   every model call arrived in one burst at the end -- most visible with
-   reasoning on, because thinking makes the wait long.
-
-4. **Stats.** llama-server's `timings` (tokens per second, prompt size) are
-   handed to `observer`, which the run uses for the context meter and the
-   per-turn stats. Requested per token so the meter moves while generating.
+1. **Thinking.** The stock model builds the request body from a whitelist of
+   keys, silently dropping `chat_template_kwargs`. Without this override
+   `enable_thinking=False` never reaches the server, and the template's own
+   default (thinking on) wins.
+2. **Reasoning out.** `delta.reasoning_content` (or `<think>` text) is
+   forwarded as a `reasoning_content` chunk, so Atlas shows thinking apart
+   from the answer.
+3. **Reasoning back in.** `reasoningContent` blocks are sent as each assistant
+   message's `reasoning_content` (see `_format_messages`).
+4. **Real streaming.** `client.stream(...)`: a plain `client.post(...)` makes
+   httpx buffer the whole body, so every model call arrived in one burst.
+5. **Stats.** llama-server's `timings` go to `observer` for the context meter
+   and per-turn stats, per token so the meter moves while generating.
+6. **Documents.** `document` blocks, which llama-server rejects, become a text
+   note (`_sendable`).
 """
 
 from __future__ import annotations
@@ -162,9 +156,9 @@ class AtlasLlamaCppModel(LlamaCppModel):
             elif e.response.status_code == 503:
                 raise ModelThrottledException("llama.cpp server is busy or overloaded") from e
             raise
-        # Anything else propagates unchanged. A substring test for "rate" used to
-        # live here and turned any message containing "generate" into a
-        # throttling error; resilience.py decides what is worth retrying.
+        # Anything else propagates unchanged; resilience.py decides what is
+        # worth retrying. (A substring test for "rate" would also match
+        # "generate" and turn ordinary errors into throttling.)
 
     async def _stream_body(
         self, response: httpx.Response, start_time: float
@@ -205,7 +199,6 @@ class AtlasLlamaCppModel(LlamaCppModel):
             choice = event["choices"][0]
             delta = choice.get("delta", {})
 
-            # 1. Direct reasoning_content delta from llama.cpp / OpenAI format
             reasoning = delta.get("reasoning_content")
             if reasoning:
                 yield self._format_chunk(
@@ -216,10 +209,10 @@ class AtlasLlamaCppModel(LlamaCppModel):
                     }
                 )
 
-            # 2. Content delta (with fallback <think>...</think> extraction)
             content = delta.get("content")
             if content:
-                # Check for inline <think> tags if reasoning_content is not used
+                # Fallback for reasoning left inline as <think>...</think>
+                # rather than sent as reasoning_content.
                 if "<think>" in content and not in_think_tag:
                     in_think_tag = True
                     before, _, after = content.partition("<think>")
@@ -270,7 +263,6 @@ class AtlasLlamaCppModel(LlamaCppModel):
                         }
                     )
 
-            # Handle tool calls
             if "tool_calls" in delta:
                 for tool_call in delta["tool_calls"]:
                     index = tool_call["index"]
@@ -283,7 +275,6 @@ class AtlasLlamaCppModel(LlamaCppModel):
 
         yield self._format_chunk({"chunk_type": "content_stop"})
 
-        # Process tool calls
         for tool_deltas in tool_calls.values():
             first_delta = tool_deltas[0]
             yield self._format_chunk(
@@ -330,11 +321,9 @@ class AtlasLlamaCppModel(LlamaCppModel):
 
             yield self._format_chunk({"chunk_type": "content_stop"})
 
-        # Send stop reason
         stop_reason = "tool_calls" if (finish_reason == "tool_calls" or tool_calls) else (finish_reason or "end_turn")
         yield self._format_chunk({"chunk_type": "message_stop", "data": stop_reason})
 
-        # Send usage metadata if available
         if usage_data:
             latency_ms = int((time.perf_counter() - start_time) * 1000)
             cached_tokens = (usage_data.get("prompt_tokens_details") or {}).get("cached_tokens", 0)

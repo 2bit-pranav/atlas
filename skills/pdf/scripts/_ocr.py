@@ -1,20 +1,16 @@
 """OCR for the parts of a PDF that have no text layer.
 
-`read_pdf.py` decides per page, so one command reads any PDF:
+Used by `read_pdf.py`, which decides per page:
 
-* a page with a text layer gives its text, as before;
+* a page with a text layer gives its text;
 * a page with (almost) no text layer -- a scan, a photo of a page -- is
   rendered and read with OCR;
 * a text page that also carries a large picture (a scanned table pasted into
   a report) gets that picture read too, kept only when it holds real text.
 
-The model never chooses between "text" and "scanned" commands: earlier it
-reached for the first reader it saw, whatever the file was.
-
-RapidOCR runs PaddleOCR's models on onnxruntime, on the CPU, with no system
-install (no Tesseract). About 1.5-2 s per page. Results are cached beside the
-document's extracted images, so reading the same scanned pages again is
-instant.
+RapidOCR runs PaddleOCR's models on onnxruntime on the CPU, with no system
+install (no Tesseract); about 1.5-2 s per page. Results are cached beside the
+document's extracted images, so re-reading the same pages is instant.
 """
 
 from __future__ import annotations

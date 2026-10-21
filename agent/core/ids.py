@@ -1,19 +1,12 @@
-"""Identifiers and timestamps, in the one convention this project uses.
+"""ULIDs for launch ids.
 
-A leaf utility under `core/` because both the CLI (launch ids) and the store
-(row ids) need it, and the ground rule here is that a layer never imports from
-a higher one.
+A leaf module under `core/` so the CLI can use it without importing anything
+above it. Chat and turn rows use `uuid4().hex` (`chats.py`) instead.
 
-**26 characters of Crockford base32:** 10 characters of millisecond timestamp
-followed by 16 characters (80 bits) of randomness. Lexicographic order matches
-creation order, which makes `ORDER BY id` a usable creation-time sort and keeps
-debug logs readable -- two properties that matter more here than they sound,
-because a chat transcript is read by eye far more often than it is queried.
-
-Deliberately *not* monotonic within a single millisecond. Making it so would
-mean incrementing the random component on collision, and every row id in this
-project is a `uuid4().hex` from the store anyway -- ULIDs are for launch ids,
-where ordering actually matters. Uniqueness comes from the 80 random bits.
+26 characters of Crockford base32: 10 of millisecond timestamp, then 16 (80
+bits) of randomness. Lexicographic order matches creation order, so `ORDER BY
+id` sorts by time and logs read in order. Deliberately not monotonic within one
+millisecond; uniqueness comes from the 80 random bits.
 """
 
 from __future__ import annotations
@@ -38,14 +31,4 @@ def new_ulid() -> str:
     return "".join(reversed(chars))
 
 
-def now_ms() -> int:
-    """Integer epoch milliseconds, the project's timestamp convention.
-
-    Named rather than inlined because the unit is the thing that gets forgotten:
-    the store writes `time.time() * 1000` and the API serves it unchanged, so a
-    client that multiplies again puts every timestamp in the year 58000.
-    """
-    return int(time.time() * 1000)
-
-
-__all__ = ["CROCKFORD", "ULID_LENGTH", "new_ulid", "now_ms"]
+__all__ = ["CROCKFORD", "ULID_LENGTH", "new_ulid"]

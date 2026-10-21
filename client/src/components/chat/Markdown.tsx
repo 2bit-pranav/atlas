@@ -23,7 +23,7 @@ const remarkPlugins = [remarkGfm, remarkMath]
 const rehypePlugins = [[rehypeHighlight, { detect: true, ignoreMissing: true }], rehypeKatex] as never
 
 /** Split at blank lines that are not inside a ``` fence. */
-export function splitBlocks(text: string): string[] {
+function splitBlocks(text: string): string[] {
   const lines = text.split("\n")
   const blocks: string[] = []
   let current: string[] = []

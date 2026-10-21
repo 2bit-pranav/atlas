@@ -1,10 +1,10 @@
 /**
- * MCP servers: connect, switch tools on and off, and find new servers.
+ * MCP servers: connect, set each tool On / Ask / Off, and find new servers.
  *
- * Every tool schema is sent with every request, which on a 32k window and a 2B
- * model is the real cost of MCP -- so token estimates are shown per tool, per
- * server, and against the context window, and tools can be switched off
- * individually rather than only by server.
+ * Every enabled tool's schema is sent with every request, which for a small
+ * model on a small context window is the real cost of MCP. So token estimates
+ * are shown per tool, per server and against the context window, and tools
+ * are set one by one rather than only per server.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -365,5 +365,3 @@ function Registry({ onPick }: { onPick: (server: RegistryServer, option: Registr
     </div>
   )
 }
-
-export default McpPage

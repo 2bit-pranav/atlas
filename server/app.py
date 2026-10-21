@@ -13,8 +13,7 @@ whose model history lives in Strands snapshots.
             snapshot, so it can never become the parent of a follow-up
 
 Everything is under `/api` so the frontend can own `/settings`, `/skills` and
-`/mcp` as pages: the dev proxy used to forward `/settings` to the backend,
-which would have swallowed the settings page.
+`/mcp` as page paths without the dev proxy forwarding them to the backend.
 """
 
 from __future__ import annotations
@@ -53,7 +52,6 @@ from agent.core.settings import (
     TIERS,
     Settings,
     SettingsError,
-    Tier,
     changed_restart_keys,
     flatten,
     load_settings,
@@ -72,7 +70,7 @@ from server.transcript import answer_of
 logger = logging.getLogger(__name__)
 
 
-# ----------------------------------------------------------------- models --
+# ---------------------------------------------------------- request bodies --
 
 
 class CreateChat(BaseModel):
@@ -232,8 +230,8 @@ class Atlas:
         run.workspace_before = _scan(self.chat_dir(run.chat_id))
         try:
             manager = sm.manager()
-            # Building restores a snapshot from disk and constructs the harness:
-            # blocking work that used to stall every SSE stream while it ran.
+            # Building restores a snapshot from disk: blocking work that would
+            # stall every open SSE stream if it ran on the event loop.
             agent = await asyncio.to_thread(
                 build_agent, settings, chat_id=run.chat_id, thinking=thinking,
                 restore_snapshot_id=turn["before_snap"], session_manager=manager,
@@ -305,9 +303,8 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     async def lifespan(_: FastAPI):
         loop = asyncio.get_running_loop()
         if sys.platform == "win32" and "Proactor" not in type(loop).__name__:
-            # Subprocesses are unsupported on the Selector loop, so every shell
-            # call (and so every skill) would fail with a blank
-            # NotImplementedError. `uvicorn --reload` is the usual cause.
+            # The Selector loop cannot start subprocesses (see server/main.py).
+            # `uvicorn --reload` is the usual cause.
             logger.error("running on %s: shell tools will not work. Start the backend "
                          "with `atlas start`, or uvicorn WITHOUT --reload.",
                          type(loop).__name__)
@@ -655,7 +652,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     app.state.settings_view = settings_view
     app.include_router(api)
 
-    # Phase 2 routes (skills, MCP) register onto the same router prefix.
+    # Skills and MCP routes, also under /api.
     from server.extensions import register as register_extensions  # noqa: PLC0415
 
     register_extensions(app, state)
@@ -718,7 +715,8 @@ _MENTION = re.compile(r'(?<![\w@])@(?:"([^"\n]+)"|([\w.-]+))')
 
 def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
                       workspace: Path | None = None) -> str:
-    """`@name` in a message, resolved against skills, tools and MCP servers.
+    """`@name` in a message, resolved against workspace files, MCP servers,
+    tools and skills.
 
     The composer's @ menu inserts these. A small model needs the instruction
     spelled out: asked to "use @fetch" it would otherwise still pick whichever

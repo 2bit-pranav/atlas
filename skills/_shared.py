@@ -1,25 +1,20 @@
 """Shared output helpers for the Atlas skill scripts (skills/AGENTS.md).
 
-Every script here is a ready-made command-line tool that the model runs through
-`shell`. It never writes library code: asking a 2B model to write correct
-`python-docx` code is a bad bet, and asking it to run a script that already
-exists is not.
+Each script is a ready-made command the model runs through `shell`: a 2B model
+runs an existing script reliably and writes library code badly.
 
-**The token budget is the important part.** A tool result goes straight into
-the context window. One careless `read` of a 400-page PDF would fill 32k tokens
-and there would be no room left to answer the question. So every script:
+**The token budget is the important part.** Output goes straight into a 32k
+context window, so every script:
 
 * prints at most ~1500 tokens by default;
 * says plainly that it truncated, and which flag shows more;
-* never silently returns partial data as if it were complete.
+* never returns partial data as if it were complete.
 
-The last one matters more than the limit. A model that cannot tell "here is
-everything" from "here is the first page" will confidently answer from a
-fragment, and the user has no way to notice.
+The last matters most: a model that cannot tell "everything" from "the first
+page" answers confidently from a fragment.
 
-Libraries are chosen for speed and availability, not sophistication. There is
-no Docling and no VLM here: a scanned PDF has no text layer to read, and
-pretending otherwise would produce an empty document described as a failure.
+Failures are one line (`fail`, `require`), never a traceback: a traceback is
+noise to read past, and a missing-module one provokes `pip install`.
 """
 
 from __future__ import annotations
@@ -31,7 +26,6 @@ from typing import Any
 #: Roughly four characters per token for English prose and tables.
 CHARS_PER_TOKEN = 4
 
-#: Default output budget: about 1,500 tokens.
 DEFAULT_BUDGET_TOKENS = 1500
 
 
@@ -42,8 +36,8 @@ def budget_to_chars(tokens: int) -> int:
 def truncate(text: str, limit: int, *, more_hint: str) -> tuple[str, bool]:
     """Cut to `limit` characters and say so, with the flag that shows more.
 
-    Returns (text, was_truncated). The marker is appended *inside* the limit so
-    the script never overruns its own budget by adding an explanation.
+    Returns (text, was_truncated). The marker fits *inside* the limit, so the
+    explanation never overruns the budget.
     """
     if len(text) <= limit:
         return text, False
@@ -57,16 +51,10 @@ def header(**fields: Any) -> str:
 
 
 def fail(message: str, *, hint: str = "") -> int:
-    """Report a failure in a form the model can act on, and exit non-zero.
+    """Print `ERROR: message` (and an optional hint) to stderr; return exit code 2.
 
-    Never a traceback. A stack trace in a tool result is noise the model has to
-    read past, and it hides the one sentence that says what to do instead.
-
-    `ModuleNotFoundError` gets special handling, because it is the one failure a
-    model reliably "fixes" the wrong way: it responds by running `pip install`,
-    which writes to a user site-packages directory, changes nothing about the
-    interpreter the skill actually runs under, and leaves the environment
-    quietly diverged from the project. The message says what is wrong instead.
+    A missing module is reworded, because a model "fixes" it with `pip install`,
+    which lands in a different interpreter and changes nothing.
     """
     if isinstance(message, str) and "ModuleNotFoundError" in message:
         package = message.rsplit("No module named", 1)[-1].strip().strip("'\"").split("'")[0]
@@ -87,16 +75,11 @@ def fail(message: str, *, hint: str = "") -> int:
 def unquote(value: str) -> str:
     """Strip quoting a shell left behind.
 
-    Windows `cmd.exe` does not process quotes the way a POSIX shell does, so an
-    argument the model carefully wrapped in `"..."` or `'...'` can arrive here
-    with the quote characters still attached. `cmd /c script.py "C:\\data\\a.xlsx"`
-    has been observed reaching argparse as `"C:\\data\\a.xlsx"`, which fails with
-    `no such file: "C:\\data\\a.xlsx"` -- an error that points at the filesystem
-    when the real problem is a character of punctuation.
+    Under Windows `cmd.exe` an argument wrapped in `"..."` or `'...'` can reach
+    argparse with the quotes attached, which then fails as `no such file`.
 
-    Stripped repeatedly rather than once, so an argument that was quoted *and*
-    left with a stray pair survives. Paired quotes only: an unbalanced one is
-    more likely to be a legitimate character in the value than bad quoting.
+    Stripped repeatedly, so a doubly quoted value survives. Paired quotes only:
+    an unbalanced one is more likely part of the value than bad quoting.
     """
     value = value.strip()
     while len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
@@ -107,17 +90,14 @@ def unquote(value: str) -> str:
 def join_sql(parts: list[str]) -> str:
     """Rebuild a SQL statement that the shell split into pieces.
 
-    A statement has spaces in it, so any quoting that survives `cmd.exe` is
-    tokenised on those spaces before argparse ever sees it:
+    Quoting that survives `cmd.exe` is still split on spaces before argparse:
 
         'SELECT SUM("revenue") FROM "Mar"'
         -> ['SELECT, SUM(revenue), FROM, Mar']
 
-    Every one of those fragments still carries the right characters, so joining
-    them back with single spaces reconstructs the statement exactly. This is
-    why the fix is here rather than in a quoting instruction in `SKILL.md`: a
-    2B model will get the quoting wrong again, and a script that tolerates
-    mangled quoting cannot be broken by it.
+    The fragments keep the right characters, so joining them with single spaces
+    rebuilds the statement. Tolerated here rather than documented in SKILL.md
+    because a 2B model will get the quoting wrong again.
     """
     return " ".join(parts).replace("\n", " ").strip()
 
@@ -125,15 +105,9 @@ def join_sql(parts: list[str]) -> str:
 def require(*names: str) -> tuple[Any, ...]:
     """Import third-party libraries, failing with a message the model can use.
 
-    A bare `import duckdb` at module scope raises before `main_wrapper` can catch
-    anything, so the model received a four-line traceback and responded by
-    running `pip install duckdb` -- which writes to a user site-packages
-    directory, fixes nothing, and leaves the environment quietly diverged from
-    the project.
-
-    So every script imports its heavy dependencies through here. The one failure
-    this skill must never produce is a model patching its own environment, and a
-    traceback is what provokes it.
+    A bare module-level import fails before `main_wrapper` can catch it, and
+    the traceback provokes `pip install`, which lands in a different
+    interpreter and fixes nothing. So scripts import third-party libraries here.
     """
     import importlib
 
@@ -151,7 +125,8 @@ def require(*names: str) -> tuple[Any, ...]:
 
 
 def resolve(path: str) -> Path:
-    """Accept an absolute path, or resolve relative to the chat directory."""
+    """An absolute path as is; a relative one is tried in each chat folder under
+    ./data/chats, else returned unchanged (relative to the cwd)."""
     path = unquote(path)
     candidate = Path(path)
     if candidate.is_absolute():
@@ -239,6 +214,7 @@ def images_dir(source: Path) -> Path:
 def image_line(path: Path, caption: str) -> str:
     """How an image is printed: Markdown that create_document accepts as is."""
     return f"![{caption}]({path.resolve().as_posix()})"
+
 
 # ------------------------------------------------------------------ pages --
 

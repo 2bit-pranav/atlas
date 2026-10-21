@@ -1,20 +1,13 @@
 """Runs: one active at a time, outliving the frontend (server/AGENTS.md).
 
-A run is an `asyncio` task plus an in-memory event buffer. The buffer is the
-whole persistence story: a run that finishes leaves its events, and they are
-dropped shortly after. Nothing goes to disk, because the *messages* are already
-in Strands' snapshot -- an event log would be a second copy of the same thing
-with a schema to keep in sync.
+A run is an `asyncio` task plus an in-memory event buffer, dropped a few
+minutes after the run ends. Nothing goes to disk: the messages are already in
+Strands' snapshot, and an event log would be a second copy with its own schema.
+The price is that a backend crash loses the partial text; the turn becomes
+`interrupted` and retry recovers it.
 
-Consequences, all deliberate:
-
-* Closing the browser does not touch a run. The task belongs to the server.
-* A reopened frontend resumes with `GET /runs/{id}/events?after=<n>` and gets
-  everything it missed, then live events. No gaps, no duplicates.
-* A backend crash loses the partial text. The turn becomes `interrupted` and
-  retry is the recovery. That is the price of no event log, and it is the right
-  trade: the answer is regenerable, an event log is not.
-* One run at a time; a second start returns 409.
+A reopened frontend resumes with `GET /runs/{id}/events?after=<n>` and gets
+everything it missed, then live events.
 """
 
 from __future__ import annotations
@@ -77,9 +70,8 @@ class Run:
     def observe(self, event: dict[str, Any]) -> None:
         """The model's and the retry strategy's side channel into the run.
 
-        `timings` arrive with every generated token; they are folded every time
-        but emitted at most four times a second, which is as fast as a context
-        meter can usefully move and keeps the event buffer small.
+        `timings` arrive with every generated token. They are always folded but
+        emitted at most four times a second, which keeps the buffer small.
         """
         kind = event.get("type")
         if kind == "timings":
@@ -180,7 +172,7 @@ class RunManager:
             raise RunConflict("a run is already active")
 
     def adopt(self, run: Run) -> None:
-        """Mark a run finished and free the slot."""
+        """Free the active slot once a run has ended."""
         if self._active == run.id:
             self._active = None
 
@@ -194,7 +186,7 @@ class RunManager:
         # A pending question would otherwise hold the run until it times out.
         run.deny_all()
         if run.agent is not None:
-            # The documented path. Also sets the signal the model watches.
+            # Strands' own cancel; it also sets the signal the model watches.
             try:
                 run.agent.cancel()
             except Exception:  # noqa: BLE001
@@ -204,12 +196,7 @@ class RunManager:
     # ------------------------------------------------------------- stream --
 
     async def stream(self, run: Run, after: int = 0) -> AsyncIterator[dict[str, Any]]:
-        """Replay from `after`, then follow live.
-
-        This is what makes a reloaded frontend work: the client sends the last
-        sequence number it saw and receives everything after it, whether that
-        happened while it was closed or is happening now.
-        """
+        """Replay from `after` (the first seq the client has not seen), then follow live."""
         index = max(0, after)
         while True:
             while index < len(run.events):

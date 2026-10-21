@@ -60,7 +60,6 @@ const json = (method: string, body?: unknown): RequestInit => ({
 
 // ------------------------------------------------------------------ chats --
 
-export const health = () => request<{ status: string }>("/health")
 export const listChats = () => request<ChatSummary[]>("/chats")
 export const createChat = (title = "") => request<ChatSummary>("/chats", json("POST", { title }))
 export const getChat = (id: string) => request<ChatView>(`/chats/${id}`)
@@ -108,8 +107,8 @@ export interface EventStream {
 
 /**
  * Server-sent events over `fetch`, not `EventSource`: EventSource reconnects
- * on its own with no way to say where to resume, which is how a dropped
- * connection used to replay a sentence.
+ * on its own with no way to say where to resume, so a dropped connection
+ * would replay text already shown.
  */
 export function streamRun(runId: string, after: number, onEvent: (e: RunEvent) => void): EventStream {
   const controller = new AbortController()

@@ -1,17 +1,14 @@
 ﻿"""Aggregate a spreadsheet with SQL, read-only.
 
-This is the tool that answers "what is the total for March". The previous build
-did it with DuckDB and a writable connection; that turned out to be a liability
-rather than a feature -- a second process holding the database file open meant
-every tool call failed with an IOError that read like a product bug, and one
-spreadsheet should never need a database server.
+    python query_xlsx.py sales.xlsx --schema
+    python query_xlsx.py sales.xlsx "SELECT SUM(revenue) FROM Mar"
 
-So: load the sheets into an in-memory DuckDB, query, discard. Nothing is
-written, nothing is locked, and the file on disk is never modified.
+Answers questions like "what is the total for March". Each sheet is loaded
+into an in-memory DuckDB table, queried, and discarded: no database file, so
+nothing to lock, and the spreadsheet on disk is never modified.
 
-**Read-only by construction.** Only `SELECT` is accepted. A spreadsheet is
-someone's source data; the failure mode of a wrong query here is a mangled file,
-which is far worse than a wrong number.
+**Read-only.** Only `SELECT` is accepted: a spreadsheet is someone's source
+data, and a mangled file is far worse than a wrong number.
 """
 
 from __future__ import annotations
@@ -39,8 +36,7 @@ from _shared import (  # noqa: E402
 duckdb, openpyxl = require("duckdb", "openpyxl")
 
 #: Anything that is not a plain read. Checked before the query runs, because
-#: DuckDB happily accepts DDL on an in-memory table and the point is that a
-#: read tool never writes.
+#: DuckDB would accept DDL and writes, and a read tool must never write.
 FORBIDDEN = re.compile(
     r"\b(insert|update|delete|drop|create|alter|attach|copy|install|load|"
     r"export|call|pragma|set|reset|merge|truncate)\b",
@@ -53,11 +49,9 @@ def quote(name: str) -> str:
 
 
 def load(path: Path, con, only: str = "") -> tuple[list[str], int]:
-    """Returns (sheet names, number of cells coerced to NULL).
+    """Load `only` (or every sheet) as tables; return (sheet names, cells coerced to NULL).
 
-    The coercion count is returned so the caller can print it. Hiding it would
-    mean a column silently lost five values and reported a total that is
-    quietly 5 short of the truth.
+    The coercion count is printed, so a total missing some values says so.
     """
     book = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
     names = [only] if only else book.sheetnames
@@ -73,7 +67,7 @@ def load(path: Path, con, only: str = "") -> tuple[list[str], int]:
             continue
         columns = [str(c).strip() or f"column_{i + 1}"
                    for i, c in enumerate(header)]
-        # Duplicate or empty header names would make the CREATE ambiguous.
+        # Duplicate header names would make the CREATE ambiguous: suffix them.
         seen: dict[str, int] = {}
         unique = []
         for col in columns:
@@ -86,16 +80,9 @@ def load(path: Path, con, only: str = "") -> tuple[list[str], int]:
         rows = [tuple(r) for r in rows if any(v is not None for v in r)]
         if not rows:
             continue
-        # Column TYPES are mandatory in DuckDB 1.5: `CREATE TABLE t (a, b)`
-        # fails with "syntax error at end of input", which looks like a
-        # malformed statement rather than a missing type.
-        #
-        # They are inferred from the data rather than left as VARCHAR, because
-        # SUM over a VARCHAR column fails -- and "what is the total" is the
-        # single most common question asked of a spreadsheet. A column that
-        # looks numeric is DOUBLE; anything else stays text. Mixed columns fall
-        # back to VARCHAR, which is the safe direction: a number stored as text
-        # is visible, whereas a silently mistyped number is not.
+        # DuckDB requires column types (`CREATE TABLE t (a, b)` is a syntax
+        # error). They are inferred rather than all VARCHAR because SUM over
+        # VARCHAR fails, and "what is the total" is the most common question.
         types = [
             _infer_type([r[i] if i < len(r) else None for r in rows])
             for i in range(len(unique))
@@ -116,14 +103,9 @@ def load(path: Path, con, only: str = "") -> tuple[list[str], int]:
 
 
 #: Fraction of a column that must be numeric for it to be typed DOUBLE.
-#: Real spreadsheets are messy: the `revenue` column of samples/sales.xlsx is
-#: {float, str} because a handful of rows carry a placeholder like "n/a". A
-#: strict all-or-nothing rule types that column VARCHAR, and then the single
-#: most common question -- SUM(revenue) -- fails with
-#: `sum(VARCHAR)`. So a column is DOUBLE when it is overwhelmingly numeric, and
-#: the odd non-numeric cell becomes NULL. The count of coerced cells is printed
-#: in the header: a silent coercion would be a wrong number, which is the one
-#: failure this whole skill must not have.
+#: Real columns carry the odd placeholder ("n/a"); an all-or-nothing rule
+#: would type them VARCHAR and make SUM fail. The odd non-numeric cell becomes
+#: NULL instead, and the count is printed so the coercion is never silent.
 NUMERIC_MAJORITY = 0.9
 
 
@@ -145,12 +127,8 @@ def _infer_type(values: list) -> str:
 
 
 def _blank_non_numeric(row: tuple, types: list) -> tuple:
-    """NULL out cells that do not match their column's type.
-
-    Only applied to DOUBLE columns. This is what lets SUM work on a column that
-    is 95% numbers and 5% placeholders, without pretending the placeholders
-    were zero.
-    """
+    """NULL out non-numeric cells in DOUBLE columns (NULL, not zero, so they
+    do not distort SUM or AVG)."""
     out = list(row)
     for i, kind in enumerate(types):
         if kind != "DOUBLE" or i >= len(out):
@@ -164,9 +142,9 @@ def _blank_non_numeric(row: tuple, types: list) -> tuple:
 
 
 def _coerced_count(rows: list, types: list, width: int) -> int:
+    """How many cells `_blank_non_numeric` will turn into NULL."""
     total = 0
     for row in rows:
-        cleaned = _blank_non_numeric(row, types)
         for i, kind in enumerate(types):
             if kind == "DOUBLE" and i < len(row):
                 v = row[i]
@@ -179,15 +157,10 @@ def _coerced_count(rows: list, types: list, width: int) -> int:
 def _cell(value: object) -> str:
     """One result cell, as text worth reading.
 
-    Binary floating point makes `SUM(revenue)` come back as `425184.6699999999`.
-    That is the correct double, and it is the wrong thing to show: a total with
-    ten decimal places reads as a precision problem in the *data* rather than in
-    the arithmetic, and it invites the user to distrust a number that is right.
-
-    So a float is printed at the shortest of 2, 3, 4, 5 or 6 decimal places that
-    still round-trips to within relative 1e-9. Money lands on 2dp, a mean on 4 or
-    6, and anything genuinely more precise keeps its digits. Integers stay
-    integers, so a row count is never rendered as `4.00`.
+    Floating point turns a total into `425184.6699999999`, which reads as bad
+    data. So a float prints at the fewest of 2-6 decimal places that stays
+    within relative 1e-9 (money lands on 2dp); anything more precise keeps
+    its digits, and whole numbers print as integers, never `4.00`.
     """
     if value is None:
         return ""
@@ -198,16 +171,12 @@ def _cell(value: object) -> str:
     if isinstance(value, float):
         if value != value or value in (float("inf"), float("-inf")):
             return str(value)
-        # A whole number is a whole number. `4.0` came back from an aggregate,
-        # not from a quantity that has four decimal places, and `4.00` invites
-        # the reader to wonder which digits are real.
         if value.is_integer():
             return str(int(value))
         tolerance = 1e-9 * max(1.0, abs(value))
         for places in range(2, 7):
             rounded = round(value, places)
-            # Never round a non-zero value to zero: `1e-9` is a real quantity and
-            # `0.00` is a different, wrong answer.
+            # Never round a non-zero value to `0.00`.
             if rounded == 0 and value != 0:
                 continue
             if abs(value - rounded) <= tolerance:
@@ -219,12 +188,8 @@ def _cell(value: object) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Query a spreadsheet with SQL")
     parser.add_argument("path")
-    # nargs="*" and rejoined by hand. A SQL statement contains spaces, so any
-    # quoting that survives `cmd.exe` gets split on them before argparse runs;
-    # the fragments still carry the right characters, so joining them back
-    # reconstructs the statement exactly. A single-argument version of this
-    # failed with `unrecognized arguments: SUM(revenue) FROM Mar'` on a query
-    # that was perfectly correct as written.
+    # nargs="*" and rejoined by join_sql: `cmd.exe` can split a quoted statement
+    # on its spaces, and a single argument would then fail as "unrecognized".
     parser.add_argument("sql", nargs="*", help="a SELECT statement")
     parser.add_argument("--sheet", default="",
                         help="load only this sheet (faster on wide workbooks)")
@@ -238,10 +203,7 @@ def main() -> int:
         return fail(f"no such file: {path}")
 
     sql = unquote(join_sql(args.sql)).rstrip(";")
-    # `--schema` is a question in its own right, so it is answered before SQL is
-    # required. Previously `query_xlsx.py <path> --schema` answered "the SQL
-    # argument is empty", which is a confusing way to be told how to find the
-    # column names you were trying to ask about.
+    # `--schema` needs no SQL; it is how the model finds the names to query.
     want_schema = args.schema
     if not sql and not want_schema:
         return fail(

@@ -163,6 +163,5 @@ def register(app: FastAPI, state: Any) -> None:
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(502, f"the MCP registry could not be reached: {exc}") from exc
 
-    # `/mcp/registry` must win over `/mcp/{name}`-shaped routes; it is GET-only
-    # and no GET route takes a name, so registration order is enough.
+    # No GET route matches `/mcp/{name}`, so `/mcp/registry` is never shadowed.
     app.include_router(api)

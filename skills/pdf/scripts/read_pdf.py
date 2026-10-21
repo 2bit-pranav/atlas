@@ -1,15 +1,16 @@
 ﻿"""Read a PDF: its text layer, and OCR wherever there is none.
 
-One command for every PDF, decided per page (`_ocr.py`): text pages give
-their text layer (pypdfium2, fast and exact); scanned pages are rendered and
-read with OCR; large pictures on text pages are read too when they hold text.
-A mixed document -- typed pages with scanned ones in between -- comes out in
-page order with each scanned page marked. The model never picks between a
-"text" and a "scanned" reader: given two, it took the first it saw.
+    python read_pdf.py report.pdf --pages 1-3
+    python read_pdf.py report.pdf --search net revenue
 
-**A page with nothing readable returns an error, not an empty answer.** If
-even OCR finds no writing, "" would let the model report "the document
-contains no information"; the script says what is true instead.
+One command for every PDF, decided per page (`_ocr.py`): text pages give their
+text layer (pypdfium2); scanned pages are read with OCR; large pictures on text
+pages are read too when they hold text. Scanned pages are marked in the output.
+There is deliberately no separate "scanned" reader: given two, the model takes
+the first it sees.
+
+**Nothing readable is an error, not an empty answer**, so the model cannot
+report "the document contains no information".
 """
 
 from __future__ import annotations
@@ -40,11 +41,10 @@ import _ocr  # noqa: E402 - beside this script
 
 
 def parse_pages(spec: str, total: int) -> list[int]:
-    """`1-3,7` -> [0, 1, 2, 6] (1-based in, 0-based out).
+    """`1-3,7` -> [0, 1, 2, 6] (1-based in, 0-based out), sorted and deduplicated.
 
-    `all` is accepted because the SKILL.md documents it. It was not, and the
-    failure mode was an error message about "no pages in --pages 'all'" -- a
-    correct message about an input the docs told the model to send.
+    `all` / `*` mean every page (SKILL.md documents `all`). Unparseable parts and
+    pages out of range are dropped; the caller fails if nothing is left.
     """
     if (spec or "").strip().lower() in ("all", "*"):
         return list(range(total))
@@ -104,9 +104,8 @@ def main() -> int:
     parser.add_argument("path", help="path to the PDF")
     parser.add_argument("--pages", default="1-2",
                         help="page range, 1-based, e.g. 1-3 or 1,4,7")
-    # nargs="*" for the same reason query_xlsx's SQL takes it: `cmd.exe` splits a
-    # quoted value on its spaces before argparse sees it, so a two-word search
-    # term arrives as three arguments and the extras are rejected.
+    # nargs="*" and rejoined: `cmd.exe` can split a quoted multi-word term on
+    # its spaces before argparse sees it (see _shared.join_sql).
     parser.add_argument("--search", nargs="*", default=[],
                         help="print only pages containing this text")
     parser.add_argument("--no-images", action="store_true",
@@ -147,9 +146,8 @@ def main() -> int:
         per_page = max(200, limit // max(1, len(hits)))
         body = []
         for i, text in hits:
-            # Show the match in context, not just the whole page. A search hit
-            # buried in 3000 characters is a search hit the model has to
-            # re-find.
+            # A snippet around the match, not the whole page, so the model does
+            # not have to re-find it.
             low = text.lower()
             at = low.find(needle)
             start = max(0, at - 300)
@@ -174,16 +172,14 @@ def main() -> int:
         text = page_text(doc, i, cache, ocr_pages, use_ocr=not args.no_ocr)
         pictures = [] if args.no_ocr or (i + 1) in ocr_pages else _ocr.read_pictures(doc[i], i, cache)
         ocr_pictures += len(pictures)
-        # On a scanned page, the image that is the page itself is not offered:
-        # its text is above, and a rewrite would carry the page twice. A
-        # diagram on an otherwise empty page is still offered.
+        # On a scanned page the page-sized scan is not saved as an image: its
+        # text is already above, and a rewrite would carry the page twice.
         skip = _ocr.page_sized(doc[i]) if (i + 1) in ocr_pages else set()
         found = [] if args.no_images else page_images(doc, i, path, budget, skip)
         images += len(found)
         if not text.strip() and not pictures and not found:
             empty_pages.append(i + 1)
-        # Images go after the page's text: their place in the page is not
-        # recoverable from the text layer, and "after" keeps them on the page.
+        # Images follow the page's text: their position within it is unknown.
         title = f"--- page {i + 1} of {total}{' (scanned, read by OCR)' if (i + 1) in ocr_pages else ''} ---"
         chunks.append("\n".join([title, text.strip(), *pictures, *found]).strip())
     cache.save()

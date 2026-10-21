@@ -1,13 +1,12 @@
 """
-Settings: the single source of truth.
+Settings: the schema of `settings.json`, and the only one.
 
-`settings.json` is read, validated, and split into two tiers:
+Every key has a tier (`TIERS`):
 
-- restart: read once at launch and baked into the spawned llama-server.
+- restart: read once at launch and baked into llama-server or the process.
   Changing one requires a restart.
-- live: read fresh for every turn. A run snapshots the resolved live
-  values, so a run is reproducible even if the file changes mid-flight. This
-  is why the agent is rebuilt on every turn rather than cached.
+- live: read when the next turn's agent is built, which is why the agent is
+  rebuilt every turn rather than cached.
 
 Every new knob is added here first, then read by exactly one manager in
 `agent/core/`. A manager never parses the file itself.
@@ -18,7 +17,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -32,32 +31,31 @@ class Tier(str, Enum):
 
 class StrictModel(BaseModel):
     """
-    Refuse unknown keys.
-    A typo in `settings.json` is otherwise silently ignored, and the symptom
-    is a behaviour that does not change no matter what you set.
+    Refuse unknown keys. Otherwise a typo in `settings.json` is silently
+    ignored, and the symptom is a behaviour that does not change no matter
+    what you set.
     """
 
     model_config = ConfigDict(extra="forbid")
 
 
 class ModelSettings(StrictModel):
-    """The local models and the llama-server that serves them.
+    """The local model and the llama-server that serves it.
 
-    llama-server runs in router mode: it serves every model under `dir`, one
-    subfolder each (`llm/gemma/` -> model `gemma`, its mmproj found beside it),
-    loading on demand. `name` is the one loaded at start and used for chats.
-    The other values are llama-server flags and apply to every model.
+    llama-server serves one model, `name`, found under `dir` (`llm/gemma/` ->
+    model `gemma`, its mmproj beside it; see `llama.py`). Changing it means a
+    restart. The other values are llama-server flags.
     """
 
     #: The models folder, relative to the application root.
     dir: str = "llm"
-    #: The default model: a subfolder of `dir`.
+    #: The model to serve: a subfolder of `dir`, or a loose .gguf's stem.
     name: str = ""
 
     @model_validator(mode="before")
     @classmethod
     def _from_single_model(cls, data: Any) -> Any:
-        """settings.json from before router mode named one GGUF file.
+        """An older settings.json named one GGUF file as `path`.
 
         `path: llm/gemma/x.gguf` becomes `dir: llm`, `name: gemma`, so an old
         file still loads and means the same model.
@@ -78,7 +76,7 @@ class ModelSettings(StrictModel):
     flash_attention: bool = True
     jinja: bool = True
     reasoning: str = "auto"
-    parallel_slots: int = Field(default=1, gt=0) # 1 slot only since no parallel work 
+    parallel_slots: int = Field(default=1, gt=0) # one slot: Atlas sends one request at a time
     supports_thinking: bool = True
     supports_vision: bool = True
 
@@ -106,7 +104,7 @@ class SamplingSettings(StrictModel):
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     repeat_penalty: float = Field(default=1.0, gt=0.0)
-    thinking: bool = False # no effort level settings yet
+    thinking: bool = False
 
 
 class LlamaCppSettings(StrictModel):
@@ -129,12 +127,12 @@ class BuiltinToolSettings(StrictModel):
 class ToolsSettings(StrictModel):
     builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
     documents: bool = True # built-in `create_document` and `edit_document` (agent/core/documents.py).
-    interventions: bool = False # off for now because of missing UI
+    interventions: bool = False # the UI cannot answer harness interventions (ToolManager.interventions)
 
 
 class SkillSettings(StrictModel):
     dir: str = "skills"
-    # skills to turn off. might contain dead/unknown values of deleted disabled skills
+    #: Skill folders switched off. May name skills that have since been deleted.
     disabled: list[str] = Field(default_factory=list)
 
 
@@ -150,22 +148,13 @@ class McpSettings(StrictModel):
     startup_timeout: float = Field(default=30.0, gt=0) # seconds to wait for one server to start and list its tools.
 
 
-# turned off indefinitely because information leaks across branches for edits
 class MemorySettings(StrictModel):
     """
-    Long-term memory (docs/decisions.md).
+    Long-term memory: hard-wired off (`memory_manager.py`, docs/decisions.md).
 
-    **Hard-wired off.** This is not merely a default we might revisit: with a
-    `Model` instance the harness reuses that same model to distil facts, and
-    extraction runs in a background task whose failure is swallowed -- so a
-    broken extractor is indistinguishable from an isolated one. Worse, the
-    store is a flat directory of `<slug>.md` files with no session, chat or
-    branch in the key, and it is injected on every turn. Branch isolation and
-    long-term memory are structurally incompatible; `restore_snapshot` rewinds
-    the message list and cannot touch the store.
-
-    Enabling this later needs a real design (scope memory per chat, or filter
-    by branch), not just flipping this flag.
+    The harness store has no chat or branch in its key and is injected every
+    turn, and `restore_snapshot` cannot rewind it, so a fact from one branch
+    leaks into every other. Enabling it needs a design, not this flag.
     """
 
     enabled: bool = False
@@ -269,16 +258,16 @@ class SessionSettings(StrictModel):
 
 
 class ContextSettings(StrictModel):
-    """Context trimming. Configuration only, for now.
+    """Context trimming, through a Strands conversation manager.
 
     The harness's own `context_manager` is disabled because its `agentic` mode
-    adds a `retrieve_context` tool and offloads tool results to a stash, which
-    is the same family of cross-branch leak as memory. Trimming proper is not built yet;
-    until then `NullConversationManager` keeps history intact and a long chat
-    will eventually hit the window.
+    adds a `retrieve_context` tool and offloads tool results to a stash, the
+    same family of cross-branch leak as memory. With the default "null"
+    manager history is kept intact, and a long chat will eventually hit the
+    window. `prune_target_ratio` and `generation_reserve` are not read yet.
     """
 
-    #: Disabled until a conversation manager is picked and measured.
+    #: "null" until a trimming manager is picked and measured.
     conversation_manager: str = Field(
         default="null", pattern="^(null|sliding|summarizing)$"
     )
@@ -323,9 +312,8 @@ class Settings(StrictModel):
     system_prompt: str = "" # anything here gets appended to the harness' prompt, not replaced
 
 
-#: The only place that knows which key is which tier. `test_settings_tiers.py`
-#: asserts this covers every leaf of the schema, so a new setting cannot
-#: silently escape tiering.
+#: The only place that knows which key is which tier. It must cover every leaf
+#: of the schema, so a new setting cannot silently escape tiering.
 TIERS: dict[str, Tier] = {
     "model.dir": Tier.RESTART,
     "model.name": Tier.RESTART,
@@ -417,17 +405,8 @@ def flatten(data: Any, prefix: str = "") -> dict[str, Any]:
     return out
 
 
-def iter_leaf_paths(data: Any, prefix: str = "") -> Iterator[str]:
-    for key in flatten(data, prefix):
-        yield key
-
-
 def restart_tier_values(data: dict[str, Any]) -> dict[str, Any]:
     return {k: get_path(data, k) for k, t in TIERS.items() if t is Tier.RESTART}
-
-
-def live_tier_values(data: dict[str, Any]) -> dict[str, Any]:
-    return {k: get_path(data, k) for k, t in TIERS.items() if t is Tier.LIVE}
 
 
 def changed_restart_keys(
@@ -436,9 +415,8 @@ def changed_restart_keys(
     """Restart-tier keys that differ from what the running servers were built with.
 
     `current` is the nested settings dict; `launched_flat` is the *flat*
-    `restart_settings` block of launched.json (`{"model.path": ...}`). They
-    used to be compared with the same nested walk, which found nothing in the
-    flat dict, so every restart key always counted as changed.
+    `restart_settings` block of launched.json (`{"model.name": ...}`), so it
+    is looked up by dotted key, not walked.
 
     A key absent from `launched_flat` is not reported: it was added to the
     schema after that launch, and its default is what the launch ran with.
@@ -519,8 +497,6 @@ __all__ = [
     "changed_restart_keys",
     "flatten",
     "get_path",
-    "iter_leaf_paths",
-    "live_tier_values",
     "load_settings",
     "parse_settings",
     "restart_tier_values",

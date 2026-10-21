@@ -5,7 +5,7 @@
  * Everything is inserted as text -- `@name`, or `@"a name"` when it has
  * spaces -- and the backend turns each known name into an explicit
  * instruction for the model (a file's path and how to read it),
- * which a 2B model needs -- it otherwise reaches for whichever tool looks
+ * which a small model needs -- it otherwise reaches for whichever tool looks
  * closest, the built-in one included.
  */
 

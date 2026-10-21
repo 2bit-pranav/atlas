@@ -3,8 +3,8 @@
  *
  * The backend's `values` are flat dotted keys; this groups them into sections
  * and gives each a label, a control and a sentence of help. A key the schema
- * does not mention still appears, under "Other", so a new backend setting is
- * never invisible -- it just looks plainer until it is described here.
+ * neither describes nor lists in HIDDEN still appears, under "Other", so a new
+ * backend setting is never invisible; it just looks plainer until described.
  */
 
 export type Control =

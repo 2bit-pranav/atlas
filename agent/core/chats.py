@@ -5,7 +5,7 @@ Two tables:
     chats(id, title, selected_root, created_at, updated_at)
     turns(id, chat_id, parent_turn_id, user_text, files_json,
           before_snap, after_snap, status, selected_child,
-          render_json, stats_json, error, created_at)
+          render_json, stats_json, refs_json, error, created_at)
 
 `before_snap` and `after_snap` are Strands snapshot ids, and the snapshots are
 the model's history -- the only copy, owned by Strands. `render_json` is what
@@ -27,7 +27,7 @@ snapshots in Strands' storage -- and the new turn takes their place under the
 same parent. An edit rewrites history from that point; keeping the old future
 around would mean keeping answers to a question that was never asked.
 
-**Rules kept from before:**
+**Other rules:**
 
 *Only a completed turn can be a parent.* A half-finished tool call must never
 be baked into the history a follow-up builds on.
@@ -119,8 +119,8 @@ class ChatStore:
             self._conn.execute("PRAGMA journal_mode = WAL")
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._conn.executescript(SCHEMA)
-            # Columns added after a database was created. CREATE TABLE IF NOT
-            # EXISTS does not evolve an existing table.
+            # CREATE TABLE IF NOT EXISTS does not add columns to an existing
+            # table, so a database from before `refs_json` gets it here.
             have = {r["name"] for r in self._conn.execute("PRAGMA table_info(turns)")}
             if "refs_json" not in have:
                 self._conn.execute("ALTER TABLE turns ADD COLUMN refs_json TEXT NOT NULL DEFAULT '[]'")

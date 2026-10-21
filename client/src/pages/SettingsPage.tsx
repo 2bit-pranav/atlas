@@ -2,10 +2,9 @@
  * Settings, as a page with sections rather than one long modal.
  *
  * Edits are a draft until Save, so a half-typed system prompt never reaches
- * the agent. Every key can be edited. LIVE keys apply from the next message;
- * RESTART keys are written to settings.json and marked, and the banner lists
- * only the ones that really differ from what the running servers were started
- * with.
+ * the agent. LIVE keys apply from the next message. RESTART keys are saved and
+ * badged; the "Restart now" notice lists only those that differ from what the
+ * running servers were started with (the backend's `pending_restart`).
  */
 
 import { useEffect, useMemo, useState } from "react"
@@ -118,7 +117,7 @@ export function SettingsPage() {
             </select>
             <div className="mb-4 md:hidden"><SettingsSearch value={query} onChange={setQuery} /></div>
 
-            {/* Only when there is something to restart for: saved restart settings, or a failed restart. */}
+            {/* Only while a restart is pending, running, or has failed. */}
             {(pending.length > 0 || restartError || restarting) && (
               <Notice tone={restartError && !restarting ? "error" : "info"}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -304,7 +303,7 @@ function ModelSelect({ value, onChange }: { value: string; onChange: (v: string)
   )
 }
 
-/** Any backend key the schema does not describe, so none is ever unreachable. */
+/** Backend keys the schema neither describes nor hides, so a new one is never unreachable. */
 function OtherKeys({ values, value, set, tiers }: {
   values: Record<string, unknown>; value: (k: string) => unknown; set: (k: string, v: unknown) => void
   tiers: Record<string, string>
@@ -471,8 +470,6 @@ function ShortcutsSection() {
     </div>
   )
 }
-
-export default SettingsPage
 
 function SettingsSearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (

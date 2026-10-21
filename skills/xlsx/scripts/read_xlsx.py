@@ -1,11 +1,11 @@
 ﻿"""Inspect a spreadsheet: sheets, headers, shapes, and a few sample rows.
 
-The first thing to know about any workbook is *its shape*. A 13-sheet workbook
-where one sheet holds 40,000 rows and the rest hold 12 needs completely
-different treatment, and guessing produces wrong sums with total confidence.
+    python read_xlsx.py sales.xlsx                  # first sheet, 5 sample rows
+    python read_xlsx.py sales.xlsx --all-sheets
 
-So `--shape` is the default: it is cheap, it is always the right first call,
-and it tells the model which sheet to query and how big it is.
+The cheap first call on any workbook: every sheet's name and size tells the
+model which sheet to query (query_xlsx.py) and how big it is, instead of
+guessing and summing the wrong thing.
 """
 
 from __future__ import annotations
@@ -49,14 +49,10 @@ def main() -> int:
         return fail(f"{path.name} is not a modern Excel file",
                     hint=".xls is not supported; ask the user to save as .xlsx")
 
-    # read_only + data_only: formulas are returned as their cached values, so a
-    # SUM cell reads as a number instead of the string "=SUM(B2:B40)".
-    #
-    # The two views need TWO loads and cannot be combined. data_only=True
-    # yields the cached value with the formula gone; the default yields the
-    # formula string with no value. A file openpyxl wrote itself has no cached
-    # values at all, so data_only reads back None everywhere -- which looks
-    # exactly like an empty column.
+    # data_only gives formulas' cached values ("=SUM(B2:B40)" reads as a
+    # number); --formulas gives the formula strings instead. One load cannot
+    # give both. A file openpyxl wrote itself has no cached values, so its
+    # formula cells read as empty unless --formulas is used.
     book = openpyxl.load_workbook(str(path), read_only=True,
                                   data_only=not args.formulas)
     if args.formulas:

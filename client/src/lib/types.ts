@@ -42,7 +42,7 @@ export type Part =
       text: string
     }
   | {
-      /** The agent asked to install something and is waiting for the user. */
+      /** The agent is waiting for the user to allow or deny something. */
       kind: "approval"
       id: string
       /** What is asked: an install, a folder outside the allowed ones, or an MCP tool marked "ask". */
@@ -228,7 +228,7 @@ export interface ModelList {
   selected: string
 }
 
-/** How the last restart (Settings > Restart) went. */
+/** How the last restart ("Restart now" in Settings) went. */
 export interface RestartStatus {
   /** False when Atlas was not started by `atlas start` and cannot restart itself. */
   available: boolean

@@ -7,7 +7,7 @@ Skills declare their needs in three ways in the wild, and all three are read:
   skill's own `node_modules`.
 - An install command written in SKILL.md, in a code block:
   `npm install -g agent-browser`, `pip install pypdf`. Many community skills
-  only say it there, and the model used to be left to run it itself.
+  only say it there.
 
 Python packages go into the backend's own interpreter (`sys.executable -m
 pip`), never wherever a bare `pip` points. Installing is only ever started by

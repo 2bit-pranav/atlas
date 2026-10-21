@@ -1,11 +1,10 @@
 /**
  * The client's single source of truth.
  *
- * ## Why it is fast now
+ * ## What keeps streaming fast
  *
- * The old store rebuilt the whole thread on every SSE delta and re-parsed every
- * message's markdown, so a reasoning stream of a few hundred tokens meant a few
- * hundred full-thread renders. Three changes:
+ * Rebuilding the whole thread on every SSE delta means a few hundred
+ * full-thread renders for a few hundred tokens. Instead:
  *
  * 1. **Selectors.** `useAtlas(s => s.x)` re-renders a component only when its
  *    own slice changes. The sidebar does not render when a token arrives; a
