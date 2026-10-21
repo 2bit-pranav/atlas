@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from typing import Any
@@ -24,6 +25,7 @@ from agent.cli.log_filters import Line, LogFilter
 LABELS = {"llama": "Model", "backend": "Backend", "web": "Web UI"}
 COLOURS = {"llama": "magenta", "backend": "cyan", "web": "green"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_RUN = re.compile(r"\brun (\w+) (?:completed|failed|cancelled|interrupted)\b")
 
 
 def ready_text(e: Event) -> str:
@@ -69,7 +71,6 @@ class _Base:
             launcher.stop()
             return 1
         threading.Thread(target=launcher.supervise, daemon=True).start()
-        threading.Thread(target=self._poll_runs, daemon=True).start()
         try:
             while not self._done.wait(0.25) and not launcher.ended.is_set():
                 self.tick()
@@ -87,12 +88,15 @@ class _Base:
     def stopped(self) -> None:
         pass
 
+    def count_run(self, e: Event) -> None:
+        """A finished run, from the backend's own summary line (no polling)."""
+        if e.kind == "log_line" and e.service == "backend" and (m := _RUN.search(e.text)):
+            self.runs.add(m.group(1))
+
     def _poll_runs(self) -> None:
+        """The run in progress, for a view that shows it (the start screen)."""
         while not self._done.wait(2.0):
-            run = self.launcher.active_run()
-            if run and run.get("id"):
-                self.runs.add(run["id"])
-            self.on_run(run)
+            self.on_run(self.launcher.active_run())
 
     def on_run(self, run: dict[str, Any] | None) -> None:
         pass
@@ -115,6 +119,7 @@ class PlainView(_Base):
             print(f"{time.strftime('%H:%M:%S')} {service:<8} {text}", flush=True)
 
     def handle(self, e: Event) -> None:
+        self.count_run(e)
         if e.kind == "log_line":
             if self.raw:
                 self._print(e.service, e.raw)
@@ -201,6 +206,7 @@ class DevView(_Base):
             self.console.print(text, no_wrap=True, overflow="ellipsis")
 
     def handle(self, e: Event) -> None:
+        self.count_run(e)
         if e.kind == "log_line":
             for line in self.filter.feed(e.service, e.level, e.text):
                 self._emit_line(line)

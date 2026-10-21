@@ -218,6 +218,9 @@ class Launcher:
                    PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
                    ATLAS_RESTART_REQUEST=str(self.request_file), ATLAS_RESTART_STATUS=str(self.status_file),
                    ATLAS_LAUNCHED=str(self.launched_path.resolve()))
+        if self.options.dev:
+            # Pages on the backend's port go to Vite, never to an old build.
+            env["ATLAS_DEV_UI"] = f"http://127.0.0.1:{s.ports.client}"
         try:
             proc, _ = self.group.spawn("backend", build_backend_args(s), cwd=self.root, env=env,
                                        log=self._open_log("backend", rotate), on_line=self._on_line)

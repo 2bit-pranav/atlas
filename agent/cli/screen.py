@@ -112,6 +112,7 @@ class StartScreen(_Base):
 
     def handle(self, e: Event) -> None:
         row = self.rows[e.service]
+        self.count_run(e)
         if e.kind == "log_line":
             for line in self.filter.feed(e.service, e.level, e.text):
                 self.logs[line.service].append(line)

@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 
 #: How long a collapsed group waits for more lines before it is shown.
 COLLAPSE_SECONDS = 3.0
+#: Polled by the start screen and the web UI every few seconds: never shown when they succeed.
+QUIET_PATHS = {"/api/health", "/api/restart"}
 
 
 @dataclass
@@ -152,6 +154,8 @@ class LogFilter:
             return [Line("backend", "E", text, traceback=True)]
         if m := _ACCESS.match(text):
             method, path, status = m.groups()
+            if status.startswith("2") and path.split("?")[0] in QUIET_PATHS:
+                return []
             if not status.startswith("2"):
                 return [Line("backend", "W" if status.startswith("4") else "E", f"{method} {path}  {status}")]
             entry = self._access.setdefault((method, status), [[], 0, time.time()])
