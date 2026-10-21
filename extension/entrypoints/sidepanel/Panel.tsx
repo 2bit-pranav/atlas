@@ -14,11 +14,16 @@
  * - questions from the selection chip and the right-click menu;
  * - a PDF tab (the browser's viewer runs no content script) is sent as a file:
  *   before the chat's first message the PDF is attached, and the pdf skill
- *   reads it (OCR included).
+ *   reads it (OCR included);
+ * - looking: `page_screenshot` / `page_image` are answered here (capturing a
+ *   tab and fetching images are extension powers), and the camera button
+ *   attaches a screenshot to the next message;
+ * - Fill: the form's fields go to Atlas, suggested values come back as a
+ *   preview on the page, and are filled only on Apply. Never submitted.
  */
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { ExternalLink, Globe, Plus, Settings, ShieldOff } from "lucide-react"
+import { Camera, ExternalLink, Globe, Plus, Settings, ShieldOff, TextCursorInput } from "lucide-react"
 
 import * as api from "@/lib/api"
 import { atlas, useAtlas } from "@/lib/store"
@@ -28,6 +33,7 @@ import { ChatScreen } from "@/components/chat/ChatScreen"
 import { cn } from "@/lib/utils"
 import { blocked, loadSettings, saveSettings, type ExtensionSettings, type PendingAsk } from "@ext/settings"
 import { activeTab, tabCall, type TabInfo } from "@ext/tab"
+import { dataUrlToFile, fetchImage, screenshot } from "@ext/images"
 
 type Status = "loading" | "unpaired" | "offline" | "ready"
 
@@ -94,7 +100,7 @@ export function Panel() {
     const readable = attached && !blockedReason && !pdf
     atlas.origin = attached && !blockedReason ? { url: attached.url, title: attached.title } : null
     atlas.page = readable ? { url: attached.url, title: attached.title } : null
-    atlas.onClientCall = readable ? (op, args) => tabCall(attached.id, op, args) : null
+    atlas.onClientCall = readable ? (op, args) => pageCall(attached.id, op, args) : null
     atlas.beforeSend = pdf && attached ? async () => {
       const chatId = atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""
       if (sentPdfs.current.has(`${chatId}|${attached.url}`)) return
@@ -104,6 +110,7 @@ export function Panel() {
   }, [attached, blockedReason, pdf])
 
   usePendingAsks(status === "ready", setAttached)
+  const [fillStatus, setFillStatus] = useState("")
 
   const extras = useMemo(() => (attached && !blockedReason && !pdf
     ? (turn: Turn, answer: string) => <QuoteSources turn={turn} answer={answer} tabId={attached.id} />
@@ -131,6 +138,17 @@ export function Panel() {
     <div className="flex h-dvh flex-col">
       <header className="flex items-center gap-2 border-b px-3 py-2">
         <PageChip tab={attached} blocked={blockedReason} pdf={pdf} />
+        {attached && !blockedReason && !pdf && (
+          <>
+            <button type="button" title="Attach a screenshot of the page to your next message" onClick={async () => {
+              const shot = await screenshot(attached.id)
+              if ("error" in shot) return void atlas.fail(new Error(shot.error))
+              await atlas.attach_files([dataUrlToFile(`data:image/jpeg;base64,${shot.data}`, "screenshot.jpg")])
+            }} className="rounded-md p-1.5 hover:bg-accent"><Camera className="h-4 w-4" /></button>
+            <button type="button" title="Suggest values for this page's form from your details" onClick={() => void suggestFill(attached, setFillStatus)}
+                    className="rounded-md p-1.5 hover:bg-accent"><TextCursorInput className="h-4 w-4" /></button>
+          </>
+        )}
         <button type="button" title="New chat about this page" onClick={() => {
           atlas.newChat()
           if (current) setAttached(current)
@@ -152,6 +170,12 @@ export function Panel() {
           <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => setAttached(current)}>
             Use this tab
           </button>
+        </div>
+      )}
+      {fillStatus && (
+        <div className="flex items-start gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
+          <span className="min-w-0 flex-1 whitespace-pre-wrap">{fillStatus}</span>
+          <button type="button" onClick={() => setFillStatus("")}>×</button>
         </div>
       )}
       {error && (
@@ -194,6 +218,43 @@ function PageChip({ tab, blocked: reason, pdf }: { tab: TabInfo | null; blocked:
       </div>
     </div>
   )
+}
+
+// ------------------------------------------------------------ page calls --
+
+/** A page operation for the attached tab: looking is done here, the rest by the content script. */
+async function pageCall(tabId: number, op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (op === "screenshot") return screenshot(tabId)
+  if (op === "image") {
+    const found = await tabCall(tabId, "imageSrc", args)
+    if (found.error || typeof found.src !== "string") return found
+    const image = await fetchImage(found.src)
+    return "error" in image ? image : { data: image.data, format: image.format }
+  }
+  return tabCall(tabId, op, args)
+}
+
+// --------------------------------------------------------------------- fill --
+
+/** Fields out, suggestions back, shown on the page. Filling waits for the user's Apply there. */
+async function suggestFill(tab: TabInfo, status: (s: string) => void) {
+  status("Reading the form…")
+  const found = await tabCall(tab.id, "formFields")
+  if (found.error) return status(String(found.error))
+  const fields = (found.fields as { id: string; label: string }[]) ?? []
+  if (!fields.length) return status("No fields to fill on this page (passwords, codes and card numbers are never filled).")
+  status(`Matching ${fields.length} fields to your details…`)
+  try {
+    const { values, missing } = await api.suggestFill(fields, String(found.title ?? tab.title))
+    const shown = await tabCall(tab.id, "previewFill", { values })
+    const n = Number(shown.shown ?? 0)
+    status(n
+      ? `Suggested ${n} value${n === 1 ? "" : "s"}: check them on the page, then Apply there. Nothing is submitted.` +
+        (missing.length ? `\nNot in your details: ${missing.slice(0, 8).join(", ")}${missing.length > 8 ? "…" : ""}` : "")
+      : "Your details did not answer any of this form's fields.")
+  } catch (error) {
+    status(error instanceof Error ? error.message : String(error))
+  }
 }
 
 // --------------------------------------------------------------------- PDFs --
@@ -278,7 +339,7 @@ function QuoteSources({ turn, answer, tabId }: { turn: Turn; answer: string; tab
                                     found !== null && !ok && "text-destructive")}>
                 <span className="mr-1">{found === null ? "·" : ok ? "✓" : "✗"}</span>
                 “{q.length > 110 ? `${q.slice(0, 110)}…` : q}”
-                {found !== null && !ok && <span className="ml-1 italic">not found on the page</span>}
+                {found !== null && !ok && <span className="ml-1 italic">not in the page's text (may be from an image)</span>}
               </button>
             </li>
           )
@@ -296,6 +357,7 @@ const PROMPTS: Record<PendingAsk["action"], (text: string, language?: string) =>
   define: (t) => `Define the key terms in this passage, as they are used on this page:\n\n“${t}”`,
   translate: (t, l) => `Translate this passage into ${l ?? "English"}. Reply with the translation only:\n\n“${t}”`,
   ask: (t) => `What does this passage from the page mean?\n\n“${t}”`,
+  image: () => "What does this image from the page show? If it has text, read it out exactly.",
 }
 
 /** Questions left by the selection chip or the right-click menu: a new chat on that tab. */
@@ -314,7 +376,13 @@ function usePendingAsks(ready: boolean, attach: (tab: TabInfo) => void) {
       atlas.newChat()
       attach(info)
       atlas.page = { url: info.url, title: info.title }
-      atlas.onClientCall = (op, args) => tabCall(info.id, op, args)
+      atlas.onClientCall = (op, args) => pageCall(info.id, op, args)
+      if (pendingAsk.action === "image" && pendingAsk.src) {
+        const image = await fetchImage(pendingAsk.src)
+        if ("error" in image) return void atlas.fail(new Error(image.error))
+        const ext = image.format === "jpeg" ? "jpg" : image.format
+        await atlas.attach_files([new File([image.blob], `image.${ext}`, { type: image.blob.type })])
+      }
       await atlas.send(PROMPTS[pendingAsk.action](pendingAsk.text.slice(0, 4000), pendingAsk.language))
     }
     void take()

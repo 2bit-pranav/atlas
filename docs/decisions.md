@@ -300,6 +300,20 @@ PDF link gets the exact command, as attachments do: before, Gemma tried the
 and a correct answer. In the extension a PDF tab cannot be read by a content
 script, so the panel attaches the PDF itself; tested on a scanned page.
 
+**Images go to the model inside tool results** (2026-10-21, measured).
+llama-server accepts an `image_url` part in a tool message: Gemma read
+"Experiment No - 05" from a screenshot returned by a tool. So
+`page_screenshot` / `page_image` hand the image straight back; through the
+side panel it read a scanned circular correctly.
+
+**Fill suggestions: one schema-constrained call, applied by the user**
+(2026-10-21, measured). Not an agent turn: the form's fields and the user's
+details go to the model once, with a JSON schema allowing only those field
+ids and each select's options, "" when unknown. On an 8-field form it filled
+7 correctly (a date converted to YYYY-MM-DD, "Sem 6" from "semester 6", the
+pin code from the address) and left "Father's name" empty rather than
+inventing it; 16 s. Never submits; secrets never collected.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

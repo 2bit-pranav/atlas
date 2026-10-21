@@ -18,7 +18,7 @@ import TurndownService from "turndown"
 
 // --------------------------------------------------------------- readable --
 
-function visible(el: Element): boolean {
+export function visible(el: Element): boolean {
   if (el.closest("[aria-hidden='true'], [hidden], script, style, noscript, template")) return false
   const rect = (el as HTMLElement).getBoundingClientRect?.()
   if (!rect || (rect.width === 0 && rect.height === 0)) return false
@@ -73,7 +73,7 @@ function role(el: Element): string {
   return ROLES[el.tagName] ?? "button"
 }
 
-function name(el: Element): string {
+export function fieldName(el: Element): string {
   const aria = el.getAttribute("aria-label")
   if (aria) return aria
   const labelledBy = el.getAttribute("aria-labelledby")
@@ -119,7 +119,7 @@ export function elements(limit = 40): string {
   for (const el of Array.from(document.querySelectorAll(INTERACTIVE))) {
     if (count >= limit) break
     if (!visible(el)) continue
-    const label = name(el).replace(/\s+/g, " ").trim().slice(0, 80)
+    const label = fieldName(el).replace(/\s+/g, " ").trim().slice(0, 80)
     if (!label) continue
     const line = `${role(el)} "${label}"${state(el)}`
     if (seen.has(line)) continue
@@ -203,6 +203,28 @@ export function tables(): string {
     const head = rows[0]?.slice(0, 8).join(" | ") ?? ""
     return `Table ${i + 1}: "${tableTitle(t).slice(0, 80)}", ${rows.length} rows x ${rows[0]?.length ?? 0} columns\n  ${head}`
   }).join("\n")
+}
+
+// ----------------------------------------------------------------- images --
+
+/** Images worth looking at: visible and at least 64 px, in page order. */
+export function pageImages(): HTMLImageElement[] {
+  return Array.from(document.images).filter((img) => visible(img) && img.naturalWidth >= 64 && img.naturalHeight >= 64)
+}
+
+export function images(): string {
+  const found = pageImages().slice(0, 30)
+  if (!found.length) return "No images on this page."
+  return found.map((img, i) => {
+    const caption = img.closest("figure")?.querySelector("figcaption")?.textContent?.trim()
+    const what = (img.alt || img.title || caption || "").replace(/\s+/g, " ").trim().slice(0, 100)
+    return `Image ${i + 1}: ${img.naturalWidth}x${img.naturalHeight}${what ? ` "${what}"` : ""}`
+  }).join("\n")
+}
+
+/** The address of image `i`, for the panel to fetch (it can reach other sites; the page cannot). */
+export function imageSrc(i: number): string | null {
+  return pageImages()[i]?.currentSrc || pageImages()[i]?.src || null
 }
 
 // -------------------------------------------------------- find, highlight --

@@ -10,7 +10,9 @@ entrypoints/
   content.ts           page operations, the selection chip, "Save table"
   background.ts        opens the panel; context menu; posts tables to the backend
 lib/
-  page.ts              the page layer: readable Markdown, element list, tables, find, highlight
+  page.ts              the page layer: readable Markdown, element list, tables, images, find, highlight
+  fill.ts              fill suggestions: fields out, preview over them, fill on Apply, never submit
+  images.ts            screenshots of the tab and images from the page, for the model
   overlay.ts           what is drawn on the page (shadow root, plain DOM)
   tab.ts               calling the content script (injects it into tabs opened before install)
   settings.ts          the extension's settings (storage.local)
@@ -53,5 +55,20 @@ A PDF tab is different: the browser's PDF viewer runs no content script. The
 panel attaches the PDF to the chat's first message instead (fetched here with
 the user's session; `file://` and fallbacks copied by the backend,
 `/api/chats/{id}/files/import`), and the pdf skill reads it, OCR included.
+
+**Looking at images.** `page_screenshot` and `page_image` return the image in
+the tool result (llama-server accepts images in tool messages); the panel
+captures the tab or fetches the image with the user's session. The camera
+button attaches a screenshot to the next message, and "Ask Atlas about this
+image" on the right-click menu sends one image.
+
+**Fill suggestions.** The Fill button sends the form's fields (labels,
+types, options; never their contents) to `/api/extension/fill`. The backend
+asks the model once, constrained by a JSON schema of those fields and their
+options, against the user's details (`<data>/profile.md`, edited in Settings
+> Browser extension and never readable by the extension). The values appear
+over the fields with Apply / Discard; Apply sets them with input and change
+events. The form is never submitted. Password, OTP, CVV, card and captcha
+fields are never collected.
 
 Nothing runs on sites in the never-read list; password values are never read.

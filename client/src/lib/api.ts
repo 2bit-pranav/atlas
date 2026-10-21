@@ -176,6 +176,12 @@ export function streamRun(runId: string, after: number, onEvent: (e: RunEvent) =
 
 export const getSettings = () => request<SettingsView>("/settings")
 export const getPairing = () => request<{ token: string }>("/pairing")
+/** The user's details for fill suggestions (web UI only). */
+export const getProfile = () => request<{ text: string }>("/profile")
+export const putProfile = (text: string) => request<{ text: string }>("/profile", json("PUT", { text }))
+/** Suggested values for a form's fields; `missing` lists the labels the details do not answer. */
+export const suggestFill = (fields: { id: string; label: string }[], title: string) =>
+  request<{ values: Record<string, string>; missing: string[] }>("/extension/fill", json("POST", { fields, title }))
 export const resetPairing = () => request<{ token: string }>("/pairing/reset", json("POST"))
 /** A web page's table saved as xlsx/csv by the backend; no model involved. */
 export const saveTable = (body: { rows: string[][]; title: string; url: string; format: "xlsx" | "csv"; folder?: string }) =>

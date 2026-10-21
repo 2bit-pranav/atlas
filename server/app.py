@@ -35,7 +35,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from agent.core import llama, paths
+from agent.core import form_fill, llama, paths
 from agent.core.agent_factory import RetryPlan, build_agent, clock_note, retry_hint
 from agent.core.chats import (
     CANCELLED,
@@ -122,6 +122,16 @@ class SelectTurn(BaseModel):
 
 class Answer(BaseModel):
     allow: bool
+
+
+class ProfileBody(BaseModel):
+    text: str
+
+
+class FillBody(BaseModel):
+    #: [{id, label, type, options?, required?}]; never the fields' contents.
+    fields: list[dict[str, Any]]
+    title: str = ""
 
 
 class ImportFile(BaseModel):
@@ -397,6 +407,28 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
             raise HTTPException(403, "the extension cannot reset the pairing token")
         return {"token": pairing.reset()}
+
+    @api.get("/profile")
+    async def get_profile(request: Request) -> dict[str, Any]:
+        """The user's details for fill suggestions. The web UI's, never the extension's."""
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            raise HTTPException(403, "the extension cannot read your details")
+        return {"text": form_fill.read_profile(state.settings)}
+
+    @api.put("/profile")
+    async def put_profile(body: ProfileBody, request: Request) -> dict[str, Any]:
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            raise HTTPException(403, "edit your details in Atlas, not in the extension")
+        await asyncio.to_thread(form_fill.write_profile, state.settings, body.text)
+        return {"text": body.text}
+
+    @api.post("/extension/fill")
+    async def fill(body: FillBody) -> dict[str, Any]:
+        """Suggested values for a form's fields, from the user's details. Nothing is filled here."""
+        try:
+            return await asyncio.to_thread(form_fill.suggest, state.settings, body.fields, body.title)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @api.post("/extension/table")
     async def save_table(body: TableBody) -> dict[str, Any]:

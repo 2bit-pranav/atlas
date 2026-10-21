@@ -63,7 +63,7 @@ def _file_name(title: str) -> str:
 
 def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
                on_read: Callable[[], None]) -> list[Any]:
-    """`page_read` and `page_find`, bound to one run's client calls."""
+    """`page_read`, `page_find`, `page_screenshot` and `page_image`, bound to one run's client calls."""
 
     @tool(name="page_read")
     async def page_read(view: str = "text") -> Any:
@@ -71,11 +71,12 @@ def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
 
         Args:
             view: "text" for the page's readable content as Markdown, "elements"
-                for its form fields, buttons and links by name, or "tables" for
-                each table's caption, header and size.
+                for its form fields, buttons and links by name, "tables" for
+                each table's caption, header and size, or "images" for the
+                numbered images (look at one with page_image).
         """
-        if view not in ("text", "elements", "tables"):
-            return _error('view must be "text", "elements" or "tables"')
+        if view not in ("text", "elements", "tables", "images"):
+            return _error('view must be "text", "elements", "tables" or "images"')
         result = await call("read", {"view": view})
         if result.get("error"):
             return _error(str(result["error"]))
@@ -113,7 +114,42 @@ def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
         return _ok(UNTRUSTED + f"{len(matches)} passage(s) found and highlighted:\n" + "\n".join(lines)
                    + "\nQuote the page's exact words when you answer.")
 
-    return [page_read, page_find]
+    async def _image(op: str, args: dict[str, Any], what: str) -> Any:
+        result = await call(op, args)
+        if result.get("error"):
+            return _error(str(result["error"]))
+        on_read()
+        data = result.get("data")
+        if not isinstance(data, str) or not data:
+            return _error("no image came back")
+        import base64
+
+        fmt = str(result.get("format", "jpeg")).lower().replace("jpg", "jpeg")
+        if fmt not in ("jpeg", "png", "gif", "webp"):
+            fmt = "jpeg"
+        note = f"{UNTRUSTED}{what}. Read any text in it exactly as shown."
+        return {"status": "success",
+                "content": [{"text": note}, {"image": {"format": fmt, "source": {"bytes": base64.b64decode(data)}}}]}
+
+    @tool(name="page_screenshot")
+    async def page_screenshot() -> Any:
+        """Look at the part of the page the user can see right now, as an image.
+
+        For notices, timetables and anything shown as a picture, or a page whose
+        text cannot be read (canvas apps, scanned images).
+        """
+        return await _image("screenshot", {}, "The visible part of the page")
+
+    @tool(name="page_image")
+    async def page_image(number: int) -> Any:
+        """Look at one image on the page.
+
+        Args:
+            number: The image's number from page_read with view "images".
+        """
+        return await _image("image", {"index": int(number) - 1}, f"Image {number} from the page")
+
+    return [page_read, page_find, page_screenshot, page_image]
 
 
 _NUMBER = re.compile(r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
@@ -227,8 +263,9 @@ def page_note(page: dict[str, Any]) -> str:
     title = str(page.get("title") or "").strip()
     url = str(page.get("url") or "").strip()
     return (f'[The user is looking at the web page "{title}" ({url}). Read it with page_read; '
-            "find passages with page_find. Back each statement about the page with a short exact "
-            'quote from it in double quotes, so it can be highlighted for the user.]')
+            "find passages with page_find; look at it with page_screenshot when the content is an "
+            "image. Back each statement about the page with a short exact quote from it in double "
+            'quotes, so it can be highlighted for the user.]')
 
 
 __all__ = ["INLINE_CHARS", "UNTRUSTED", "import_pdf", "page_note", "page_tools", "write_table"]

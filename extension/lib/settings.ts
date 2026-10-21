@@ -57,8 +57,10 @@ export function blocked(url: string | undefined, neverRead: string[]): string | 
 
 /** A selection-chip or context-menu request, waiting for the panel to pick it up. */
 export interface PendingAsk {
-  action: "explain" | "simplify" | "define" | "translate" | "ask"
+  action: "explain" | "simplify" | "define" | "translate" | "ask" | "image"
   text: string
+  /** An image's address, for "Ask Atlas about this image". */
+  src?: string
   language?: string
   tabId: number
   at: number

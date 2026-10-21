@@ -9,7 +9,9 @@ Status: version 1 built, 2026-10-21: Milestone 1 except "clip to notes",
 for Edge and Chrome. See `extension/AGENTS.md`. As built: answers quote the
 page in double quotes and the panel highlights each quote (or marks it as not
 found) under the answer; `page_find` highlights and scrolls for "where does it
-say X?". Two page tools only, `page_read` and `page_find`.
+say X?". Version 2 so far adds looking at images (`page_screenshot`,
+`page_image`, the camera button, "Ask Atlas about this image") and fill
+suggestions from the user's details (Settings > Browser extension).
 
 ---
 

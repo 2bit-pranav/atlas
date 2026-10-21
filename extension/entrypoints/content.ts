@@ -6,12 +6,15 @@
  *   Translate, which opens the panel with that question.
  * - "Save table" over any table: the rows go straight to the backend as xlsx or
  *   csv. No model in the path.
+ * - Fill suggestions: the form's fields out, a preview of values back, filled
+ *   only on Apply, never submitted (`lib/fill.ts`).
  *
  * Nothing runs on sites in the never-read list.
  */
 
 import { blocked, loadSettings, type ExtensionSettings } from "@ext/settings"
 import { box, button, toast } from "@ext/overlay"
+import * as fill from "@ext/fill"
 import * as page from "@ext/page"
 
 type Op = { type: "atlas:op"; op: string; args: Record<string, unknown> }
@@ -50,7 +53,8 @@ function run(op: string, args: Record<string, unknown>): Record<string, unknown>
       return { ok: true }
     case "read": {
       const view = String(args.view ?? "text")
-      const content = view === "elements" ? page.elements() : view === "tables" ? page.tables() : page.readable()
+      const content = view === "elements" ? page.elements() : view === "tables" ? page.tables()
+        : view === "images" ? page.images() : page.readable()
       return { title: document.title, url: location.href, content }
     }
     case "find":
@@ -59,6 +63,18 @@ function run(op: string, args: Record<string, unknown>): Record<string, unknown>
       return page.highlight((args.quotes as string[]) ?? [])
     case "scrollToQuote":
       return { ok: page.scrollToQuote(Number(args.index ?? 0)) }
+    case "imageSrc": {
+      const src = page.imageSrc(Number(args.index ?? 0))
+      return src ? { src } : { error: `there is no image ${Number(args.index ?? 0) + 1} on the page` }
+    }
+    case "formFields":
+      return { fields: fill.formFields(), title: document.title }
+    case "previewFill":
+      return fill.previewFill((args.values as Record<string, string>) ?? {})
+    case "applyFill":
+      return fill.applyFill()
+    case "discardFill":
+      return fill.discardFill()
     case "clear":
       page.clearHighlights()
       return { ok: true }

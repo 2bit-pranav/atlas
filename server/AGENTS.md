@@ -73,6 +73,8 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `POST /runs/{id}/approvals/{approval_id}` | `{allow}`: answer an approval request |
 | `GET /pairing`, `POST /pairing/reset` | the browser extension's pairing token (not readable by the extension) |
 | `POST /runs/{id}/calls/{call_id}` | the client's result for a `client_call` (a page operation) |
+| `GET /profile`, `PUT /profile` | the user's details for fill suggestions (web UI only; the extension cannot read them) |
+| `POST /extension/fill` | `{fields, title}` -> `{values, missing}`: one schema-constrained model call; nothing is filled here |
 | `POST /extension/table` | `{rows, title, url, format, folder}`: a page's table saved as xlsx/csv, no model |
 | `GET /models` | the models in the models folder, which one is running, which is selected |
 | `POST /restart`, `GET /restart` | ask `atlas start` to restart llama-server and the backend; how the last restart went |

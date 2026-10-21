@@ -16,6 +16,7 @@ export default defineBackground(() => {
 
   browser.runtime.onInstalled.addListener(() => {
     browser.contextMenus.create({ id: "ask-atlas", title: "Ask Atlas about “%s”", contexts: ["selection"] })
+    browser.contextMenus.create({ id: "ask-atlas-image", title: "Ask Atlas about this image", contexts: ["image"] })
   })
 
   // Opening must happen in the same task as the user's click: no await before it.
@@ -28,6 +29,8 @@ export default defineBackground(() => {
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "ask-atlas" && tab?.id !== undefined && info.selectionText)
       void openAndAsk(tab.id, { action: "ask", text: info.selectionText })
+    if (info.menuItemId === "ask-atlas-image" && tab?.id !== undefined && info.srcUrl)
+      void openAndAsk(tab.id, { action: "image", text: "", src: info.srcUrl })
   })
 
   browser.runtime.onMessage.addListener((message, sender, reply) => {

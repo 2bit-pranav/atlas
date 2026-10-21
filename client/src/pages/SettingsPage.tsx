@@ -446,6 +446,7 @@ function ExtensionSection() {
           )}
         </Row>
       </Group>
+      <ProfileGroup />
       <Group title="Install">
         <ol className="list-decimal space-y-1.5 px-5 py-3 text-sm text-muted-foreground">
           <li>Build it once: <code className="font-mono text-xs">cd extension</code>, <code className="font-mono text-xs">npm install</code>, <code className="font-mono text-xs">npm run build</code>.</li>
@@ -454,6 +455,37 @@ function ExtensionSection() {
         </ol>
       </Group>
     </div>
+  )
+}
+
+/** The details the extension's fill suggestions use. They stay in Atlas. */
+function ProfileGroup() {
+  const [text, setText] = useState<string | null>(null)
+  const [saved, setSaved] = useState("")
+  useEffect(() => {
+    api.getProfile().then((r) => {
+      setText(r.text)
+      setSaved(r.text)
+    }).catch(() => setText(""))
+  }, [])
+  return (
+    <Group title="Your details">
+      <div className="space-y-2 px-4 py-3">
+        <p className="text-xs text-muted-foreground">
+          Used only to suggest values for forms in the browser extension. One detail per line, in your own words.
+          They stay on this computer, and the extension never reads them; it only gets the values for a form's fields.
+        </p>
+        <textarea rows={8} value={text ?? ""} onChange={(e) => setText(e.target.value)}
+                  placeholder={"Name: Your Name\nRoll no: 21CS045\nABC ID: 123-456-789-012\nEmail: you@example.com\nPhone: +91 98765 43210\nDate of birth: 4 March 2004\nAddress: 12 Lake Road, Pune 411001"}
+                  className="w-full rounded-md border bg-background p-2.5 font-mono text-xs leading-relaxed outline-none focus:ring-2 focus:ring-ring/30" />
+        <div className="flex justify-end">
+          <Button size="sm" disabled={text === null || text === saved} onClick={async () => {
+            const r = await api.putProfile(text ?? "")
+            setSaved(r.text)
+          }}>{text !== null && text !== saved ? "Save details" : "Saved"}</Button>
+        </div>
+      </div>
+    </Group>
   )
 }
 
