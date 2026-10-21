@@ -49,4 +49,9 @@ preview panel's heavy libraries.
    highlighted (CSS Custom Highlight API) and clickable; missing ones are
    marked "not found on the page".
 
+A PDF tab is different: the browser's PDF viewer runs no content script. The
+panel attaches the PDF to the chat's first message instead (fetched here with
+the user's session; `file://` and fallbacks copied by the backend,
+`/api/chats/{id}/files/import`), and the pdf skill reads it, OCR included.
+
 Nothing runs on sites in the never-read list; password values are never read.

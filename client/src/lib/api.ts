@@ -98,6 +98,9 @@ export function fileUrl(chatId: string, name: string, download = false): string 
   const qs = query.toString()
   return `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${qs ? `?${qs}` : ""}`
 }
+/** A PDF by its link (`file://` or web) copied into the chat's workspace by the backend. */
+export const importFile = (chatId: string, url: string) =>
+  request<ChatFile>(`/chats/${chatId}/files/import`, json("POST", { url }))
 export const deleteUpload = (chatId: string, name: string) =>
   request<unknown>(`/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}`, json("DELETE"))
 export const listWorkspace = (chatId: string) => request<WorkspaceFile[]>(`/chats/${chatId}/workspace`)

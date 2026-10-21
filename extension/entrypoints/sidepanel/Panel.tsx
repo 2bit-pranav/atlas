@@ -11,7 +11,10 @@
  *   another page;
  * - under each answer, the page passages it quoted, highlighted (or marked
  *   as not on the page);
- * - questions from the selection chip and the right-click menu.
+ * - questions from the selection chip and the right-click menu;
+ * - a PDF tab (the browser's viewer runs no content script) is sent as a file:
+ *   before the chat's first message the PDF is attached, and the pdf skill
+ *   reads it (OCR included).
  */
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
@@ -82,18 +85,29 @@ export function Panel() {
   }, [current, chat, attached?.id])
 
   const blockedReason = settings && attached ? blocked(attached.url, settings.neverRead) : null
+  const pdf = attached !== null && !blockedReason && isPdf(attached.url)
 
   // The store sends the attached page with each message and runs client calls there.
+  // A PDF has no content script: it goes as a file instead, attached once per chat.
+  const sentPdfs = useRef(new Set<string>())
   useEffect(() => {
-    atlas.page = attached && !blockedReason ? { url: attached.url, title: attached.title } : null
-    atlas.onClientCall = attached && !blockedReason ? (op, args) => tabCall(attached.id, op, args) : null
-  }, [attached, blockedReason])
+    const readable = attached && !blockedReason && !pdf
+    atlas.origin = attached && !blockedReason ? { url: attached.url, title: attached.title } : null
+    atlas.page = readable ? { url: attached.url, title: attached.title } : null
+    atlas.onClientCall = readable ? (op, args) => tabCall(attached.id, op, args) : null
+    atlas.beforeSend = pdf && attached ? async () => {
+      const chatId = atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""
+      if (sentPdfs.current.has(`${chatId}|${attached.url}`)) return
+      await atlas.attachSaved(pdfName(attached.url), (id) => savePdf(id, attached.url))
+      sentPdfs.current.add(`${atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""}|${attached.url}`)
+    } : null
+  }, [attached, blockedReason, pdf])
 
   usePendingAsks(status === "ready", setAttached)
 
-  const extras = useMemo(() => (attached && !blockedReason
+  const extras = useMemo(() => (attached && !blockedReason && !pdf
     ? (turn: Turn, answer: string) => <QuoteSources turn={turn} answer={answer} tabId={attached.id} />
-    : null), [attached, blockedReason])
+    : null), [attached, blockedReason, pdf])
 
   if (!settings || status === "loading") return <Centered>Connecting to Atlas…</Centered>
   if (showSettings || status === "unpaired" || status === "offline")
@@ -116,7 +130,7 @@ export function Panel() {
   return (
     <div className="flex h-dvh flex-col">
       <header className="flex items-center gap-2 border-b px-3 py-2">
-        <PageChip tab={attached} blocked={blockedReason} />
+        <PageChip tab={attached} blocked={blockedReason} pdf={pdf} />
         <button type="button" title="New chat about this page" onClick={() => {
           atlas.newChat()
           if (current) setAttached(current)
@@ -160,7 +174,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 /** What Atlas can see: the attached page, or why it cannot read it. */
-function PageChip({ tab, blocked: reason }: { tab: TabInfo | null; blocked: string | null }) {
+function PageChip({ tab, blocked: reason, pdf }: { tab: TabInfo | null; blocked: string | null; pdf: boolean }) {
   let host = ""
   try {
     host = tab ? new URL(tab.url).hostname : ""
@@ -175,11 +189,51 @@ function PageChip({ tab, blocked: reason }: { tab: TabInfo | null; blocked: stri
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{tab?.title || "No page"}</p>
         <p className={cn("truncate text-[11px]", reason ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
-          {reason ? `Not read: ${reason}` : `Atlas can read this page · ${host}`}
+          {reason ? `Not read: ${reason}` : pdf ? `PDF · read as a file${host ? ` · ${host}` : ""}` : `Atlas can read this page · ${host}`}
         </p>
       </div>
     </div>
   )
+}
+
+// --------------------------------------------------------------------- PDFs --
+
+function isPdf(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return /\.pdf$/i.test(decodeURIComponent(parsed.pathname)) && /^(https?|file):$/.test(parsed.protocol)
+  } catch {
+    return false
+  }
+}
+
+function pdfName(url: string): string {
+  try {
+    const name = decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "")
+    return name || "document.pdf"
+  } catch {
+    return "document.pdf"
+  }
+}
+
+/**
+ * The tab's PDF into the chat. A web PDF is fetched here, with the user's
+ * session, so one behind a login works; if that fails, and for `file://`,
+ * the backend copies it (no "allow access to file URLs" switch needed).
+ */
+async function savePdf(chatId: string, url: string) {
+  if (/^https?:/i.test(url)) {
+    try {
+      const response = await fetch(url, { credentials: "include" })
+      const blob = await response.blob()
+      const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
+      if (response.ok && String.fromCharCode(...head) === "%PDF")
+        return await api.uploadFile(chatId, new File([blob], pdfName(url), { type: "application/pdf" }))
+    } catch {
+      /* the backend tries next */
+    }
+  }
+  return api.importFile(chatId, url)
 }
 
 // ------------------------------------------------------------ quote sources --

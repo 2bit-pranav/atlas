@@ -292,6 +292,14 @@ need the token. The extension needs no CORS: `host_permissions` lets it fetch
 alias, so the extension's `srcDir` is `client/src` and its entrypoints are
 pointed back to `extension/`; shared components import `@/...` unchanged.
 
+**PDFs by link** (2026-10-21, measured). `read_pdf.py` takes `http(s)://`
+(downloaded into the workspace, reused on a second read; a web page instead
+of a PDF fails with a hint) and `file://` (read in place). A message with a
+PDF link gets the exact command, as attachments do: before, Gemma tried the
+`read` tool on the URL and asked for an upload; after, one `read_pdf.py` call
+and a correct answer. In the extension a PDF tab cannot be read by a content
+script, so the panel attaches the PDF itself; tested on a scanned page.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

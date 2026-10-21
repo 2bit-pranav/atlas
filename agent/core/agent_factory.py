@@ -323,6 +323,8 @@ def _shown(path: str, workspace: Path) -> str:
     """A file in the workspace by its bare name (commands start there), else as given."""
     from agent.core.shell_env import windows_path
 
+    if path.lower().startswith(("http://", "https://", "file://")):
+        return path  # a link: the pdf reader takes it as it is
     p = Path(windows_path(path))
     return p.name if p.parent.resolve() == workspace.resolve() else path
 

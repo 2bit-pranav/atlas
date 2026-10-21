@@ -26,9 +26,11 @@ from _shared import (  # noqa: E402
     MIN_IMAGE_PX,
     add_common_arguments,
     fail,
+    fetch,
     header,
     image_line,
     images_dir,
+    is_link,
     limit_for,
     main_wrapper,
     require,
@@ -115,7 +117,12 @@ def main() -> int:
     add_common_arguments(parser)
     args = parser.parse_args()
 
-    path = resolve(args.path)
+    # A link (a PDF on the web, or file:///...) is fetched into the workspace first.
+    source = ""
+    if is_link(args.path):
+        path, source = fetch(args.path, ".pdf", b"%PDF")
+    else:
+        path = resolve(args.path)
     if not path.is_file():
         return fail(f"no such PDF: {path}")
 
@@ -195,7 +202,7 @@ def main() -> int:
 
     limit, hint = limit_for(args)
     text, cut = truncate(body, limit, more_hint=f"--pages <range> {hint}")
-    print(header(file=path.name, pages=total, read=", ".join(
+    print(header(file=path.name, source=source or None, pages=total, read=", ".join(
         str(i + 1) for i in pages), truncated=cut or "no",
                empty_pages=empty_pages or "none", images=images,
                ocr_pages=", ".join(map(str, ocr_pages)) or None,

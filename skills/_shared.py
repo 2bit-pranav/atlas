@@ -140,6 +140,69 @@ def resolve(path: str) -> Path:
     return candidate
 
 
+def is_link(value: str) -> bool:
+    return unquote(value).lower().startswith(("http://", "https://", "file://"))
+
+
+#: A downloaded document larger than this is refused.
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
+
+
+def fetch(link: str, suffix: str, magic: bytes) -> tuple[Path, str]:
+    """A document given as a link, as a local file: (path, what happened).
+
+    `file://` is read where it is. `http(s)://` is downloaded into the
+    workspace (the current folder) under the link's file name, so later steps
+    (merge, convert, a second read) can name it; the same link again reuses
+    the copy. A link that returns a web page instead (a login page, an error)
+    fails with a hint, rather than being read as a broken document.
+    """
+    import json
+    import re
+    import urllib.parse
+    import urllib.request
+
+    link = unquote(link)
+    if link.lower().startswith("file://"):
+        parsed = urllib.parse.urlparse(link)
+        return Path(urllib.request.url2pathname(parsed.netloc + parsed.path)), "local file"
+
+    index = Path.cwd() / ".atlas-downloads.json"
+    try:
+        known = json.loads(index.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        known = {}
+    if (name := known.get(link)) and (Path.cwd() / name).is_file():
+        return Path.cwd() / name, f"downloaded earlier as {name}"
+
+    request = urllib.request.Request(link, headers={"User-Agent": "Mozilla/5.0 (Atlas)", "Accept": "*/*"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = response.read(MAX_DOWNLOAD_BYTES + 1)
+            final = response.geturl()
+            disposition = response.headers.get("Content-Disposition", "")
+    except Exception as exc:  # noqa: BLE001 - one line for the model, not a traceback
+        raise SystemExit(f"ERROR: could not download {link}: {exc}") from None
+    if len(data) > MAX_DOWNLOAD_BYTES:
+        raise SystemExit(f"ERROR: {link} is larger than {MAX_DOWNLOAD_BYTES >> 20} MB")
+    if not data.startswith(magic):
+        raise SystemExit(
+            f"ERROR: {link} returned a web page, not a {suffix} file (it may need a login)\n"
+            "hint: ask the user to open it in the browser and ask from the Atlas side panel, "
+            "or to download it and attach it")
+
+    m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)', disposition)
+    raw = m.group(1) if m else Path(urllib.parse.urlparse(final).path).name
+    stem = re.sub(r"[^\w.-]+", "-", Path(urllib.parse.unquote(raw)).stem).strip("-.")[:80] or "download"
+    target, n = Path.cwd() / f"{stem}{suffix}", 2
+    while target.exists():
+        target, n = Path.cwd() / f"{stem}-{n}{suffix}", n + 1
+    target.write_bytes(data)
+    known[link] = target.name
+    index.write_text(json.dumps(known, indent=1), encoding="utf-8")
+    return target, f"downloaded to {target.name}"
+
+
 def add_common_arguments(parser: Any) -> Any:
     """`--max-tokens` on every script, so "show me more" is always possible."""
     parser.add_argument(

@@ -60,7 +60,7 @@ from agent.core.settings import (
     set_path,
     write_settings,
 )
-from agent.core.page_tools import page_note, page_tools, write_table
+from agent.core.page_tools import import_pdf, page_note, page_tools, write_table
 from agent.core.shell_env import model_path
 from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
@@ -122,6 +122,10 @@ class SelectTurn(BaseModel):
 
 class Answer(BaseModel):
     allow: bool
+
+
+class ImportFile(BaseModel):
+    url: str
 
 
 class TableBody(BaseModel):
@@ -264,6 +268,8 @@ class Atlas:
                            workspace=workspace)
         if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
             text = f"{text}\n\n{guidance}".strip()
+        if links := _link_guidance(turn["user_text"], settings):
+            text = f"{text}\n\n{links}".strip()
         if run.page:
             text = f"{text}\n\n{page_note(run.page)}".strip()
         # Only the model sees this; the chat shows the user's own text.
@@ -486,6 +492,24 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         await asyncio.to_thread(_save)
         return {"name": name, "path": str(target), "size": target.stat().st_size,
                 "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
+
+    @api.post("/chats/{chat_id}/files/import")
+    async def import_file(chat_id: str, body: ImportFile) -> dict[str, Any]:
+        """A PDF the extension's tab shows, as an attachment.
+
+        The browser's PDF viewer runs no content script, so the page tools
+        cannot read it; the file goes to the workspace for the pdf skill. A
+        `file://` PDF is copied from disk (so no "allow access to file URLs"
+        switch is needed); a web one is downloaded, for when the extension could
+        not fetch it itself.
+        """
+        state.require_chat(chat_id)
+        try:
+            target = await asyncio.to_thread(import_pdf, body.url, state.chat_dir(chat_id))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"name": target.name, "path": str(target), "size": target.stat().st_size,
+                "type": "application/pdf"}
 
     def workspace_file(chat_id: str, name: str) -> Path:
         state.require_chat(chat_id)
@@ -839,6 +863,26 @@ def _media_blocks(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 #: `@name`, or `@"a name with spaces"` -- what the composer inserts.
 _MENTION = re.compile(r'(?<![\w@])@(?:"([^"\n]+)"|([\w.-]+))')
+
+
+#: A PDF given as a link in the message: on the web, or a local file:// path.
+_PDF_LINK = re.compile(r"""(?:https?|file)://[^\s<>"')\]]+?\.pdf(?:\?[^\s<>"')\]]*)?(?=[\s<>"')\],.;!?]|$)""", re.I)
+
+
+def _link_guidance(user_text: str, settings: Settings) -> str:
+    """The exact command for each PDF link, as attachments get one.
+
+    Without it the model tried the `read` tool on the URL, which cannot fetch,
+    and asked the user to upload the file instead.
+    """
+    lines = []
+    for link in dict.fromkeys(_PDF_LINK.findall(user_text)):
+        from urllib.parse import urlparse
+
+        if command := reader_command(settings, urlparse(link).path, link):  # the path names the type, not ?query
+            lines.append(f"- {link}: read it with: {command}")
+    return ("PDF links in this message (the reader downloads them into your workspace):\n"
+            + "\n".join(lines)) if lines else ""
 
 
 def _mention_guidance(user_text: str, settings: Settings, mcp: Any,

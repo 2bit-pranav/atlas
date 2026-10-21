@@ -258,6 +258,10 @@ class Store {
 
   /** The page new messages are about (side panel only); null in the web UI. */
   page: api.PageRef | null = null
+  /** The page a new chat is about, recorded on it (also when the page tools are off, e.g. a PDF). */
+  origin: api.PageRef | null = null
+  /** Runs before a message is sent: the extension attaches a PDF tab here. */
+  beforeSend: (() => Promise<void>) | null = null
   /** Runs a client call (a page operation) and returns its result. */
   onClientCall: ((op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null
 
@@ -278,8 +282,9 @@ class Store {
   private async ensureChat(): Promise<string> {
     if (this.state.chat) return this.state.chat.id
     if (this.state.stagedChat) return this.state.stagedChat
-    const created = await api.createChat("", this.page
-      ? { source: "extension", page_url: this.page.url, page_title: this.page.title } : undefined)
+    const about = this.origin ?? this.page
+    const created = await api.createChat("", about
+      ? { source: "extension", page_url: about.url, page_title: about.title } : undefined)
     this.set({ chats: [created, ...this.state.chats], stagedChat: created.id })
     return created.id
   }
@@ -309,6 +314,21 @@ class Store {
         this.fail(error)
       }
     }))
+  }
+
+  /** Stage a file the host saves into the chat itself (`save` gets the chat id). */
+  async attachSaved(name: string, save: (chatId: string) => Promise<ChatFile>) {
+    const chatId = await this.ensureChat()
+    const key = crypto.randomUUID()
+    this.set({ staged: [...this.state.staged, { key, name, path: "", size: 0, type: "application/pdf", uploading: true }],
+               stagedChat: chatId })
+    try {
+      const saved = await save(chatId)
+      this.set({ staged: this.state.staged.map((s) => (s.key === key ? { ...saved, key, uploading: false } : s)) })
+    } catch (error) {
+      this.set({ staged: this.state.staged.filter((s) => s.key !== key) })
+      throw error
+    }
   }
 
   /**
@@ -355,6 +375,14 @@ class Store {
 
   async send(text: string): Promise<boolean> {
     if (this.busy || this.state.staged.some((s) => s.uploading)) return false
+    if (this.beforeSend) {
+      try {
+        await this.beforeSend()
+      } catch (error) {
+        this.fail(error)
+        return false
+      }
+    }
     const files = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
     const refs = this.state.refs
     if (!text.trim() && !files.length && !refs.length) return false
