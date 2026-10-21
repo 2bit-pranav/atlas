@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import threading
@@ -84,6 +85,8 @@ class Launcher:
         #: Set when `atlas stop`, run elsewhere, ended this launch.
         self.ended = threading.Event()
         self._restarting = threading.Lock()
+        #: One per launch, kept across restarts: llama-server and the backend share it.
+        self.llama_key = secrets.token_urlsafe(24)
         self.request_file = launched_path.with_name("restart.request")
         self.status_file = launched_path.with_name("restart.json")
 
@@ -167,7 +170,7 @@ class Launcher:
         if not (shutil.which(binary) or Path(binary).is_file()):
             return self._fail("llama", f"`{binary}` is not on PATH", "Set llamacpp.binary in settings.json.")
         try:
-            args = build_llamacpp_args(s)
+            args = build_llamacpp_args(s, api_key=self.llama_key)
         except llama.ModelError as exc:
             return self._fail("llama", str(exc), "Pick a model in Settings > Model, or set model.name.")
         if not self._port_free("llama", s.ports.llama, "llama"):
@@ -200,7 +203,8 @@ class Launcher:
         s = self.settings
         details: dict[str, Any] = {"name": s.model.name, "gpu": str(s.model.gpu_layers) != "0"}
         try:
-            props = httpx.get(f"{url}/props", timeout=2).json()
+            props = httpx.get(f"{url}/props", timeout=2,
+                              headers={"Authorization": f"Bearer {self.llama_key}"}).json()
             details["ctx"] = (props.get("default_generation_settings") or {}).get("n_ctx") or s.model.context_size
             details["vision"] = bool((props.get("modalities") or {}).get("vision"))
         except (httpx.HTTPError, ValueError):
@@ -217,7 +221,8 @@ class Launcher:
         env = dict(os.environ, ATLAS_SETTINGS=str(self.settings_path.resolve()), ATLAS_ROOT=str(self.root),
                    PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
                    ATLAS_RESTART_REQUEST=str(self.request_file), ATLAS_RESTART_STATUS=str(self.status_file),
-                   ATLAS_LAUNCHED=str(self.launched_path.resolve()))
+                   ATLAS_LAUNCHED=str(self.launched_path.resolve()),
+                   **{llama.KEY_ENV: self.llama_key})
         if self.options.dev:
             # Pages on the backend's port go to Vite, never to an old build.
             env["ATLAS_DEV_UI"] = f"http://127.0.0.1:{s.ports.client}"

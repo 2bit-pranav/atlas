@@ -262,6 +262,13 @@ command line contained "python": in the test, the program that was holding
 the port. Now only ports of services this launch started are swept, and a
 holder must look like that service (llama, uvicorn, vite/node).
 
+**llama-server needs a per-launch API key** (2026-10-21, measured).
+llama-server allows every origin, so any web page could call
+`127.0.0.1:8080` and use the model. `atlas start` now generates a key per
+launch (kept across restarts), passes it as `--api-key`, and gives it to the
+backend in `ATLAS_LLAMA_KEY`. With it set, chat, `/props` and `/v1/models`
+answer 401 without the key; `/health` stays open for the readiness check.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

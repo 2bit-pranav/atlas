@@ -141,7 +141,8 @@ class Atlas:
             try:
                 import httpx
 
-                props = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2).json()
+                props = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2,
+                                  headers=llama.auth_headers()).json()
                 self._modalities = {k: bool(v) for k, v in (props.get("modalities") or {}).items()}
             except Exception:  # noqa: BLE001 - not up yet: ask again next time
                 return {}

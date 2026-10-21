@@ -10,7 +10,7 @@ from agent.core import llama
 from agent.core.settings import Settings
 
 
-def build_llamacpp_args(settings: Settings) -> list[str]:
+def build_llamacpp_args(settings: Settings, api_key: str | None = None) -> list[str]:
     """llama-server with the model chosen in Settings. Raises llama.ModelError."""
     model = settings.model
     args: list[str] = [settings.llamacpp.binary]
@@ -37,6 +37,8 @@ def build_llamacpp_args(settings: Settings) -> list[str]:
     if model.jinja:
         args.append("--jinja")
     args += ["--reasoning", model.reasoning]
+    if api_key:
+        args += ["--api-key", api_key]
     args += list(settings.llamacpp.extra_args)
     return args
 
@@ -60,7 +62,8 @@ def build_vite_args(settings: Settings) -> list[str]:
 
 
 def describe_args(args: list[str]) -> str:
-    return " ".join(f'"{a}"' if " " in a else a for a in args)
+    shown = ["***" if i and args[i - 1] == "--api-key" else a for i, a in enumerate(args)]
+    return " ".join(f'"{a}"' if " " in a else a for a in shown)
 
 
 __all__ = ["build_backend_args", "build_llamacpp_args", "build_vite_args", "describe_args", "npm"]

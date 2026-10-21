@@ -33,6 +33,8 @@ from strands.models.llamacpp import (
 from strands.types.content import Messages
 from strands.types.streaming import StreamEvent
 from strands.types.tools import ToolChoice, ToolSpec
+
+from agent.core.llama import auth_headers
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,7 @@ class AtlasLlamaCppModel(LlamaCppModel):
             params=params or {},
             **kwargs,
         )
+        self.client.headers.update(auth_headers())
         self._enable_thinking = enable_thinking
         #: Request keys the base class's whitelist would drop (`timings_per_token`).
         self._extra_body = dict(extra_body or {})

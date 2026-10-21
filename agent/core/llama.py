@@ -17,12 +17,24 @@ that did not fit the GPU failed only when first used (docs/decisions.md).
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from agent.core import paths
 from agent.core.settings import Settings
+
+
+#: Set by `atlas start` for the backend: the per-launch key llama-server was
+#: started with (`--api-key`). Without it any web page could use the model
+#: through 127.0.0.1, since llama-server allows every origin.
+KEY_ENV = "ATLAS_LLAMA_KEY"
+
+
+def auth_headers() -> dict[str, str]:
+    key = os.environ.get(KEY_ENV)
+    return {"Authorization": f"Bearer {key}"} if key else {}
 
 
 class ModelError(RuntimeError):
@@ -74,4 +86,4 @@ def current(settings: Settings) -> LocalModel:
     raise ModelError(f"no model {settings.model.name!r} in {paths.models_dir(settings)} (found: {known})")
 
 
-__all__ = ["LocalModel", "ModelError", "current", "discover"]
+__all__ = ["KEY_ENV", "LocalModel", "ModelError", "auth_headers", "current", "discover"]
