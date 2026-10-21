@@ -71,4 +71,10 @@ over the fields with Apply / Discard; Apply sets them with input and change
 events. The form is never submitted. Password, OTP, CVV, card and captcha
 fields are never collected.
 
+**History.** The clock button lists the browser's own chats (`source:
+extension`), newest first, with their site; reopening one about another page
+offers "Open that page" or "Use this tab", never silently reading a different
+page. The last chat comes back when the panel reopens on the same page. All
+chats, these included, are also in the web UI.
+
 Nothing runs on sites in the never-read list; password values are never read.

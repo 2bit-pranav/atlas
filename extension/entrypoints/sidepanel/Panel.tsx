@@ -19,16 +19,19 @@
  *   tab and fetching images are extension powers), and the camera button
  *   attaches a screenshot to the next message;
  * - Fill: the form's fields go to Atlas, suggested values come back as a
- *   preview on the page, and are filled only on Apply. Never submitted.
+ *   preview on the page, and are filled only on Apply. Never submitted;
+ * - history: the browser's own chats, reopened from a list, and the last chat
+ *   back when the panel opens again on its page.
  */
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { Camera, ExternalLink, Globe, Plus, Settings, ShieldOff, TextCursorInput } from "lucide-react"
+import { ArrowLeft, Camera, ExternalLink, Globe, History, Plus, Search, Settings, ShieldOff, TextCursorInput, Trash2 } from "lucide-react"
 
 import * as api from "@/lib/api"
 import { atlas, useAtlas } from "@/lib/store"
 import { AnswerExtras } from "@/lib/slots"
-import type { Turn } from "@/lib/types"
+import type { ChatSummary, Turn } from "@/lib/types"
+import { fullTime, timeAgo, useNow } from "@/lib/time"
 import { ChatScreen } from "@/components/chat/ChatScreen"
 import { cn } from "@/lib/utils"
 import { blocked, loadSettings, saveSettings, type ExtensionSettings, type PendingAsk } from "@ext/settings"
@@ -41,6 +44,9 @@ export function Panel() {
   const [settings, setSettings] = useState<ExtensionSettings | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [showSettings, setShowSettings] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  /** A reopened chat whose page is not this tab, after "Use this tab". */
+  const [keepTab, setKeepTab] = useState<string | null>(null)
   const [current, setCurrent] = useState<TabInfo | null>(null)
   const [attached, setAttached] = useState<TabInfo | null>(null)
   const chat = useAtlas((s) => s.chat)
@@ -110,6 +116,32 @@ export function Panel() {
   }, [attached, blockedReason, pdf])
 
   usePendingAsks(status === "ready", setAttached)
+
+  // The last chat, remembered with its page, comes back when the panel opens there again.
+  useEffect(() => {
+    if (chat?.id && chat.turns.length && attached)
+      void browser.storage.local.set({ lastChat: { id: chat.id, url: attached.url } })
+  }, [chat?.id, chat?.turns.length, attached])
+  const restored = useRef(false)
+  useEffect(() => {
+    if (status !== "ready" || !current || restored.current) return
+    restored.current = true
+    void browser.storage.local.get("lastChat").then(async ({ lastChat }) => {
+      const last = lastChat as { id: string; url: string } | undefined
+      if (last && sameUrl(last.url, current.url) && !atlas.state.chat) {
+        await atlas.openChat(last.id)
+        setAttached(current)
+      }
+    })
+  }, [status, current])
+
+  /** Reopen a past chat: on its page when that page is the current tab, else with a banner. */
+  const openPast = async (summary: ChatSummary) => {
+    setShowHistory(false)
+    setKeepTab(null)
+    await atlas.openChat(summary.id)
+    if (current) setAttached(current)
+  }
   const [fillStatus, setFillStatus] = useState("")
 
   const extras = useMemo(() => (attached && !blockedReason && !pdf
@@ -133,6 +165,11 @@ export function Panel() {
     )
 
   const elsewhere = chat && chat.turns.length > 0 && current && attached && current.id !== attached.id
+  // A reopened chat about a page that is not the attached tab.
+  const aboutOther = !elsewhere && chat && chat.turns.length > 0 && chat.page_url && attached &&
+    !sameUrl(chat.page_url, attached.url) && keepTab !== chat.id
+
+  if (showHistory) return <HistoryView onOpen={(c) => void openPast(c)} onClose={() => setShowHistory(false)} />
 
   return (
     <div className="flex h-dvh flex-col">
@@ -157,6 +194,10 @@ export function Panel() {
           <button type="button" title="Continue in Atlas" onClick={() => void browser.tabs.create({ url: `${settings.base}/c/${chat.id}` })}
                   className="rounded-md p-1.5 hover:bg-accent"><ExternalLink className="h-4 w-4" /></button>
         )}
+        <button type="button" title="Browser chats" onClick={() => {
+          setShowHistory(true)
+          void atlas.refreshChats()
+        }} className="rounded-md p-1.5 hover:bg-accent"><History className="h-4 w-4" /></button>
         <button type="button" title="Settings" onClick={() => setShowSettings(true)}
                 className="rounded-md p-1.5 hover:bg-accent"><Settings className="h-4 w-4" /></button>
       </header>
@@ -168,6 +209,22 @@ export function Panel() {
             setAttached(current)
           }}>New chat here</button>
           <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => setAttached(current)}>
+            Use this tab
+          </button>
+        </div>
+      )}
+      {aboutOther && (
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
+          <span className="min-w-0 flex-1">This chat was about “{chat.page_title || chat.page_url}”, not this tab.</span>
+          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={async () => {
+            const open = (await browser.tabs.query({})).find((t) => t.url && sameUrl(t.url, chat.page_url!))
+            const tab = open?.id !== undefined
+              ? await browser.tabs.update(open.id, { active: true })
+              : await browser.tabs.create({ url: chat.page_url! })
+            if (tab?.id !== undefined)
+              setAttached({ id: tab.id, url: chat.page_url!, title: tab.title || chat.page_title || "", favIconUrl: tab.favIconUrl })
+          }}>Open that page</button>
+          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => setKeepTab(chat.id)}>
             Use this tab
           </button>
         </div>
@@ -216,6 +273,80 @@ function PageChip({ tab, blocked: reason, pdf }: { tab: TabInfo | null; blocked:
           {reason ? `Not read: ${reason}` : pdf ? `PDF · read as a file${host ? ` · ${host}` : ""}` : `Atlas can read this page · ${host}`}
         </p>
       </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ history --
+
+/** The same page, ignoring the #fragment. */
+function sameUrl(a: string, b: string): boolean {
+  return a.split("#")[0] === b.split("#")[0]
+}
+
+function host(url: string | undefined): string {
+  try {
+    return url ? new URL(url).hostname.replace(/^www\./, "") : ""
+  } catch {
+    return ""
+  }
+}
+
+/** The chats started in the browser, newest first. The web UI keeps all of them, grouped with the rest. */
+function HistoryView({ onOpen, onClose }: { onOpen: (c: ChatSummary) => void; onClose: () => void }) {
+  const chats = useAtlas((s) => s.chats)
+  const now = useNow()
+  const [query, setQuery] = useState("")
+  const [confirm, setConfirm] = useState<string | null>(null)
+  const q = query.trim().toLowerCase()
+  const list = chats
+    .filter((c) => c.source === "extension")
+    .filter((c) => !q || [c.title, c.page_title, c.page_url].some((t) => t?.toLowerCase().includes(q)))
+    .sort((a, b) => b.updated_at - a.updated_at)
+  return (
+    <div className="flex h-dvh flex-col">
+      <header className="flex items-center gap-2 border-b px-3 py-2">
+        <button type="button" title="Back" onClick={onClose} className="rounded-md p-1.5 hover:bg-accent">
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <span className="flex-1 text-sm font-medium">Browser chats</span>
+      </header>
+      <div className="border-b px-3 py-2">
+        <label className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats and pages"
+                 className="min-w-0 flex-1 bg-transparent text-sm outline-none" autoFocus />
+        </label>
+      </div>
+      <ul className="min-h-0 flex-1 overflow-y-auto p-2">
+        {list.length === 0 && (
+          <li className="p-4 text-center text-xs text-muted-foreground">
+            {q ? "No chat matches." : "No browser chats yet. Ask about a page to start one."}
+          </li>
+        )}
+        {list.map((c) => (
+          <li key={c.id} className="group flex items-start gap-1 rounded-lg hover:bg-accent">
+            <button type="button" onClick={() => onOpen(c)} className="min-w-0 flex-1 px-2 py-1.5 text-left" title={c.page_url}>
+              <p className="truncate text-sm">{c.title || "New chat"}</p>
+              <p className="truncate text-[11px] text-muted-foreground">
+                {host(c.page_url) || "no page"} · <span title={fullTime(c.updated_at)}>{timeAgo(c.updated_at, now)}</span>
+              </p>
+            </button>
+            {confirm === c.id ? (
+              <span className="flex shrink-0 items-center gap-1 py-1.5 pr-1 text-[11px]">
+                <button type="button" className="rounded px-1.5 py-0.5 hover:bg-background" onClick={() => setConfirm(null)}>Keep</button>
+                <button type="button" className="rounded bg-destructive px-1.5 py-0.5 text-destructive-foreground"
+                        onClick={() => void atlas.deleteChat(c.id).then(() => setConfirm(null))}>Delete</button>
+              </span>
+            ) : (
+              <button type="button" title="Delete" onClick={() => setConfirm(c.id)}
+                      className="shrink-0 rounded p-1.5 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
