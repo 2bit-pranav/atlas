@@ -66,9 +66,8 @@ In this order:
 3. **Google and Microsoft accounts, through MCP.** Sending or deleting tools
    default to Ask.
 4. **Browser extension.** Needs the API key; another origin calling the backend.
-5. **CLI and release**, together at the end:
-   - a TUI (Textual): startup screen with per-process status and logs, and a
-     chat screen over the same API;
+5. **CLI and release**, together at the end (the start screen, `--dev`, `status`, `logs`,
+   parallel start and the backend-served UI are done; see docs/tui.md):
    - onboarding: dependencies, first-run settings with defaults, pick or
      download a model;
    - Hugging Face downloads into `llm/` and a model picker;

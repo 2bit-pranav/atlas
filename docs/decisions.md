@@ -240,6 +240,28 @@ synthetic scan and a table screenshot exactly, about 1.7 s a page; results
 are cached beside the document's images, so a second read is instant
 (0.24 s). The models download once on first use if missing.
 
+**The start screen is Rich Live, not Textual** (2026-10-21, found). Textual
+8.2's inline mode is skipped on Windows (`inline and not WINDOWS` picks the
+driver), so `run(inline=True)` takes over the whole terminal there. Rich
+Live draws the same panel inline on every OS; keys are read with `msvcrt`
+on Windows and cbreak mode elsewhere.
+
+**Start in parallel, serve the built UI** (2026-10-21, measured). The backend
+and UI no longer wait for the model: backend ready in 3.0 s, model in 10.7 s,
+all ready in 10.7 s. Normal mode serves `client/dist` from the backend, so it
+runs without Node or a third port; the first start builds it (5.5 s).
+
+**No model hash at start** (2026-10-21, measured). `launched.json` hashed the
+GGUF on every start: 2.6 s for the 2.6 GB model, plus the mmproj, and nothing
+read the hash. The cache meant to skip it never applied, because a clean stop
+deletes `launched.json`. Size and modification time are recorded instead.
+
+**Port sweeps only touch our own processes** (2026-10-21, found by test).
+After a failed start, the old sweep killed whatever held the port if its
+command line contained "python": in the test, the program that was holding
+the port. Now only ports of services this launch started are swept, and a
+holder must look like that service (llama, uvicorn, vite/node).
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

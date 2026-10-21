@@ -22,7 +22,15 @@ agent/core/
   mcp_manager.py     MCP connection pool, per-tool switches, registry search
   memory_manager.py  long-term memory: off, and why
   shell_env.py       WindowsLocalEnvironment: the shell and file paths on Windows
-agent/cli/           atlas start | stop | settings
+agent/cli/
+  main.py            atlas start | stop | status | logs | settings
+  launcher.py        starts, health-checks, supervises, restarts, stops; emits events, prints nothing
+  screen.py          the start screen (Rich Live, inline)
+  views.py           --dev (filtered logs, pinned status line) and plain lines (piped, --raw)
+  log_filters.py     per-service parsing and drop / collapse / rewrite rules
+  processes.py       spawning, log capture to .data/logs, killing process trees
+  launched.py        launched.json, ports, stopping what Atlas started
+  launch.py          the command lines, built from settings
 ```
 
 ## One turn, end to end

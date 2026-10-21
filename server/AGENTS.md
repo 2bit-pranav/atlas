@@ -56,7 +56,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 
 | Route | |
 |---|---|
-| `GET /health` | |
+| `GET /health` | `active_run` with its chat title and tokens/s (the start screen's run line) |
 | `GET /chats`, `POST /chats` | list, create |
 | `GET /chats/{id}` | the visible path: each turn with `render`, `stats`, `version`, `versions`, and the active run |
 | `PATCH /chats/{id}` | rename |
@@ -93,6 +93,12 @@ What the model is told, built per run and never stored as `user_text`:
 
 Each run also records the files it created or changed in the workspace
 (`stats.files`), for the download chips.
+
+## The web UI
+
+The backend serves the built UI (`client/dist`) at `/`, with `index.html`
+for any page route, so `atlas start` needs no Vite. The build is looked up per
+request. `--dev` runs Vite on its own port instead, proxying `/api` here.
 
 ## Gotchas
 

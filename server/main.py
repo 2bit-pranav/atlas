@@ -24,6 +24,14 @@ for stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+import logging  # noqa: E402
+
+# Atlas's own log lines (`agent.*`, `server.*`) in a form `atlas start` can
+# read; uvicorn's loggers keep their own handlers and do not propagate.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+for noisy in ("httpx", "httpcore", "strands", "mcp"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+
 from server.app import create_app  # noqa: E402
 
 app = create_app(os.environ.get("ATLAS_SETTINGS"))

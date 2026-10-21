@@ -288,6 +288,9 @@ class Atlas:
             self.store.finish_turn(run.turn_id, status, after_snap=after_snap,
                                    render=run.transcript.parts, stats=stats, error=error)
             self.store.touch(run.chat_id)
+            title = (self.store.get_chat(run.chat_id) or {}).get("title") or "untitled"
+            logger.info("run %s %s · chat “%s” · %s model calls · %.1fs", run.id[:4], status,
+                        title, stats.get("model_calls", 0), (stats.get("duration_ms") or 0) / 1000)
         except Exception:  # noqa: BLE001 - the turn may have been cut by an edit
             logger.exception("could not record the end of turn %s", run.turn_id)
         run.finish(status, error)
@@ -326,7 +329,10 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     @api.get("/health")
     async def health() -> dict[str, Any]:
         run = state.runs.active()
-        return {"status": "ok", "active_run": _run_view(run) if run else None}
+        if run is None:
+            return {"status": "ok", "active_run": None}
+        chat = state.store.get_chat(run.chat_id) or {}
+        return {"status": "ok", "active_run": {**_run_view(run), "chat_title": chat.get("title") or ""}}
 
     # -------------------------------------------------------------- chats --
 
@@ -656,7 +662,31 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     from server.extensions import register as register_extensions  # noqa: PLC0415
 
     register_extensions(app, state)
+    _serve_client(app)
     return app
+
+
+def _serve_client(app: FastAPI) -> None:
+    """The built web UI (`client/dist`), on the API's own port and origin.
+
+    `atlas start` uses this instead of the Vite dev server, so normal use needs
+    no Node. Any path that is not a file in the build gets `index.html`, so a
+    reload on `/settings/agent` still opens the app. Registered after the API,
+    whose routes win. Looked up per request: `atlas start` may still be
+    building it when the backend comes up.
+    """
+    dist = paths.ROOT / "client" / "dist"
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def client(path: str) -> FileResponse:
+        if path.startswith("api/"):
+            raise HTTPException(404, f"no route /{path}")
+        if not (dist / "index.html").is_file():
+            raise HTTPException(503, "The web UI is not built: run `npm run build` in client/, or `atlas start --dev`.")
+        target = (dist / path).resolve()
+        if path and target.is_file() and dist.resolve() in target.parents:
+            return FileResponse(target)
+        return FileResponse(dist / "index.html")
 
 
 # ---------------------------------------------------------------- helpers --
@@ -820,7 +850,8 @@ def _turn_view(turn: dict[str, Any], versions: list[str]) -> dict[str, Any]:
 
 
 def _run_view(run: Run) -> dict[str, Any]:
-    return {"id": run.id, "chat_id": run.chat_id, "turn_id": run.turn_id, "status": run.status}
+    return {"id": run.id, "chat_id": run.chat_id, "turn_id": run.turn_id, "status": run.status,
+            "tokens_per_second": run.transcript.stats.get("tokens_per_second")}
 
 
 def _agent_text(user_text: str, files: list[dict[str, Any]],
