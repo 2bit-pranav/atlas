@@ -1,12 +1,14 @@
 ﻿"""Read a Word document's text, headings and tables.
 
-python-docx is the whole dependency. No conversion, no rendering, no document
-model.
+    python read_docx.py report.docx
+    python read_docx.py report.docx --headings-only
 
-Tables matter more than they look: a .docx is very often a report whose
-findings live in a table, and text-only extraction returns the prose around it
-while the numbers quietly vanish. So tables are rendered as pipe tables and
-counted in the header, so a truncated read says how many were dropped.
+python-docx only; no conversion or rendering. Pictures are saved beside the
+document and printed as Markdown image lines.
+
+Tables are kept, in document order, as pipe tables: a report's findings often
+live in one, and text-only extraction would drop the numbers. The header
+counts them, so a truncated read still says how many there are.
 """
 
 from __future__ import annotations
@@ -37,9 +39,8 @@ docx, = require("docx")
 def iter_blocks(document) -> list[tuple[str, object]]:
     """Paragraphs and tables in document order.
 
-    python-docx exposes paragraphs and tables separately, so reading them
-    separately reorders the document -- which puts table results before the
-    sentence that introduces them.
+    python-docx lists them separately; reading them that way would put a table
+    before the sentence that introduces it.
     """
     body = document.element.body
     from docx.table import Table
@@ -68,7 +69,7 @@ def paragraph_images(paragraph, document, source: Path, budget: list[int]) -> li
             continue
         ext = Path(getattr(part, "partname", "image.png")).suffix.lower() or ".png"
         if ext not in (".png", ".jpg", ".jpeg", ".gif", ".bmp"):
-            continue  # EMF/WMF and friends: neither PDF nor Word on another machine will draw them
+            continue  # EMF/WMF etc.: a rewritten PDF or Word file may not draw them
         budget[0] -= 1
         target = images_dir(source) / f"image{MAX_IMAGES - budget[0]}{ext}"
         target.write_bytes(part.blob)

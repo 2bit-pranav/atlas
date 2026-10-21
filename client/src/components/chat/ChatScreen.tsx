@@ -3,8 +3,9 @@
  * the composer centred while the chat is empty, and the composer pinned to
  * the bottom once there is something to read.
  *
- * Auto-scroll follows the answer only while the reader is already at the
- * bottom; scrolling up stops it, and the round arrow brings it back.
+ * A new run brings its question to the top. Following the answer as it grows
+ * is the opt-in "Auto-scroll while generating" preference; scrolling up stops
+ * it, and the round arrow brings the reader back to the bottom.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"

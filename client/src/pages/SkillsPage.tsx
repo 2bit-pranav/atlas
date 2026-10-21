@@ -279,5 +279,3 @@ function SkillCard({ skill, onToggle, onDelete, onRequirements }: {
     </div>
   )
 }
-
-export default SkillsPage

@@ -1,11 +1,9 @@
 """Creating and editing documents: Markdown in, a valid file out.
 
 The model writes **Markdown**, which a small model writes reliably, and these
-converters turn it into docx, pdf or xlsx. They replace a shell script that
-read hand-written JSON from `echo '...' |`. That broke on the first apostrophe
-in the text (it ended the shell quote) and on any slip in nested JSON, and the
-model then fell back to writing plain text into a `.docx` -- a corrupt file
-the user could not open.
+converters turn it into docx, pdf or xlsx. Hand-written JSON piped through
+`echo '...' |` broke on the first apostrophe and on any slip in nesting, and
+the model then wrote plain text into a `.docx` -- a corrupt file.
 
 Three guarantees:
 

@@ -2,30 +2,27 @@
 
 A 2B model does not reliably follow "if a tool fails, retry". It read a blank
 error, said "same error", and stopped -- the Strands loop ends whenever the
-model stops calling tools, and nothing pushed back. These hooks always run, so
-recovery no longer depends on the model remembering an instruction.
-
-Two providers, one per kind of failure:
+model stops calling tools. These hooks always run, so recovery does not depend
+on the model remembering an instruction.
 
 `LocalModelRetry` -- the *model call* failed. Subclasses Strands'
-`ModelRetryStrategy`, so the SDK's own retry loop does the work (the failed
-response is discarded and the call repeated). Changed for a local server: no
-exponential backoff (there is no rate limit to wait out), a wider set of
-retryable errors (llama-server restarting, a dropped connection, a 5xx), and
-an *empty* response counts as a failure -- a small model sometimes thinks and
-then emits nothing at all.
+`ModelRetryStrategy`, so the SDK's own retry loop does the work. Changed for a
+local server: a fixed delay instead of exponential backoff (there is no rate
+limit to wait out), a wider set of retryable errors (llama-server restarting,
+a dropped connection, a 5xx), and an *empty* response counts as a failure -- a
+small model sometimes thinks and then emits nothing at all.
 
-`ToolFailureRecovery` -- a *tool call* failed. Three responses, in order:
+`ToolFailureRecovery` -- a *tool call* failed:
 
-1. A tool that **raised** (crashed rather than returning an error) is re-run
-   once via `AfterToolCallEvent.retry`. Crashes are usually transient: a
-   subprocess that could not spawn, a file briefly locked.
-2. A tool that **returned an error** gets a short instruction appended to its
-   result: read the error, fix the arguments, call again, attempt N of M. The
-   model sees it exactly where it is looking -- after the error text.
-3. If the model then **stops** straight after a failure, `AfterInvocationEvent`
-   resumes it once with the failure in front of it. Past the failure limit the
-   instruction flips to "stop and explain", so this cannot loop.
+1. A tool that **raised** is re-run via `AfterToolCallEvent.retry`, up to
+   `tool_crash_retries`. Crashes are usually transient: a subprocess that
+   could not spawn, a file briefly locked.
+2. A shell command with a non-zero exit code is marked as an error.
+3. A failed result gets a short instruction appended: read the error, fix the
+   arguments, attempt N of M. The model sees it right after the error text.
+4. If the model then **stops** straight after a failure, `AfterInvocationEvent`
+   resumes it once. Past the failure limit the instruction flips to "stop and
+   explain", so this cannot loop.
 """
 
 from __future__ import annotations

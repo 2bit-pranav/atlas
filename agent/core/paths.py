@@ -1,9 +1,9 @@
 """Where things live on disk, anchored to the application root.
 
 Every path in settings.json is relative to the application root, never to the
-process's working directory. They used to resolve against the cwd, which meant
-a backend started from `tests/` wrote a second database there, and snapshots
-landed in `data/data/sessions` because `session.dir` repeated the data dir.
+process's working directory: resolved against the cwd, a backend started from
+`tests/` wrote a second database there. `session.dir` is relative to the data
+dir, so it must not repeat it.
 
 The root is `ATLAS_ROOT` when the CLI sets it, and otherwise the directory two
 levels above this file -- which is the repository, wherever it was started from.
@@ -48,6 +48,11 @@ def skills_dir(settings: Settings) -> Path:
     return resolve(settings.skills.dir)
 
 
+def models_dir(settings: Settings) -> Path:
+    """The models folder: one model per subfolder, or a loose .gguf (`llama.py`)."""
+    return resolve(settings.model.dir)
+
+
 def mcp_config(settings: Settings) -> Path:
     return resolve(settings.mcp.config)
 
@@ -58,6 +63,7 @@ __all__ = [
     "data_dir",
     "database",
     "mcp_config",
+    "models_dir",
     "resolve",
     "sessions_dir",
     "skills_dir",

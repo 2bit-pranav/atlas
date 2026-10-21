@@ -208,6 +208,38 @@ to read the document and `create_document` the PDF instead. xlsx to PDF has no
 library that works without Excel, so it is not offered. `pdf2docx` (PDF to
 Word) pulls in PyMuPDF, which is AGPL-licensed.
 
+**One model at a time, switched by restart** (2026-10-20, measured, decided).
+llama-server's router mode (`--models-dir`, loading models on demand) was
+built and then dropped. The router itself costs nothing (226 ms vs 221 ms to
+first token with the prompt cached, 84 t/s either way), but every switch
+costs a full load (7.6-11 s for Gemma on a 4 GB GPU) plus re-reading the
+prompt with an empty cache (4.1 s for 7.9k tokens), so per-turn switching
+is out on one small GPU; cloud harnesses can do it because their models stay
+loaded. A model that does not fit (Agents-A1-4B at 32k context crashed with
+0xC0000409, most likely out of GPU memory) also failed only when first used.
+So llama-server runs `-m <gguf> --mmproj <file>` for the model chosen in
+Settings > Model, found by folder name in `llm/`, and "Restart now" in Settings
+applies it: the backend writes `restart.request`, `atlas start`'s supervisor
+restarts llama-server and the backend, and `restart.json` says how it went.
+A restart is no slower than the router's load, and a failure shows at once.
+Measured: switching Gemma to Agents-A1 on CPU took 13 s end to end.
+
+**Sampling settings are not per model** (2026-10-20, decided). Temperature,
+top-p/k, min-p, penalties, max tokens, context size and the thinking switch
+are request or server parameters with the same meaning for any model,
+fine-tune or quant. No model profiles.
+
+**One PDF reader, OCR per page** (2026-10-21, measured). `read_pdf.py`
+reads the text layer where there is one and OCRs the rest: a page with
+almost no text and a page-sized image is rendered and read; a large picture
+on a text page is read and kept when it holds real text (at least 20
+characters, mean confidence 0.75), so a diagram does not turn into "O O".
+No second command: the model picks the first reader it sees. RapidOCR
+(PaddleOCR models on onnxruntime, CPU, no Tesseract install) read a
+synthetic scan and a table screenshot exactly, about 1.7 s a page; results
+are cached beside the document's images, so a second read is instant
+(0.24 s). The models download once on first use if missing.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

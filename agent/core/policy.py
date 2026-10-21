@@ -1,9 +1,8 @@
 """Tool-call policy: everything Atlas checks before a tool runs, in one fixed order.
 
-Strands calls hooks in registration order and several used to live in
-separate modules (a document guard here, install approval there), so the order
-they ran in was an accident of `build_agent`. This module is the one place a
-tool call is inspected before it runs, as ordered steps:
+Strands calls hooks in registration order, so separate hooks would run in
+whatever order `build_agent` happened to register them. Instead this is the one
+place a tool call is inspected before it runs, as ordered steps:
 
     1. normalise   MCP servers get Windows paths, not `/c/Users/...`
     2. access      a path outside the workspace and the allowed folders asks
@@ -63,7 +62,8 @@ class Scope:
 
     workspace: Path
     folders: list[Path] = field(default_factory=list)
-    #: Always readable: the skills, so their scripts and SKILL.md can be read.
+    #: Read-only additions: the skills folder and the Python install that runs
+    #: their scripts.
     readable: list[Path] = field(default_factory=list)
 
     def allows(self, path: Path, *, write: bool) -> bool:

@@ -287,6 +287,23 @@ class ProcessGroup:
     def running(self) -> list[tuple[str, subprocess.Popen[bytes]]]:
         return [(n, p) for n, p in self._children if p.poll() is None]
 
+    def stop(self, name: str, grace: float = TERM_GRACE_SECONDS, sink: IO[str] | None = None) -> None:
+        """Stop one child by name and forget it, so it can be spawned again."""
+        procs = [p for n, p in self._children if n == name and p.poll() is None]
+        for proc in procs:
+            banner(sink or sys.stdout, name, "stopping")
+            logger.info("stopping %s (pid %d)", name, proc.pid)
+            self._signal(proc, force=False)
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline and any(p.poll() is None for p in procs):
+            time.sleep(0.1)
+        for proc in procs:
+            self._signal(proc, force=True)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=2)
+        self._children = [(n, p) for n, p in self._children if n != name]
+        self._relays.pop(name, None)
+
     def shutdown(self, grace: float = TERM_GRACE_SECONDS, sink: IO[str] | None = None) -> None:
         alive = self.running()
         if not alive:

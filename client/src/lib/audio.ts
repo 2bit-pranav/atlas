@@ -1,6 +1,6 @@
 /**
  * Voice input, as llama.cpp's web UI does it: record, and send the recording
- * itself as an audio attachment. No speech-to-text step -- Gemma hears the
+ * itself as an audio attachment. No speech-to-text step: the model hears the
  * audio through its own multimodal projector, so nothing else is installed.
  *
  * Browsers record compressed audio (webm/opus). llama-server accepts wav or

@@ -18,6 +18,8 @@ htmlcov/
 # Runtime state: written by `atlas up`, machine-specific, never committed.
 launched.json
 launched.json.tmp
+restart.request
+restart.json
 
 # Everything Atlas generates: atlas.db, Strands snapshots, and each chat's
 # uploads and workspace (paths.data_dir). `data/` is the pre-refactor location.

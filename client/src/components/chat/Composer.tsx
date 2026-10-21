@@ -24,7 +24,7 @@ import { Recorder } from "@/lib/audio"
 /** Pasting more than this many characters attaches the text as a file instead. */
 const PASTE_AS_FILE = 2500
 
-export const INPUT_CLASSES =
+const INPUT_CLASSES =
   "bg-muted/60 dark:bg-muted/75 border border-border/30 focus-within:border-border dark:border-border/20 dark:focus-within:border-border shadow-sm outline-none text-foreground"
 
 interface EditProps {
@@ -67,7 +67,7 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
     const el = area.current
     if (!mention || !el) return
     const caret = el.selectionStart
-    // Everything is inserted as text. A file name with spaces is quoted, so
+    // Inserted as text. A name with spaces or other characters is quoted, so
     // the backend can find where it ends.
     const insert = /^[\w.-]+$/.test(m.name) ? `@${m.name} ` : `@"${m.name}" `
     const next = text.slice(0, mention.start) + insert + text.slice(caret)
@@ -80,7 +80,7 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
     })
   }
 
-  // Voice: record, then attach the recording itself (Gemma hears audio).
+  // Voice: attach the recording itself; the model hears audio, no transcription.
   const recorder = useRef<Recorder | null>(null)
   const [recording, setRecording] = useState(false)
   const [elapsed, setElapsed] = useState(0)

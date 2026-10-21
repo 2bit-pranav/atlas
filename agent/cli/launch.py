@@ -2,7 +2,7 @@
 Command-line argument builders for Atlas managed processes.
 
 Builds invocation arguments for:
-  - llama-server (derived from settings.json model and llamacpp configurations)
+  - llama-server (derived from `settings.json` model and llamacpp configurations)
   - FastAPI backend (server.main:app)
   - Vite frontend (npm run dev)
 """
@@ -14,6 +14,7 @@ import os
 import shutil
 import sys
 
+from agent.core import llama
 from agent.core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -23,14 +24,20 @@ def build_llamacpp_args(settings: Settings) -> list[str]:
     """Full argv for llama-server derived from restart-tier settings."""
     model = settings.model
     args: list[str] = [settings.llamacpp.binary]
+    
+    # adapt to llama-server vs llama serve 
     if settings.llamacpp.subcommand:
         args.append(settings.llamacpp.subcommand)
 
-    args += ["-m", model.path]
+    # The model chosen in Settings, found in the models folder; its mmproj
+    # (image and audio input) is picked up from the same folder. Raises
+    # ModelError when the name is not there.
+    chosen = llama.current(settings)
+    args += ["-m", str(chosen.gguf), "--alias", chosen.name]
+    if chosen.mmproj is not None:
+        args += ["--mmproj", str(chosen.mmproj)]
 
-    if model.mmproj_path:
-        args += ["--mmproj", model.mmproj_path]
-
+    args += ["--no-ui"] # skip webui permanently
     args += ["-c", str(model.context_size)]
 
     gpu_layers = model.gpu_layers

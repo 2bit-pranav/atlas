@@ -1,23 +1,18 @@
 """Turn Strands' built-in event stream into flat API events.
 
-**No custom hook providers.** Decision 2026-10-17, after measuring what
-`stream_async` already reports: text and reasoning as `data`/`delta`, tool
-arguments incrementally as `type: tool_use_stream`, and a tool result as a
-`message` event carrying `toolResult`. Registering hooks as well would mean two
-sources for the same fact and two places to keep in sync.
+No custom hook providers: `stream_async` already reports text and reasoning
+as `data`/`delta`, tool arguments as `type: tool_use_stream`, and a tool result
+as a `message` carrying `toolResult`. Hooks as well would be a second source
+for the same facts. So this module is a parser, and the one place that knows
+Strands' event shapes.
 
-So this module is a *parser*, not an observer. It knows Strands' event shapes,
-which is exactly the knowledge we were trying to keep in one file.
-
-Two things worth knowing about the shapes, both learned the hard way:
+Two things about the shapes, both learned the hard way:
 
 * Raw model events are nested under an `event` key
-  (`{"event": {"contentBlockStart": {...}}, ...}`), not top-level. Reading
-  `ev["contentBlockStart"]` finds nothing.
-* There is no flat "tool finished" event. A result shows up as a complete
-  `toolResult` message, which means the tool's arguments have to be remembered
-  from when they streamed in, so a `toolUseId -> name` map is kept. That map is
-  the whole reason this file exists.
+  (`{"event": {"contentBlockStart": {...}}, ...}`), not top-level.
+* There is no flat "tool finished" event. A result arrives as a `toolResult`
+  message carrying only the tool's id, so a `toolUseId -> name` map is kept
+  from when the call streamed in.
 """
 
 from __future__ import annotations
@@ -25,16 +20,14 @@ from __future__ import annotations
 import json
 from typing import Any, AsyncIterator, Iterator
 
-#: What the API layer streams to a browser.
+# What `translate` emits (the full event list is in server/AGENTS.md):
 #
 #   text_delta        visible answer text
-#   thinking_delta    reasoning, kept separate (never replayed)
+#   thinking_delta    reasoning
 #   tool_start        a tool is about to run, with its arguments
 #   tool_args_delta   arguments still arriving (a long command types itself out)
-#   tool_end          the tool finished, with status and duration if known
+#   tool_end          the tool finished, with its status and result text
 #   usage             token counts, when the model reports them
-#   done              the run finished; always the last event
-#   error             something failed; always the last event
 
 
 async def translate(
@@ -48,7 +41,6 @@ async def translate(
     Yields nothing for anything it does not recognise, so an unrecognised
     Strands event is invisible rather than fatal.
     """
-    # toolUseId -> name, so a bare toolResult can be attributed to a tool.
     pending: dict[str, str] = {}
     args: dict[str, dict[str, Any]] = {}
 
@@ -57,9 +49,7 @@ async def translate(
             continue
 
         # --- raw model events, nested under "event" -------------------
-        # Reasoning appears ONLY here. There is no normalized event for it, so
-        # a layer that reads top-level keys silently drops every thinking
-        # delta and the UI shows an answer with no reasoning above it.
+        # Reasoning is translated only from here (see the duplicate below).
         inner = ev.get("event")
         if isinstance(inner, dict):
             produced = _from_raw(inner)
@@ -74,11 +64,9 @@ async def translate(
                     break
             continue
 
-        # Strands ALSO reports every reasoning token as a normalized
+        # Strands also reports every reasoning token as a normalized
         # `{"reasoningText": ..., "delta": {"reasoningContent": ...}}` event.
-        # Translating that one as well sent each token twice, which the UI
-        # showed as "TheThe user user is is". The raw event above is the one
-        # source; the normalized duplicate is skipped here on purpose.
+        # Translating both showed "TheThe user user is is", so this one is skipped.
         delta = ev.get("delta")
         if ev.get("reasoning") or (isinstance(delta, dict) and "reasoningContent" in delta):
             continue
@@ -112,10 +100,8 @@ async def translate(
                 yield produced
             continue
 
-        # The terminal `result` event is deliberately NOT translated. `Run.finish`
-        # emits the single authoritative `done`, carrying the real status; a
-        # second one here arrived with no status and made every client see two
-        # "done" events, one of them meaningless.
+        # The terminal `result` event is not translated: `Run.finish` emits the
+        # one `done`, with the real status.
 
 
 def _from_raw(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -171,8 +157,7 @@ def _from_message(
             continue
 
         if "text" in block and block["text"]:
-            # Complete-message text is a duplicate of what already streamed as
-            # deltas. Emitting it would double every word.
+            # Already streamed as deltas.
             continue
 
 

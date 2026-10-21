@@ -1,5 +1,5 @@
 /**
- * "2 min ago" for messages. One shared minute timer, however many messages
+ * "2 min ago" for messages. One shared 30-second timer, however many messages
  * are on screen, so the labels move on without a timer each.
  */
 import { useSyncExternalStore } from "react"

@@ -3,8 +3,8 @@
  *
  * The backend's `values` are flat dotted keys; this groups them into sections
  * and gives each a label, a control and a sentence of help. A key the schema
- * does not mention still appears, under "Other", so a new backend setting is
- * never invisible -- it just looks plainer until it is described here.
+ * neither describes nor lists in HIDDEN still appears, under "Other", so a new
+ * backend setting is never invisible; it just looks plainer until described.
  */
 
 export type Control =
@@ -15,6 +15,8 @@ export type Control =
   | { type: "textarea"; rows?: number }
   | { type: "select"; options: string[] }
   | { type: "list" }
+  /** The models in the models folder, from GET /models. */
+  | { type: "model" }
 
 export interface Field {
   key: string
@@ -27,6 +29,8 @@ export interface Section {
   id: string
   title: string
   description: string
+  /** Listed under Advanced in the nav: tuning most people never need. */
+  advanced?: boolean
   groups: { title: string; fields: Field[] }[]
 }
 
@@ -37,46 +41,9 @@ const text: Control = { type: "text" }
 
 export const SECTIONS: Section[] = [
   {
-    id: "llm",
-    title: "LLM",
-    description: "Sampling sent to the model with every request. Applies from the next message.",
-    groups: [
-      {
-        title: "Sampling",
-        fields: [
-          { key: "sampling.temperature", label: "Temperature", control: slider(0, 2, 0.05),
-            help: "Higher is more varied, lower is more predictable." },
-          { key: "sampling.top_p", label: "Top P", control: slider(0, 1, 0.01),
-            help: "Keep the smallest set of tokens whose probability adds up to this." },
-          { key: "sampling.top_k", label: "Top K", control: num(0, 200, 1),
-            help: "Only consider the K most likely tokens. 0 disables." },
-          { key: "sampling.min_p", label: "Min P", control: slider(0, 1, 0.01),
-            help: "Drop tokens less likely than this fraction of the top token." },
-          { key: "sampling.max_tokens", label: "Max tokens", control: num(1, 32768, 1),
-            help: "Longest answer per model call." },
-        ],
-      },
-      {
-        title: "Penalties",
-        fields: [
-          { key: "sampling.repeat_penalty", label: "Repeat penalty", control: slider(0.5, 2, 0.01) },
-          { key: "sampling.presence_penalty", label: "Presence penalty", control: slider(-2, 2, 0.05) },
-          { key: "sampling.frequency_penalty", label: "Frequency penalty", control: slider(-2, 2, 0.05) },
-        ],
-      },
-      {
-        title: "Reasoning",
-        fields: [
-          { key: "sampling.thinking", label: "Think by default", control: toggle,
-            help: "The starting state of the thinking switch in the composer." },
-        ],
-      },
-    ],
-  },
-  {
     id: "agent",
     title: "Agent",
-    description: "What the Strands agent is told and allowed to do. Applies from the next message.",
+    description: "What the agent is told and which built-in tools it has. These change results the most. Applies from the next message.",
     groups: [
       {
         title: "Instructions",
@@ -97,45 +64,6 @@ export const SECTIONS: Section[] = [
             help: "Fetch a web page as text. Leaves this machine." },
           { key: "tools.builtin.subagent", label: "subagent", control: toggle,
             help: "Delegate a task to a child agent. Slow with one llama slot." },
-        ],
-      },
-      {
-        title: "Retries",
-        fields: [
-          { key: "retry.show_previous", label: "Show earlier answers", control: toggle,
-            help: "Tell the model what the earlier versions said and ask for a different approach. The strongest lever for a genuinely different answer." },
-          { key: "retry.previous_limit", label: "Earlier answers quoted", control: num(1, 5, 1) },
-          { key: "retry.previous_chars", label: "Characters per quote", control: num(100, 4000, 50) },
-          { key: "retry.instructions", label: "Retry instruction", control: { type: "textarea", rows: 3 } },
-          { key: "retry.temperature_boost", label: "Temperature boost", control: slider(0, 1, 0.05),
-            help: "Added to the temperature for a retry only." },
-          { key: "retry.presence_penalty", label: "Presence penalty on retry", control: slider(-2, 2, 0.05) },
-          { key: "retry.new_seed", label: "New seed per retry", control: toggle },
-        ],
-      },
-      {
-        title: "Recovery",
-        fields: [
-          { key: "resilience.model_attempts", label: "Model call attempts", control: num(1, 10, 1),
-            help: "When llama-server errors or returns nothing." },
-          { key: "resilience.model_retry_delay", label: "Seconds between attempts", control: num(0, 30, 0.5) },
-          { key: "resilience.tool_crash_retries", label: "Re-runs of a crashed tool", control: num(0, 5, 1) },
-          { key: "resilience.tool_failure_limit", label: "Failed tool calls per turn", control: num(1, 10, 1),
-            help: "After this many, the model is told to stop and explain." },
-          { key: "resilience.nudge_after_failure", label: "Push back when the model gives up", control: toggle,
-            help: "If the model stops right after a failed tool call, re-invoke it once." },
-        ],
-      },
-      {
-        title: "Context",
-        fields: [
-          { key: "context.conversation_manager", label: "Conversation manager",
-            control: { type: "select", options: ["null", "sliding", "summarizing"] },
-            help: "How history is trimmed when it nears the window. 'null' keeps everything." },
-          { key: "context.window", label: "Context window", control: num(512, 262144, 512) },
-          { key: "context.prune_trigger_ratio", label: "Trim at", control: slider(0.1, 0.95, 0.05) },
-          { key: "context.prune_target_ratio", label: "Trim down to", control: slider(0.05, 0.9, 0.05) },
-          { key: "context.generation_reserve", label: "Reserved for the answer", control: num(256, 32768, 256) },
         ],
       },
     ],
@@ -164,17 +92,115 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
-    id: "server",
-    title: "Model & server",
-    description: "How llama-server is launched. Saved now, used at the next `atlas stop` + `atlas start`.",
+    id: "model",
+    title: "Model",
+    description: "Which local model answers. A new model or context size takes effect after Restart.",
     groups: [
       {
         title: "Model",
         fields: [
-          { key: "model.path", label: "GGUF path", control: text },
-          { key: "model.mmproj_path", label: "mmproj path", control: text, help: "For image input. Empty to disable." },
-          { key: "model.name", label: "Display name", control: text },
-          { key: "model.context_size", label: "Context size", control: num(512, 262144, 512) },
+          { key: "model.name", label: "Model", control: { type: "model" },
+            help: "A folder in the models folder (llm/ unless changed under Server & storage). Restart to load it." },
+          { key: "sampling.thinking", label: "Think by default", control: toggle,
+            help: "The starting state of the thinking switch in the composer." },
+          { key: "model.context_size", label: "Context size", control: num(512, 262144, 512),
+            help: "Tokens the model can hold at once. Larger needs more GPU memory." },
+          { key: "model.supports_thinking", label: "Model can think", control: toggle,
+            help: "Shows the thinking switch. Turn off for a model without reasoning." },
+          { key: "model.supports_vision", label: "Model can see images", control: toggle },
+        ],
+      },
+    ],
+  },
+  {
+    id: "behaviour",
+    title: "Recovery & context",
+    advanced: true,
+    description: "How the agent recovers from failures, what a retry changes, and how long chats are trimmed. Applies from the next message.",
+    groups: [
+      {
+        title: "Recovery",
+        fields: [
+          { key: "resilience.model_attempts", label: "Model call attempts", control: num(1, 10, 1),
+            help: "When llama-server errors or returns nothing." },
+          { key: "resilience.model_retry_delay", label: "Seconds between attempts", control: num(0, 30, 0.5) },
+          { key: "resilience.tool_crash_retries", label: "Re-runs of a crashed tool", control: num(0, 5, 1) },
+          { key: "resilience.tool_failure_limit", label: "Failed tool calls per turn", control: num(1, 10, 1),
+            help: "After this many, the model is told to stop and explain." },
+          { key: "resilience.nudge_after_failure", label: "Push back when the model gives up", control: toggle,
+            help: "If the model stops right after a failed tool call, re-invoke it once." },
+        ],
+      },
+      {
+        title: "Retries",
+        fields: [
+          { key: "retry.show_previous", label: "Show earlier answers", control: toggle,
+            help: "Tell the model what the earlier versions said and ask for a different approach. The strongest lever for a genuinely different answer." },
+          { key: "retry.previous_limit", label: "Earlier answers quoted", control: num(1, 5, 1) },
+          { key: "retry.previous_chars", label: "Characters per quote", control: num(100, 4000, 50) },
+          { key: "retry.instructions", label: "Retry instruction", control: { type: "textarea", rows: 3 } },
+          { key: "retry.temperature_boost", label: "Temperature boost", control: slider(0, 1, 0.05),
+            help: "Added to the temperature for a retry only." },
+          { key: "retry.presence_penalty", label: "Presence penalty on retry", control: slider(-2, 2, 0.05) },
+          { key: "retry.new_seed", label: "New seed per retry", control: toggle },
+        ],
+      },
+      {
+        title: "Context",
+        fields: [
+          { key: "context.conversation_manager", label: "Conversation manager",
+            control: { type: "select", options: ["null", "sliding", "summarizing"] },
+            help: "How history is trimmed when it nears the window. 'null' keeps everything." },
+          { key: "context.window", label: "Context window", control: num(512, 262144, 512) },
+          { key: "context.prune_trigger_ratio", label: "Trim at", control: slider(0.1, 0.95, 0.05) },
+          { key: "context.prune_target_ratio", label: "Trim down to", control: slider(0.05, 0.9, 0.05) },
+          { key: "context.generation_reserve", label: "Reserved for the answer", control: num(256, 32768, 256) },
+        ],
+      },
+    ],
+  },
+  {
+    id: "generation",
+    title: "Generation",
+    advanced: true,
+    description: "Sampling sent to the model with every request. The same for any model. Applies from the next message.",
+    groups: [
+      {
+        title: "Sampling",
+        fields: [
+          { key: "sampling.temperature", label: "Temperature", control: slider(0, 2, 0.05),
+            help: "Higher is more varied, lower is more predictable." },
+          { key: "sampling.top_p", label: "Top P", control: slider(0, 1, 0.01),
+            help: "Keep the smallest set of tokens whose probability adds up to this." },
+          { key: "sampling.top_k", label: "Top K", control: num(0, 200, 1),
+            help: "Only consider the K most likely tokens. 0 disables." },
+          { key: "sampling.min_p", label: "Min P", control: slider(0, 1, 0.01),
+            help: "Drop tokens less likely than this fraction of the top token." },
+          { key: "sampling.max_tokens", label: "Max tokens", control: num(1, 32768, 1),
+            help: "Longest answer per model call." },
+        ],
+      },
+      {
+        title: "Penalties",
+        fields: [
+          { key: "sampling.repeat_penalty", label: "Repeat penalty", control: slider(0.5, 2, 0.01) },
+          { key: "sampling.presence_penalty", label: "Presence penalty", control: slider(-2, 2, 0.05) },
+          { key: "sampling.frequency_penalty", label: "Frequency penalty", control: slider(-2, 2, 0.05) },
+        ],
+      },
+    ],
+  },
+  {
+    id: "server",
+    title: "Server & storage",
+    advanced: true,
+    description: "How llama-server is launched and where Atlas keeps its files. Takes effect after Restart.",
+    groups: [
+      {
+        title: "llama-server",
+        fields: [
+          { key: "model.dir", label: "Models folder", control: text,
+            help: "One subfolder per model with its .gguf (and an mmproj file for image input). Relative to the application folder." },
           { key: "model.gpu_layers", label: "GPU layers", control: text, help: "A number, or 'all'." },
           { key: "model.threads", label: "CPU threads", control: num(1, 128, 1) },
           { key: "model.batch_size", label: "Batch size", control: num(1, 16384, 1) },
@@ -183,13 +209,6 @@ export const SECTIONS: Section[] = [
           { key: "model.jinja", label: "Jinja templates", control: toggle },
           { key: "model.reasoning", label: "Reasoning format", control: { type: "select", options: ["auto", "on", "off"] } },
           { key: "model.parallel_slots", label: "Parallel slots", control: num(1, 8, 1) },
-          { key: "model.supports_thinking", label: "Model can think", control: toggle },
-          { key: "model.supports_vision", label: "Model can see images", control: toggle },
-        ],
-      },
-      {
-        title: "llama.cpp",
-        fields: [
           { key: "llamacpp.binary", label: "Binary", control: text },
           { key: "llamacpp.subcommand", label: "Subcommand", control: text },
           { key: "llamacpp.extra_args", label: "Extra arguments", control: { type: "list" }, help: "One per line." },
@@ -200,18 +219,12 @@ export const SECTIONS: Section[] = [
         fields: [
           { key: "ports.llama", label: "llama-server", control: num(1, 65535, 1) },
           { key: "ports.backend", label: "Backend", control: num(1, 65535, 1) },
-          { key: "ports.client", label: "Web UI", control: num(1, 65535, 1) },
+          { key: "ports.client", label: "Web UI", control: num(1, 65535, 1),
+            help: "Restart does not move the web UI: stop and start Atlas for this one." },
         ],
       },
-    ],
-  },
-  {
-    id: "storage",
-    title: "Storage",
-    description: "Where Atlas keeps what it generates. Paths are relative to the application folder.",
-    groups: [
       {
-        title: "Paths",
+        title: "Storage",
         fields: [
           { key: "paths.data_dir", label: "Data folder", control: text },
           { key: "session.dir", label: "Snapshots folder", control: text, help: "Inside the data folder." },

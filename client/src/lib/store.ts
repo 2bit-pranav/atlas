@@ -1,11 +1,10 @@
 /**
  * The client's single source of truth.
  *
- * ## Why it is fast now
+ * ## What keeps streaming fast
  *
- * The old store rebuilt the whole thread on every SSE delta and re-parsed every
- * message's markdown, so a reasoning stream of a few hundred tokens meant a few
- * hundred full-thread renders. Three changes:
+ * Rebuilding the whole thread on every SSE delta means a few hundred
+ * full-thread renders for a few hundred tokens. Instead:
  *
  * 1. **Selectors.** `useAtlas(s => s.x)` re-renders a component only when its
  *    own slice changes. The sidebar does not render when a token arrives; a
@@ -68,6 +67,10 @@ export interface AtlasState {
   previewTick: number
   /** Passages selected in the preview, waiting to go with the next message. */
   refs: Ref[]
+  /** A restart from the UI in progress (llama-server and the backend). */
+  restarting: boolean
+  /** Why the last restart failed; the model is not running until another one works. */
+  restartError: string | null
 }
 
 type Listener = () => void
@@ -89,6 +92,8 @@ class Store {
     preview: null,
     previewTick: 0,
     refs: [],
+    restarting: false,
+    restartError: null,
   }
 
   private listeners = new Set<Listener>()
@@ -114,6 +119,50 @@ class Store {
   }
 
   clearError = () => this.set({ error: null })
+
+  /**
+   * Restart llama-server and the backend with the saved settings: how a new
+   * model or another restart setting takes effect. The backend goes away
+   * while it happens, so this polls until the restart it asked for reports
+   * back (its `at` is newer than the request), then reloads settings.
+   */
+  async restart(): Promise<boolean> {
+    if (this.state.restarting) return false
+    const asked = Date.now()
+    try {
+      await api.restart()
+    } catch (error) {
+      this.fail(error)
+      return false
+    }
+    this.set({ restarting: true, error: null })
+    const deadline = asked + 10 * 60_000
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1000))
+      try {
+        const status = await api.restartStatus()
+        if (status.at && status.at >= asked && status.state !== "restarting") {
+          const failed = status.state === "failed" ? status.error ?? "failed" : null
+          this.set({ restarting: false, connected: true, restartError: failed, settings: await api.getSettings() })
+          return failed === null
+        }
+      } catch {
+        // The backend is down while it restarts; keep waiting.
+      }
+    }
+    this.set({ restarting: false, restartError: "Restart is taking too long. Check the terminal running `atlas start`." })
+    return false
+  }
+
+  /** Whether the last restart failed, e.g. after reloading the page. */
+  async checkRestart() {
+    try {
+      const status = await api.restartStatus()
+      this.set({ restartError: status.state === "failed" ? status.error ?? "failed" : null })
+    } catch {
+      // Not critical: the Settings page simply shows no restart notice.
+    }
+  }
 
   // ---------------------------------------------------------------- boot --
 

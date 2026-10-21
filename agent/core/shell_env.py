@@ -1,34 +1,25 @@
 ﻿"""A Windows execution environment for the harness `shell` tool.
 
-**Why this file exists at all.** Strands' default "no sandbox" environment runs
-every command as `sh -c <command>`. There is no `sh` on Windows, so every single
-shell call failed with
+**Why it exists.** Strands' default "no sandbox" environment runs every
+command as `sh -c <command>`. There is no `sh` on Windows, so every shell call
+failed with `[WinError 2] The system cannot find the file specified`, and
+every skill is "run a script through `shell`".
 
-    Error: ShellExecutionError - [WinError 2] The system cannot find the file specified
+This subclasses the stock local environment. File reads, writes, listing and
+removal are inherited unchanged; command execution and path resolution are
+overridden. Nothing in Strands is patched.
 
-and every skill in this project is "run a script through `shell`", so documents
-were dead while the scripts themselves worked perfectly when run outside the
-agent.
-
-`Sandbox` is an abstract base with six methods. Five (file reads and writes,
-listing, removal) are OS-independent and inherited unchanged. Only the two
-execution methods need a Windows implementation, so this subclasses the stock
-local environment and overrides those two. Nothing in Strands is patched.
-
-**Which shell it uses.** A POSIX shell, if one can be found -- Git Bash ships
-with Git for Windows and is preferred, because then the stock implementation
-works unmodified and the quoting in every `SKILL.md` behaves as written. Falling
-back to `cmd.exe` costs three workarounds that exist only because of it: a
-one-shot batch file (Windows re-quotes `argv`, breaking `python -c "..."`),
-`_shared.unquote` (`cmd` leaves quotes attached to a path), and
-`_shared.join_sql` (`cmd` splits a quoted SQL statement on its spaces). All three
-are kept, because a script that tolerates mangled quoting cannot be broken by a
-2B model, but none of them is on the happy path any more.
+**Which shell it uses.** Git Bash when it can be found, so the stock
+implementation runs unmodified and the quoting in every `SKILL.md` behaves as
+written. The `cmd.exe` fallback needs three workarounds: a one-shot batch file
+(Windows re-quotes `argv`, breaking `python -c "..."`), `skills/_shared.py`'s
+`unquote` (`cmd` leaves quotes attached to a path) and `join_sql` (`cmd`
+splits a quoted SQL statement on its spaces). The last two also make the
+scripts tolerant of a small model's mangled quoting.
 
 **What it is not.** A security boundary. Commands run on the host with the
-backend's own privileges, exactly as the POSIX version does. The isolation
-Atlas relies on is "the agent works in `data/chats/<chat_id>/`", which is a
-working-directory convention, not a sandbox. Do not treat this as one.
+backend's own privileges. Working in the chat's workspace folder is a
+working-directory convention, not a sandbox.
 """
 
 from __future__ import annotations
@@ -47,9 +38,8 @@ from strands.sandbox.not_a_sandbox_local_environment import (
     NotASandboxLocalEnvironment,
 )
 
-#: The interpreter used for `execute_code`. Atlas is a Python project and the
-#: backend's own interpreter is the one with the venv's packages installed, so
-#: `sys.executable` is correct rather than a bare `python`.
+#: The only language `execute_code` runs. It runs with `sys.executable`, the
+#: backend's own interpreter, which has the venv's packages.
 DEFAULT_CODE_LANGUAGE = "python"
 
 #: Where Git for Windows puts a POSIX shell. Checked because the executable has
@@ -127,7 +117,6 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
                 yield chunk
         except Exception as exc:
             loop_name = type(asyncio.get_running_loop()).__name__
-            # logger.exception("Shell execution failed under loop %s in %s", loop_name, cwd)
             yield ExecutionResult(
                 stdout="",
                 stderr=f"Shell execution failed [{type(exc).__name__}: {exc}] (loop={loop_name}, cwd={cwd or os.getcwd()})",
@@ -144,18 +133,12 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """The fallback: `cmd /c <one-shot batch file>`.
 
-        A batch file rather than the command in `argv`. Passing it as an argument
-        adds a re-quoting layer -- Python joins the argv list back into a command
-        line, and if the command already contains quotes the result gets wrapped
-        again, which trips `cmd`'s rule that a string beginning and ending in a
-        quote has its *outer* pair stripped, leaving the inner ones as literal
-        characters. The visible symptom was
-
-            python -c "import sys"   ->   SyntaxError: unterminated string literal
-
-        with the error pointing at `"import`, which reads as a broken script
-        rather than a broken invocation. A batch file removes the layer: the
-        command runs exactly as it would be if typed at a prompt.
+        A batch file rather than the command in `argv`. As an argument, Python
+        joins argv back into a command line and wraps an already-quoted command
+        again, and `cmd` strips only the *outer* pair, leaving the inner quotes
+        as literal characters: `python -c "import sys"` failed with
+        `SyntaxError: unterminated string literal`. A batch file runs the
+        command exactly as if typed at a prompt.
         """
         argv, shell_name, batch = _cmd_argv(command)
         try:
@@ -183,8 +166,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
                 await process.wait()
                 raise
         finally:
-            # Deleted whatever happened, including a timeout. A leaked .cmd per
-            # tool call would otherwise accumulate for the life of the backend.
+            # Deleted whatever happened, including a timeout, so one .cmd per
+            # tool call does not accumulate.
             _discard(batch)
 
         yield ExecutionResult(
@@ -239,9 +222,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
                 exit_code=2,
             )
 
-        # `sys.executable` and `-c`, never a bare `python`: the bare name is not
-        # on PATH inside a sandboxed shell, which is the same class of bug this
-        # module exists to fix.
+        # `sys.executable`, never a bare `python`, so the code runs with the
+        # venv's packages whatever PATH says.
         process = await asyncio.create_subprocess_exec(
             sys.executable, "-c", code,
             stdout=asyncio.subprocess.PIPE,
@@ -370,30 +352,11 @@ def _find_posix_shell() -> Path | None:
     Returns the directory to prepend to PATH, or None if there is no POSIX shell
     and the caller should fall back to `cmd.exe`.
 
-    **PATH has to be changed process-wide, and that is not a preference.** Windows
-    resolves an executable against the *calling* process's PATH; the environment
-    passed to a child is consulted only after the image is found. So passing
-    PATH through `env=` cannot make `sh` resolve -- measured, not assumed:
-    `C:\\Program Files\\Git\\bin` was on `env["PATH"]` and every call still failed
-    with `WinError 2`. `os.environ` is the only lever there is.
-
-    The venv's `Scripts` directory goes first for a separate reason, and this is
-    the fix for `No module named 'duckdb'`. Every skill script is a ready-made
-    command the model runs as `python skills/.../read_xlsx.py`, and every one of
-    them needs the venv's packages. Windows resolves `python` from PATH and the
-    *system* Python sits there first, so a bare `python` loads a different
-    interpreter than the one running the backend -- missing every dependency,
-    which reads as "the script is broken" rather than "the wrong Python ran it".
-
-    Two alternatives were tried and rejected: telling the model to use
-    `sys.executable` in the system prompt (it wrote `python` anyway, and then ran
-    `pip install duckdb` into user site-packages), and a `python.bat` shim, which
-    shadows a deliberate `python` elsewhere. Putting the real interpreter first
-    needs no cooperation from a 2B model: every command in every `SKILL.md` works
-    verbatim as written.
-
-    Derived from `sys.executable`, so it cannot drift from the interpreter
-    actually running.
+    **PATH has to be changed process-wide.** Windows resolves an executable
+    against the *calling* process's PATH; the environment passed to a child is
+    consulted only after the image is found. Measured: with Git's `bin` on
+    `env["PATH"]` every call still failed with `WinError 2`. `os.environ` is
+    the only lever.
     """
     candidates: list[Path] = []
     found = shutil.which("sh") or shutil.which("bash")
@@ -404,12 +367,9 @@ def _find_posix_shell() -> Path | None:
     for directory in candidates:
         if not ((directory / "sh.exe").is_file() or (directory / "sh").is_file()):
             continue
-        # **Both** directories, and the second one is the one that is easy to
-        # miss. `bin` holds only the shells (`bash.exe`, `sh.exe`, `git.exe`);
-        # the tools a shell command actually reaches for -- `tr`, `ls`, `grep`,
-        # `sed`, `awk`, `find`, `wc` -- live in `usr/bin`. With only `bin` on
-        # PATH the shell starts, then reports `command not found` for everything,
-        # which reads as a broken Git install rather than a missing PATH entry.
+        # Both directories: `bin` holds only the shells and `git.exe`; `ls`,
+        # `grep`, `sed`, `find` and the rest live in `usr/bin`. With only `bin`
+        # on PATH the shell starts, then every command is "not found".
         _prepend_path(directory)
         sibling = directory.parent / "usr" / "bin"
         if sibling.is_dir():
@@ -440,9 +400,16 @@ def _prepend_path(directory: Path, *, last: bool = False) -> None:
 def _venv_first(env: dict[str, str] | None) -> dict[str, str]:
     """The environment, with the venv's `Scripts` directory first on PATH.
 
-    Derived from `sys.executable` so it cannot drift from the interpreter that is
-    actually running. `VIRTUAL_ENV` is set too, so anything that shells out to
-    `python -m ...` agrees with the rest.
+    Every skill script is run as a bare `python ...` and needs the venv's
+    packages, but the *system* Python comes first on PATH, so the scripts
+    failed with `No module named 'duckdb'`. Telling the model to use
+    `sys.executable` did not work (it wrote `python` anyway, then pip-installed
+    into user site-packages), and a `python.bat` shim shadows a deliberate
+    `python` elsewhere. Putting the real interpreter first needs no cooperation
+    from the model.
+
+    Derived from `sys.executable` so it cannot drift from the interpreter that
+    is running. `VIRTUAL_ENV` is set too, so `python -m ...` agrees.
     """
     merged = {**os.environ, **(env or {})}
     scripts = Path(sys.executable).resolve().parent
@@ -471,17 +438,13 @@ def _posix_env(env: dict[str, str] | None) -> dict[str, str]:
     them, so passing `os.environ` through unfiltered turns every shell call into
     a `ValueError`.
 
-    Values are never dropped. A variable with a legal name but a Windows-shaped
-    value is left alone, because the shell will pass it through untouched and
-    some of them matter.
+    A legal name with a Windows-shaped value is kept; the shell passes it
+    through untouched.
 
-    **PATH is re-joined with `:` rather than `;`.** Measured, and it is the whole
-    ballgame: handed a semicolon-separated PATH, bash found its own tools from
-    `usr/bin` but silently could not find `python`, because `;` is not PATH's
-    separator to it. With `:` it resolved both. MSYS translates the value back to
-    Windows form for native children, so `.venv\\Scripts\\python.exe` still runs
-    with the venv's packages -- verified by importing `duckdb` and `openpyxl`
-    from inside the shell.
+    **PATH is re-joined with `:` rather than `;`.** Measured: with a
+    semicolon-separated PATH bash found its own tools but silently not
+    `python`. MSYS translates the value back to Windows form for native
+    children, so the venv's `python.exe` still runs with its packages.
     """
     merged = _venv_first(env)
     legal = {k: v for k, v in merged.items() if _ENV_NAME.fullmatch(k)}
@@ -531,10 +494,8 @@ def _batch_file(command: str) -> str:
     _TMP_DIR.mkdir(parents=True, exist_ok=True)
     handle, name = tempfile.mkstemp(suffix=".cmd", dir=_TMP_DIR, text=True)
     with os.fdopen(handle, "w", encoding="utf-8", newline="\r\n") as fh:
-        # `@echo off` first, because a batch file echoes every line back by
-        # default. That echo is pure noise in a tool result -- it goes straight
-        # into the context window, so a long shell command would be paid for
-        # twice, once to run and once to read back.
+        # `@echo off`: otherwise every line is echoed into the tool result and
+        # a long command costs context tokens twice.
         fh.write("@echo off\r\n")
         fh.write(command)
     return name
@@ -557,8 +518,8 @@ def _decode(raw: bytes | None) -> str:
 def default_environment(cwd: Path | None = None, skills: Path | None = None) -> NotASandboxLocalEnvironment:
     """The environment to use on this platform.
 
-    Always the Windows subclass: on POSIX it defers to `super()` on every method,
-    so behaviour is identical and there is one code path to test rather than two.
+    Always the Windows subclass: where `sh` is found (as on POSIX) it runs
+    commands through the stock implementation, so there is one code path.
     """
     return WindowsLocalEnvironment(cwd=cwd, skills=skills)
 

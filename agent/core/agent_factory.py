@@ -1,9 +1,9 @@
 """
 build_agent: the one place that calls create_harness (agent/AGENTS.md).
 
-Everything above this file resolves settings into managers; this file asks the
-managers for their parts, assembles one Strands Agent, and returns it. Tests
-build an agent from here without a server.
+Each manager resolves its part of the settings; this file asks them for their
+parts and assembles one Strands Agent per turn, so a LIVE setting applies to
+the next message. It needs no server.
 """
 
 from __future__ import annotations
@@ -85,6 +85,7 @@ def build_model(
 
     return AtlasLlamaCppModel(
         base_url=f"http://127.0.0.1:{settings.ports.llama}",
+        model_id=settings.model.name,
         enable_thinking=thinking,
         context_window_limit=settings.context.window or settings.model.context_size,
         params=params,
@@ -105,6 +106,7 @@ def build_summarizer(settings: Settings) -> AtlasLlamaCppModel:
     """
     return AtlasLlamaCppModel(
         base_url=f"http://127.0.0.1:{settings.ports.llama}",
+        model_id=settings.model.name,
         enable_thinking=False,
         context_window_limit=settings.context.window or settings.model.context_size,
         # 600 was too few: asked for a results table, the summariser hit the
@@ -135,9 +137,9 @@ def retry_hint(settings: Settings, retry: RetryPlan) -> str:
 def build_conversation_manager(settings: Settings) -> Any:
     """The SDK conversation manager named in settings, or Null.
 
-    `NullConversationManager` is the honest default: the harness's
-    `context_manager` is disabled (see `MemoryManager`), and until context trimming is measured
-    one, keeping the full history is better than trimming with an untested rule.
+    `NullConversationManager` is the default: the harness's `context_manager`
+    is disabled (see `MemoryManager`), and until a trimming rule is measured,
+    keeping the full history is better than trimming with an untested one.
     """
     from strands.agent import conversation_manager as cm
 
@@ -162,13 +164,8 @@ def build_conversation_manager(settings: Settings) -> Any:
 def _runtime_facts(settings: Settings, chat_id: str) -> str:
     """Facts about this machine that the model cannot know and cannot guess.
 
-    An earlier version of this claimed a bare `python` was not on PATH. That was
-    true while the harness shelled out to `sh` and became false the moment the
-    Windows environment ran commands through `cmd /c` -- and a confidently wrong
-    instruction is worse than none, because a model will try to reconcile the
-    two and lose a turn doing it.
-
-    What is actually true, and what still needs saying:
+    Keep every line true: a confidently wrong instruction is worse than none,
+    because the model tries to reconcile it with what it sees and loses a turn.
 
     * `python` resolves to the project's own interpreter, because the Windows
       environment puts the venv's `Scripts` directory first on PATH. So the
@@ -369,16 +366,13 @@ def _restore(
 ) -> None:
     """Restore a snapshot, then re-apply what the snapshot may have overridden.
 
-    Order matters: the snapshot's stored
-    `system_prompt` wins over the one passed to `create_harness`, so the prompt
-    is set again afterwards. Without this, editing the prompt in settings.json
-    silently stops having any effect on every chat that already has history.
+    The snapshot's stored `system_prompt` wins over the one passed to
+    `create_harness`, so the prompt is set again afterwards. Without this, an
+    edited prompt would have no effect on any chat that already has history.
 
-    The replacement is **recomposed**, not the settings string assigned raw.
-    Assigning `settings.system_prompt` directly drops Strands' harness guidance
-    -- caught by a test that showed the prompt collapsing to our text alone on
-    the first restored turn. `build_system_prompt` is the same function the
-    harness uses, so the extension stays an extension.
+    The prompt is **recomposed** with `build_system_prompt`, the harness's own
+    function: assigning our text raw dropped the harness guidance, leaving only
+    our text on the first restored turn.
     """
     async def _do() -> bool:
         return await session_manager.restore_snapshot(
@@ -414,8 +408,9 @@ def _run(coro: Any) -> Any:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
-    # Inside a loop: run in a private one on another thread. The executor calls
-    # this from a worker thread, so the two-thread case is the normal one.
+    # Called on a thread with a running loop: run in a private loop on another
+    # thread. The server calls `build_agent` via `asyncio.to_thread`, so it
+    # normally takes the `asyncio.run` path above.
     import concurrent.futures
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:

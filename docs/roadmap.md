@@ -55,13 +55,27 @@ likely first case), a script that saves a web page or its tables to a file.
 
 In this order:
 
-1. Hugging Face models: download, a router and a model picker.
-2. Cloud models.
-3. A CLI for chatting.
-4. Triggers.
-5. Schedules and notifications.
-6. A browser extension.
-7. Google and Microsoft accounts, through MCP.
+1. **Model picker and Restart** (done): pick a model folder in Settings >
+   Model, "Restart now" in Settings. Router mode was tried and dropped
+   (docs/decisions.md): per-turn switching costs a full load each time on one
+   small GPU. Settings reordered: Agent, Skills & MCP, Access, Model first;
+   tuning under Advanced.
+2. **Unattended runs**: a run queue (a scheduled run must wait behind a chat,
+   not be refused), notifications, then schedules, then triggers (file,
+   webhook). Webhooks need a local API key first.
+3. **Google and Microsoft accounts, through MCP.** Sending or deleting tools
+   default to Ask.
+4. **Browser extension.** Needs the API key; another origin calling the backend.
+5. **CLI and release**, together at the end:
+   - a TUI (Textual): startup screen with per-process status and logs, and a
+     chat screen over the same API;
+   - onboarding: dependencies, first-run settings with defaults, pick or
+     download a model;
+   - Hugging Face downloads into `llm/` and a model picker;
+   - packaging for a GitHub release with a CLI install.
+
+On hold: cloud models (a separate Strands model class per provider; the
+llama.cpp patches do not apply).
 
 ## Backlog
 

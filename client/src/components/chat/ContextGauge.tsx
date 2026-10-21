@@ -47,9 +47,8 @@ export function ContextGauge() {
         </svg>
       </button>
 
-      {/* Portalled to <body>: the composer clips its children (overflow-hidden,
-          for the rounded pill), which cut this popover off. Fixed position,
-          anchored above the ring's right edge. */}
+      {/* Portalled to <body>: the composer's overflow-hidden (for the rounded
+          pill) would clip it. Fixed, anchored above the ring's right edge. */}
       {anchor && createPortal(
         <div
           style={{ bottom: window.innerHeight - anchor.top + 8, right: Math.max(8, window.innerWidth - anchor.right) }}

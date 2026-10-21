@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: Read, search, merge, split and convert PDF documents. Use this whenever a PDF is attached or mentioned - to summarise it, quote a passage, find a number, answer a question about it, combine PDFs or chosen pages, split one into parts, or turn it into a Word document. Also creates PDFs from Markdown.
+description: Read (including scanned pages, with OCR), search, merge, split and convert PDF documents. Use this whenever a PDF is attached or mentioned - to summarise it, quote a passage, find a number, answer a question about it, combine PDFs or chosen pages, split one into parts, or turn it into a Word document. Also creates PDFs from Markdown.
 ---
 
 # PDFs
@@ -79,12 +79,16 @@ To change part of an existing file, call **`edit_document`** with the exact
 text to `find` and its `replace`ment. Read the file first and copy the text
 exactly. A PDF cannot be edited in place: create it again with the change.
 
+## Scanned pages
+
+The same command reads scanned pages and text inside pictures, using OCR.
+They are marked `(scanned, read by OCR)` or `[text in picture N, read by OCR]`.
+OCR can misread a character: quote numbers and names exactly as printed, and
+say they came from a scan when they matter. OCR takes about two seconds a
+page the first time; `--no-ocr` skips it when only the typed text is needed.
+
 ## If it cannot read the file
 
-`ERROR: pages [...] have no text layer -- this looks like a scanned or
-image-only PDF`.
-
-That means the file is images, not text. No tool here can read it. Say so
-plainly and ask the user for a text version. Do not describe what you imagine
-the document might contain, and do not report "the document contains no
-information" -- the document contains plenty, this tool just cannot see it.
+`ERROR: pages [...] have no text, even with OCR` means those pages are blank
+or pictures without writing. Say so plainly. Do not describe what you imagine
+the document contains.

@@ -13,8 +13,7 @@ whose model history lives in Strands snapshots.
             snapshot, so it can never become the parent of a follow-up
 
 Everything is under `/api` so the frontend can own `/settings`, `/skills` and
-`/mcp` as pages: the dev proxy used to forward `/settings` to the backend,
-which would have swallowed the settings page.
+`/mcp` as page paths without the dev proxy forwarding them to the backend.
 """
 
 from __future__ import annotations
@@ -23,9 +22,11 @@ import asyncio
 import json
 import logging
 import mimetypes
+import os
 import re
 import shutil
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from agent.core import paths
+from agent.core import llama, paths
 from agent.core.agent_factory import RetryPlan, build_agent, clock_note, retry_hint
 from agent.core.chats import (
     CANCELLED,
@@ -51,7 +52,6 @@ from agent.core.settings import (
     TIERS,
     Settings,
     SettingsError,
-    Tier,
     changed_restart_keys,
     flatten,
     load_settings,
@@ -70,7 +70,7 @@ from server.transcript import answer_of
 logger = logging.getLogger(__name__)
 
 
-# ----------------------------------------------------------------- models --
+# ---------------------------------------------------------- request bodies --
 
 
 class CreateChat(BaseModel):
@@ -134,7 +134,8 @@ class Atlas:
         """What the loaded model can take in (vision, audio), from llama-server.
 
         Asked once and remembered: it changes only with the model, which needs
-        a restart anyway. Not remembered while llama-server is still loading.
+        a restart, and a restart starts a new backend. Not remembered while
+        llama-server is still loading.
         """
         if self._modalities is None:
             try:
@@ -229,8 +230,8 @@ class Atlas:
         run.workspace_before = _scan(self.chat_dir(run.chat_id))
         try:
             manager = sm.manager()
-            # Building restores a snapshot from disk and constructs the harness:
-            # blocking work that used to stall every SSE stream while it ran.
+            # Building restores a snapshot from disk: blocking work that would
+            # stall every open SSE stream if it ran on the event loop.
             agent = await asyncio.to_thread(
                 build_agent, settings, chat_id=run.chat_id, thinking=thinking,
                 restore_snapshot_id=turn["before_snap"], session_manager=manager,
@@ -302,9 +303,8 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     async def lifespan(_: FastAPI):
         loop = asyncio.get_running_loop()
         if sys.platform == "win32" and "Proactor" not in type(loop).__name__:
-            # Subprocesses are unsupported on the Selector loop, so every shell
-            # call (and so every skill) would fail with a blank
-            # NotImplementedError. `uvicorn --reload` is the usual cause.
+            # The Selector loop cannot start subprocesses (see server/main.py).
+            # `uvicorn --reload` is the usual cause.
             logger.error("running on %s: shell tools will not work. Start the backend "
                          "with `atlas start`, or uvicorn WITHOUT --reload.",
                          type(loop).__name__)
@@ -611,10 +611,48 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         await asyncio.to_thread(state.mcp.set_settings, state.settings)
         return settings_view()
 
+    # ------------------------------------------------------------- models --
+
+    @api.get("/models")
+    async def list_models() -> dict[str, Any]:
+        """The models in the models folder, for the Settings picker."""
+        found = await asyncio.to_thread(llama.discover, paths.models_dir(state.settings))
+        return {"models": [m.describe() for m in found], "loaded": state.boot.model.name,
+                "selected": state.settings.model.name}
+
+    # ------------------------------------------------------------ restart --
+
+    @api.get("/restart")
+    async def restart_status() -> dict[str, Any]:
+        """How the last restart went: restarting, ready or failed (with why)."""
+        status = os.environ.get("ATLAS_RESTART_STATUS")
+        available = bool(os.environ.get("ATLAS_RESTART_REQUEST"))
+        try:
+            data = json.loads(Path(status).read_text(encoding="utf-8")) if status else {}
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        return {"available": available, **data}
+
+    @api.post("/restart")
+    async def restart() -> dict[str, Any]:
+        """Ask `atlas start` to restart llama-server and this backend.
+
+        The CLI watches for the request file; this process is replaced, so the
+        UI polls GET /restart until it answers again.
+        """
+        request = os.environ.get("ATLAS_RESTART_REQUEST")
+        if not request:
+            raise HTTPException(409, "Atlas was not started with `atlas start`, so it cannot restart itself. "
+                                     "Stop it and start it again by hand.")
+        if state.runs.active():
+            raise HTTPException(409, "An answer is being written. Stop it or wait, then restart.")
+        Path(request).write_text(str(int(time.time() * 1000)), encoding="utf-8")
+        return {"ok": True}
+
     app.state.settings_view = settings_view
     app.include_router(api)
 
-    # Phase 2 routes (skills, MCP) register onto the same router prefix.
+    # Skills and MCP routes, also under /api.
     from server.extensions import register as register_extensions  # noqa: PLC0415
 
     register_extensions(app, state)
@@ -638,7 +676,7 @@ def _launched_restart_values(state: Atlas) -> dict[str, Any]:
     launched.json when the CLI wrote one (its `restart_settings` block is flat,
     `{"model.path": ...}`), otherwise this process's own start-up values.
     """
-    launched = paths.ROOT / "launched.json"
+    launched = Path(os.environ.get("ATLAS_LAUNCHED") or paths.ROOT / "launched.json")
     if launched.is_file():
         try:
             flat = json.loads(launched.read_text(encoding="utf-8")).get("restart_settings")
@@ -677,7 +715,8 @@ _MENTION = re.compile(r'(?<![\w@])@(?:"([^"\n]+)"|([\w.-]+))')
 
 def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
                       workspace: Path | None = None) -> str:
-    """`@name` in a message, resolved against skills, tools and MCP servers.
+    """`@name` in a message, resolved against workspace files, MCP servers,
+    tools and skills.
 
     The composer's @ menu inserts these. A small model needs the instruction
     spelled out: asked to "use @fetch" it would otherwise still pick whichever

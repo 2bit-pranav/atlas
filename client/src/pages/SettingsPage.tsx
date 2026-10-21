@@ -2,10 +2,9 @@
  * Settings, as a page with sections rather than one long modal.
  *
  * Edits are a draft until Save, so a half-typed system prompt never reaches
- * the agent. Every key can be edited. LIVE keys apply from the next message;
- * RESTART keys are written to settings.json and marked, and the banner lists
- * only the ones that really differ from what the running servers were started
- * with.
+ * the agent. LIVE keys apply from the next message. RESTART keys are saved and
+ * badged; the "Restart now" notice lists only those that differ from what the
+ * running servers were started with (the backend's `pending_restart`).
  */
 
 import { useEffect, useMemo, useState } from "react"
@@ -19,15 +18,21 @@ import { SECTIONS, HIDDEN, describedKeys, type Field } from "@/lib/settingsSchem
 import { SHORTCUTS } from "@/lib/shortcuts"
 import { downloadJson } from "@/lib/download"
 import { Button, Kbd, Notice, Switch } from "@/components/ui/kit"
+import type { ModelList } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
+const navItem = (id: string) => ({ id, title: SECTIONS.find((s) => s.id === id)?.title ?? id })
+/** Most-used first: what changes results, then the model; tuning under Advanced. */
 const NAV = [
   { id: "general", title: "General" },
-  ...SECTIONS.map((s) => ({ id: s.id, title: s.title })),
+  navItem("agent"),
   { id: "extensions", title: "Skills & MCP" },
+  navItem("access"),
+  navItem("model"),
   { id: "conversations", title: "Conversations" },
   { id: "shortcuts", title: "Shortcuts" },
 ]
+const ADVANCED = SECTIONS.filter((s) => s.advanced).map((s) => ({ id: s.id, title: s.title }))
 
 export function SettingsPage() {
   const { section = "general" } = useParams()
@@ -38,6 +43,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     void atlas.refreshSettings()
+    void atlas.checkRestart()
   }, [])
 
   const dirty = Object.keys(draft).length > 0
@@ -60,6 +66,9 @@ export function SettingsPage() {
   }
 
   const pending = Object.keys(settings?.pending_restart ?? {})
+  const restarting = useAtlas((s) => s.restarting)
+  const restartError = useAtlas((s) => s.restartError)
+  const answering = useAtlas((s) => s.run !== null)
   const [query, setQuery] = useState("")
   const q = query.trim().toLowerCase()
   // Every described field that matches, with its section, across all sections.
@@ -74,20 +83,23 @@ export function SettingsPage() {
         <Link to="/" className="px-2 text-xs text-muted-foreground hover:text-foreground">← Back to chat</Link>
         <p className="mt-4 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Settings</p>
         <SettingsSearch value={query} onChange={setQuery} />
-        <ul className="mt-2 space-y-0.5">
-          {NAV.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => navigate(`/settings/${item.id}`)}
-                className={cn("w-full rounded-md px-2 py-1.5 text-left text-sm",
-                  section === item.id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground")}
-              >
-                {item.title}
-              </button>
-            </li>
-          ))}
-        </ul>
+        {[{ title: "", items: NAV }, { title: "Advanced", items: ADVANCED }].map((list) => (
+          <ul key={list.title} className="mt-2 space-y-0.5">
+            {list.title && <li className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{list.title}</li>}
+            {list.items.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/settings/${item.id}`)}
+                  className={cn("w-full rounded-md px-2 py-1.5 text-left text-sm",
+                    section === item.id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground")}
+                >
+                  {item.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ))}
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -99,13 +111,26 @@ export function SettingsPage() {
               className="mb-4 h-9 w-full rounded-lg border bg-background px-2 text-sm md:hidden"
             >
               {NAV.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
+              <optgroup label="Advanced">
+                {ADVANCED.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
+              </optgroup>
             </select>
             <div className="mb-4 md:hidden"><SettingsSearch value={query} onChange={setQuery} /></div>
 
-            {pending.length > 0 && (
-              <Notice tone="info">
-                {pending.length} saved {pending.length === 1 ? "setting takes" : "settings take"} effect after a restart
-                (<span className="font-mono">atlas stop</span>, then <span className="font-mono">atlas start</span>): {pending.join(", ")}
+            {/* Only while a restart is pending, running, or has failed. */}
+            {(pending.length > 0 || restartError || restarting) && (
+              <Notice tone={restartError && !restarting ? "error" : "info"}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    {restarting ? "Restarting llama-server and the backend..."
+                      : restartError ? `The last restart failed: ${restartError}`
+                      : <>{pending.length} saved {pending.length === 1 ? "setting takes" : "settings take"} effect
+                          after a restart: {pending.join(", ")}</>}
+                  </span>
+                  <Button size="sm" onClick={() => void atlas.restart()} disabled={restarting || answering}>
+                    {restarting ? "Restarting..." : "Restart now"}
+                  </Button>
+                </div>
               </Notice>
             )}
 
@@ -234,6 +259,9 @@ function FieldRow({ field, value, restart, changed, onChange }: {
       control = <textarea rows={c.rows ?? 4} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}
                           className="w-full rounded-md border bg-background p-2.5 font-mono text-xs leading-relaxed outline-none focus:ring-2 focus:ring-ring/30" />
       break
+    case "model":
+      control = <ModelSelect value={String(value ?? "")} onChange={onChange} />
+      break
     case "list":
       control = <textarea rows={3} value={((value as string[]) ?? []).join("\n")}
                           onChange={(e) => onChange(e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
@@ -250,7 +278,32 @@ function FieldRow({ field, value, restart, changed, onChange }: {
   return <Row label={field.label} help={field.help} badge={badge} wide={wide}>{control}</Row>
 }
 
-/** Any backend key the schema does not describe, so none is ever unreachable. */
+/** The models in the models folder, with the one llama-server is running marked. */
+function ModelSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [list, setList] = useState<ModelList | null>(null)
+  useEffect(() => {
+    api.listModels().then(setList).catch(() => setList({ models: [], loaded: "", selected: "" }))
+  }, [])
+  const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  const names = list?.models.map((m) => m.name) ?? []
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={cn(inputClass, "w-64")}>
+        {!names.includes(value) && <option value={value}>{value || "(none)"} - not found</option>}
+        {list?.models.map((m) => (
+          <option key={m.name} value={m.name}>
+            {m.name} ({gb(m.bytes)}{m.mmproj ? ", images" : ""}){m.name === list.loaded ? " - running" : ""}
+          </option>
+        ))}
+      </select>
+      {list && list.models.length === 0 && (
+        <span className="text-[11px] text-muted-foreground">No models found. Put each model in its own folder under llm/.</span>
+      )}
+    </div>
+  )
+}
+
+/** Backend keys the schema neither describes nor hides, so a new one is never unreachable. */
 function OtherKeys({ values, value, set, tiers }: {
   values: Record<string, unknown>; value: (k: string) => unknown; set: (k: string, v: unknown) => void
   tiers: Record<string, string>
@@ -417,8 +470,6 @@ function ShortcutsSection() {
     </div>
   )
 }
-
-export default SettingsPage
 
 function SettingsSearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (

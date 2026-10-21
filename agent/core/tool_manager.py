@@ -1,11 +1,7 @@
-"""`ToolManager` (agent/AGENTS.md).
+"""`ToolManager`: turns `tools.builtin` into the harness's `builtin_tools` list.
 
-Turns `tools.builtin` into the harness's `builtin_tools` list. It resolves
-configuration and nothing else: no tool logic, no filtering of what the model
-may call, no intervention handling. The harness owns tool behaviour.
-
-It exists so `sampling` and `tools` stay separate concerns, and so dropping
-`shell` is a settings edit rather than a code change.
+It resolves configuration and nothing else, so dropping `shell` is a settings
+edit rather than a code change. Checks before a tool runs are `policy.py`'s.
 """
 
 from __future__ import annotations
@@ -18,13 +14,10 @@ from agent.core.settings import Settings
 
 #: The built-in tools a user can switch on, in `tools.builtin`. Every name here
 #: must exist in `BUILTIN_TOOL_NAMES`; a typo would otherwise be a tool that
-#: silently never appears.
+#: silently never appears. Deliberately absent: `web_search` (needs a cloud
+#: provider's search or Exa, a third party that would see every query) and
+#: `programmatic_tool_caller` (lets the model run tools without asking).
 SWITCHABLE: tuple[str, ...] = ("read", "write", "edit", "shell", "web_fetch", "subagent")
-
-#: Deliberately never offered. `web_search` needs a cloud provider's native
-#: search or Exa, a third party that would see every query.
-#: `programmatic_tool_caller` lets the model run tools without asking.
-BLOCKED: frozenset[str] = frozenset({"web_search", "programmatic_tool_caller"})
 
 
 class ToolManager:
@@ -50,15 +43,16 @@ class ToolManager:
         return [n for n in BUILTIN_TOOL_NAMES if n in selected]
 
     def interventions(self) -> Any:
-        """The `interventions=` argument, or None when approval is off.
+        """The `interventions=` argument, or None when `tools.interventions` is off.
 
-        Off for now: there is no frontend to render an approval prompt, so
-        enabling it would hang a run with nothing to answer it.
+        Off by default: the UI does not render the harness's own intervention
+        prompts (approvals go through `ToolPolicy`), so enabling it would hang a
+        run with nothing to answer it.
         """
         return None if not self.settings.tools.interventions else []
 
     def extra_tools(self) -> list[Any]:
-        """Consumer-supplied tools. None yet: skills are scripts run via shell."""
+        """Extra tools from settings. None: skills are scripts run via `shell`."""
         return []
 
     def describe(self) -> dict[str, Any]:
@@ -70,4 +64,4 @@ class ToolManager:
         }
 
 
-__all__ = ["BLOCKED", "SWITCHABLE", "ToolManager"]
+__all__ = ["SWITCHABLE", "ToolManager"]

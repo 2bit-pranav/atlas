@@ -1,2 +1,4 @@
 pypdfium2
 pdf2docx
+rapidocr
+onnxruntime
