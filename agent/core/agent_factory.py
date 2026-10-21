@@ -186,7 +186,7 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
     return (
         f"Today is {today:%A, %d %B %Y}. Read \"last\", \"latest\", \"this year\" and "
         "similar words against this date, not against what you remember. Each "
-        "message from the user ends with the time it was sent.\n"
+        "message from the user ends with the time it was sent; use it, never repeat it.\n"
         "For facts from the web, prefer the original source (the organisation's "
         "own site, official docs, PyPI or GitHub releases) over sites that "
         "repeat it, and give the link you used.\n\n"
@@ -212,7 +212,8 @@ def clock_note(now: datetime | None = None) -> str:
     """The send time appended to every user message: local time and its offset."""
     now = (now or datetime.now()).astimezone()
     offset = now.strftime("%z")
-    return f"[Sent {now:%a %d %b %Y, %H:%M} (UTC{offset[:3]}:{offset[3:]})]"
+    # Worded as context, not a line to copy: shorter, the model echoed it.
+    return f"[Context, not to repeat: sent {now:%a %d %b %Y, %H:%M} (UTC{offset[:3]}:{offset[3:]})]"
 
 
 def build_agent(
@@ -227,6 +228,7 @@ def build_agent(
     observer: Callable[[dict[str, Any]], None] | None = None,
     approver: Approver | None = None,
     sensitive: Callable[[str], bool] | None = None,
+    tainted: Callable[[], bool] | None = None,
     sandbox: Any = None,
 ) -> Any:
     """Build one Strands `Agent` for one turn.
@@ -241,6 +243,7 @@ def build_agent(
             sensitive MCP tools). Without one, those calls are refused with an
             explanation.
         sensitive: whether an MCP tool, by its agent-facing name, must ask first.
+        tainted: whether web-page content has entered the turn (page tools).
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -290,7 +293,7 @@ def build_agent(
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
         # Before a tool runs: one ordered policy (policy.py). After: recovery.
         hooks=[ToolPolicy(_scope(settings, workspace_dir), approver=approver,
-                          ask_outside=settings.access.ask_outside, sensitive=sensitive,
+                          ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           reader=lambda p: reader_command(settings, p, _shown(p, workspace_dir))),
                ToolFailureRecovery(settings.resilience, notify=observer)],
     )

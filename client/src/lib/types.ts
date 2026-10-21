@@ -26,6 +26,10 @@ export interface ChatSummary {
   title: string
   created_at: number
   updated_at: number
+  /** `extension`: started in the browser side panel, about `page_url`. */
+  source?: "web" | "extension"
+  page_url?: string
+  page_title?: string
 }
 
 export type Part =
@@ -46,7 +50,7 @@ export type Part =
       kind: "approval"
       id: string
       /** What is asked: an install, a folder outside the allowed ones, or an MCP tool marked "ask". */
-      request?: "install" | "access" | "tool"
+      request?: "install" | "access" | "tool" | "page"
       folder?: string | null
       command: string
       status: "pending" | "allowed" | "denied" | "expired"
@@ -134,9 +138,11 @@ export type RunEvent = { seq: number } & (
   | { type: "tool_start"; id: string; name: string; args: unknown }
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
   | { type: "tool_end"; id: string; name: string; status: string; text: string }
-  | { type: "approval_request"; id: string; kind: "install" | "access" | "tool"; command: string; folder?: string;
+  | { type: "approval_request"; id: string; kind: "install" | "access" | "tool" | "page"; command: string; folder?: string;
       timeout: number; expires_at: number }
   | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
+  /** The backend asks the client to do something (the extension: a page operation). */
+  | { type: "client_call"; id: string; op: string; args: Record<string, unknown> }
   | ({ type: "stats" } & TurnStats)
   | { type: "usage"; input: number; output: number; total: number; reported?: number }
   | { type: "done"; status: TurnStatus }

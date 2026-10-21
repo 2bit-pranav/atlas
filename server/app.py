@@ -60,9 +60,11 @@ from agent.core.settings import (
     set_path,
     write_settings,
 )
+from agent.core.page_tools import page_note, page_tools, write_table
 from agent.core.shell_env import model_path
 from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
+from server.security import EXTENSION_SCHEMES, Pairing, guard
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
 from server.transcript import answer_of
@@ -74,6 +76,17 @@ logger = logging.getLogger(__name__)
 
 
 class CreateChat(BaseModel):
+    title: str = ""
+    #: `web`, or `extension` for a chat started in the browser side panel.
+    source: str = "web"
+    page_url: str = ""
+    page_title: str = ""
+
+
+class Page(BaseModel):
+    """The tab a side-panel message is about. Its presence turns on the page tools."""
+
+    url: str = ""
     title: str = ""
 
 
@@ -87,10 +100,12 @@ class SendMessage(BaseModel):
     #: Passages selected in the preview panel: {"file", "path", "quote"}.
     refs: list[dict[str, Any]] = Field(default_factory=list)
     thinking: bool | None = None
+    page: Page | None = None
 
 
 class RetryTurn(BaseModel):
     thinking: bool | None = None
+    page: Page | None = None
 
 
 class EditTurn(BaseModel):
@@ -98,6 +113,7 @@ class EditTurn(BaseModel):
     files: list[dict[str, Any]] | None = None
     refs: list[dict[str, Any]] | None = None
     thinking: bool | None = None
+    page: Page | None = None
 
 
 class SelectTurn(BaseModel):
@@ -106,6 +122,21 @@ class SelectTurn(BaseModel):
 
 class Answer(BaseModel):
     allow: bool
+
+
+class TableBody(BaseModel):
+    rows: list[list[str]]
+    title: str = ""
+    url: str = ""
+    format: str = "xlsx"
+    #: Where to save; the extension's setting. Default: Downloads/Atlas.
+    folder: str = ""
+
+
+class CallResult(BaseModel):
+    """What the client did for a client call: anything, or `error`."""
+
+    model_config = {"extra": "allow"}
 
 
 # ------------------------------------------------------------------ state --
@@ -194,14 +225,27 @@ class Atlas:
 
     def launch(
         self, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None = None,
+        page: Page | None = None,
     ) -> Run:
         try:
             run = self.runs.start(turn["chat_id"], turn["id"],
                                   context_size=self.settings.model.context_size)
         except RunConflict as exc:
             raise HTTPException(409, str(exc)) from exc
+        run.page = page.model_dump() if page else None
         run.task = asyncio.create_task(self.execute(run, turn, thinking=thinking, retry=retry))
         return run
+
+    def _page_tools(self, run: Run) -> list[Any]:
+        """The page tools, for a turn sent from the side panel with its tab attached."""
+        if not run.page:
+            return []
+
+        def read() -> None:
+            run.tainted = True
+
+        workspace = self.chat_dir(run.chat_id)
+        return page_tools(run.client_call, workspace, lambda p: model_path(str(p)), on_read=read)
 
     async def execute(
         self, run: Run, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None,
@@ -220,6 +264,8 @@ class Atlas:
                            workspace=workspace)
         if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
             text = f"{text}\n\n{guidance}".strip()
+        if run.page:
+            text = f"{text}\n\n{page_note(run.page)}".strip()
         # Only the model sees this; the chat shows the user's own text.
         text = f"{text}\n\n{clock_note()}".strip()
         hint = retry_hint(settings, retry) if retry else ""
@@ -236,10 +282,11 @@ class Atlas:
             agent = await asyncio.to_thread(
                 build_agent, settings, chat_id=run.chat_id, thinking=thinking,
                 restore_snapshot_id=turn["before_snap"], session_manager=manager,
-                retry=retry, observer=run.observe, tools=self.mcp.agent_tools(),
+                retry=retry, observer=run.observe, tools=self.mcp.agent_tools() + self._page_tools(run),
                 approver=lambda kind, detail: run.request_approval(
                     kind, detail, settings.approvals.timeout),
                 sensitive=self.mcp.is_sensitive,
+                tainted=lambda: run.tainted,
             )
             run.agent = agent
             if run.cancel.is_set():
@@ -323,7 +370,37 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
 
     app = FastAPI(title="Atlas", lifespan=lifespan)
     app.state.atlas = state
+    pairing = Pairing(paths.data_dir(state.settings) / "pairing-token")
+    ports = state.boot.ports
+    trusted = {f"http://{h}:{p}" for h in ("127.0.0.1", "localhost") for p in (ports.backend, ports.client)}
+    app.middleware("http")(guard(pairing, trusted))
     api = APIRouter(prefix="/api")
+
+    # ------------------------------------------------------------ pairing --
+
+    @api.get("/pairing")
+    async def get_pairing(request: Request) -> dict[str, Any]:
+        """The token to paste into the browser extension. Not for the extension itself."""
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            raise HTTPException(403, "the extension cannot read the pairing token")
+        return {"token": pairing.token}
+
+    @api.post("/pairing/reset")
+    async def reset_pairing(request: Request) -> dict[str, Any]:
+        """A new token: the extension has to be paired again."""
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            raise HTTPException(403, "the extension cannot reset the pairing token")
+        return {"token": pairing.reset()}
+
+    @api.post("/extension/table")
+    async def save_table(body: TableBody) -> dict[str, Any]:
+        """A table from a web page, saved as xlsx or csv. Code only: no model involved."""
+        try:
+            path = await asyncio.to_thread(write_table, body.rows, body.title, body.url, body.format,
+                                           body.folder)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"path": str(path), "rows": len(body.rows)}
 
     # ------------------------------------------------------------- health --
 
@@ -343,7 +420,11 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
 
     @api.post("/chats")
     async def create_chat(body: CreateChat | None = None) -> dict[str, Any]:
-        return state.store.create_chat((body.title if body else "") or "")
+        if body is None:
+            return state.store.create_chat("")
+        source = body.source if body.source in ("web", "extension") else "web"
+        return state.store.create_chat(body.title or "", source=source, page_url=body.page_url[:2000],
+                                       page_title=body.page_title[:300])
 
     @api.get("/chats/{chat_id}")
     async def get_chat(chat_id: str) -> dict[str, Any]:
@@ -476,7 +557,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         )
         if first_words := " ".join(body.text.split())[:60]:
             state.store.set_title(chat_id, first_words, only_if_empty=True)
-        run = state.launch(turn, thinking=state.thinking(body.thinking))
+        run = state.launch(turn, thinking=state.thinking(body.thinking), page=body.page)
         return {"run": _run_view(run), "chat": state.view(chat_id)}
 
     @api.post("/turns/{turn_id}/retry")
@@ -498,7 +579,8 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             refs=json.loads(turn.get("refs_json") or "[]"),
         )
         run = state.launch(new, thinking=state.thinking(body.thinking if body else None),
-                           retry=RetryPlan(previous=[p for p in previous if p.strip()]))
+                           retry=RetryPlan(previous=[p for p in previous if p.strip()]),
+                           page=body.page if body else None)
         return {"run": _run_view(run), "chat": state.view(turn["chat_id"])}
 
     @api.post("/turns/{turn_id}/edit")
@@ -523,7 +605,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             old["chat_id"], body.text, parent_turn_id=old["parent_turn_id"],
             before_snap=old["before_snap"], files=files, refs=refs,
         )
-        run = state.launch(new, thinking=state.thinking(body.thinking))
+        run = state.launch(new, thinking=state.thinking(body.thinking), page=body.page)
         return {"run": _run_view(run), "chat": state.view(old["chat_id"])}
 
     @api.post("/turns/{turn_id}/select")
@@ -570,6 +652,16 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         if not run.answer(approval_id, body.allow):
             raise HTTPException(409, "that question was already answered or has expired")
         return {"id": approval_id, "decision": "allowed" if body.allow else "denied"}
+
+    @api.post("/runs/{run_id}/calls/{call_id}")
+    async def answer_call(run_id: str, call_id: str, body: CallResult) -> dict[str, Any]:
+        """The side panel's result for a page operation the run asked for."""
+        run = state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(404, f"no run {run_id}")
+        if not run.resolve_call(call_id, body.model_dump()):
+            raise HTTPException(409, "that call was already answered or has timed out")
+        return {"id": call_id}
 
     @api.post("/runs/{run_id}/cancel")
     async def cancel_run(run_id: str) -> dict[str, Any]:

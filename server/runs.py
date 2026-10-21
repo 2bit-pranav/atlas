@@ -49,6 +49,12 @@ class Run:
     _last_stats: float = 0.0
     #: Questions waiting for the user: approval id -> future of the decision.
     approvals: dict[str, asyncio.Future] = field(default_factory=dict)
+    #: Work waiting on the client (the extension's page operations): call id -> future.
+    calls: dict[str, asyncio.Future] = field(default_factory=dict)
+    #: The page the extension attached to this turn ({"url", "title"}), if any.
+    page: dict[str, Any] | None = None
+    #: Page content has entered the turn: the tool policy asks before risky tools.
+    tainted: bool = False
     #: The chat workspace when the run began: `path -> (size, mtime_ns)`.
     workspace_before: dict[str, tuple[int, int]] = field(default_factory=dict)
 
@@ -112,10 +118,39 @@ class Run:
         future.set_result("allowed" if allow else "denied")
         return True
 
+    async def client_call(self, op: str, args: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
+        """Ask the client to do something and wait for its result.
+
+        The same round trip as an approval: an event out, a POST back
+        (`/runs/{id}/calls/{call_id}`), a future in between. A call nobody
+        answers in time, or one cut short by a cancel, returns an error the
+        tool passes to the model.
+        """
+        call_id = uuid.uuid4().hex[:12]
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self.calls[call_id] = future
+        self.emit({"type": "client_call", "id": call_id, "op": op, "args": args})
+        try:
+            return await asyncio.wait_for(future, timeout)
+        except asyncio.TimeoutError:
+            return {"error": "the browser did not answer; is the Atlas side panel still open on that page?"}
+        finally:
+            self.calls.pop(call_id, None)
+
+    def resolve_call(self, call_id: str, result: dict[str, Any]) -> bool:
+        future = self.calls.get(call_id)
+        if future is None or future.done():
+            return False
+        future.set_result(result)
+        return True
+
     def deny_all(self) -> None:
         for future in list(self.approvals.values()):
             if not future.done():
                 future.set_result("denied")
+        for future in list(self.calls.values()):
+            if not future.done():
+                future.set_result({"error": "the run was cancelled"})
 
     def wake(self) -> None:
         for waiter in self.waiters:

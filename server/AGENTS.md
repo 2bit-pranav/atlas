@@ -71,6 +71,9 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `POST /turns/{id}/select` | `{delta}` → the chat view |
 | `GET /runs/{id}`, `GET /runs/{id}/events`, `POST /runs/{id}/cancel` | |
 | `POST /runs/{id}/approvals/{approval_id}` | `{allow}`: answer an approval request |
+| `GET /pairing`, `POST /pairing/reset` | the browser extension's pairing token (not readable by the extension) |
+| `POST /runs/{id}/calls/{call_id}` | the client's result for a `client_call` (a page operation) |
+| `POST /extension/table` | `{rows, title, url, format, folder}`: a page's table saved as xlsx/csv, no model |
 | `GET /models` | the models in the models folder, which one is running, which is selected |
 | `POST /restart`, `GET /restart` | ask `atlas start` to restart llama-server and the backend; how the last restart went |
 | `GET /settings`, `PUT /settings` | flat dotted keys; any key can be written (RESTART keys are saved, applied at the next start) |
@@ -93,6 +96,18 @@ What the model is told, built per run and never stored as `user_text`:
 
 Each run also records the files it created or changed in the workspace
 (`stats.files`), for the download chips.
+
+## Who may call (`security.py`)
+
+Every request: the Host must be 127.0.0.1 or localhost (no DNS rebinding);
+an Origin must be the web UI's own (the backend's port, or Vite's), or a
+browser extension carrying the pairing token; other sites get 403. A
+cross-site request without an Origin (an image, a `no-cors` fetch) needs the
+token as `?token=`. Local programs send no Origin and pass.
+
+A message sent with `page: {url, title}` (from the extension) adds the page
+tools to that turn; a page tool emits `client_call {id, op, args}` and waits
+for the POST back, like an approval.
 
 ## The web UI
 

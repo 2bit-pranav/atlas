@@ -29,6 +29,7 @@ const NAV = [
   { id: "extensions", title: "Skills & MCP" },
   navItem("access"),
   navItem("model"),
+  { id: "extension", title: "Browser extension" },
   { id: "conversations", title: "Conversations" },
   { id: "shortcuts", title: "Shortcuts" },
 ]
@@ -166,6 +167,7 @@ export function SettingsPage() {
               </div>
             ))}
             {!q && section === "extensions" && <ExtensionsSection />}
+            {!q && section === "extension" && <ExtensionSection />}
             {!q && section === "conversations" && <ConversationsSection />}
             {!q && section === "shortcuts" && <ShortcutsSection />}
           </div>
@@ -396,6 +398,60 @@ function ExtensionsSection() {
           </Row>
         ))}
         <div className="px-4 py-2.5"><Link to="/mcp" className="text-xs text-primary hover:underline">Manage MCP servers →</Link></div>
+      </Group>
+    </div>
+  )
+}
+
+/** Pairing the browser extension: the token it needs, and how to load it. */
+function ExtensionSection() {
+  const [token, setToken] = useState("")
+  const [shown, setShown] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [confirm, setConfirm] = useState(false)
+  useEffect(() => {
+    api.getPairing().then((r) => setToken(r.token)).catch(() => setToken(""))
+  }, [])
+  const copy = async () => {
+    await navigator.clipboard.writeText(token)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <div>
+      <SectionHead title="Browser extension"
+                   text="A side panel in Edge or Chrome that reads the page you are on, with the same agent, tools and chats." />
+      <Group title="Pairing">
+        <Row label="Pairing token" help="Paste it into the extension once. Only the extension holding it can use Atlas; other websites are refused."
+             wide>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-2 py-1.5 font-mono text-xs">
+              {token ? (shown ? token : "•".repeat(24)) : "unavailable"}
+            </code>
+            <Button size="sm" variant="outline" onClick={() => setShown(!shown)}>{shown ? "Hide" : "Show"}</Button>
+            <Button size="sm" onClick={() => void copy()} disabled={!token}>{copied ? "Copied" : "Copy"}</Button>
+          </div>
+        </Row>
+        <Row label="New token" help="The extension stops working until the new token is pasted into it.">
+          {confirm ? (
+            <span className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setConfirm(false)}>Cancel</Button>
+              <Button size="sm" onClick={async () => {
+                setToken((await api.resetPairing()).token)
+                setConfirm(false)
+              }}>Make a new token</Button>
+            </span>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => setConfirm(true)}>Reset…</Button>
+          )}
+        </Row>
+      </Group>
+      <Group title="Install">
+        <ol className="list-decimal space-y-1.5 px-5 py-3 text-sm text-muted-foreground">
+          <li>Build it once: <code className="font-mono text-xs">cd extension</code>, <code className="font-mono text-xs">npm install</code>, <code className="font-mono text-xs">npm run build</code>.</li>
+          <li>Open <code className="font-mono text-xs">edge://extensions</code> (or <code className="font-mono text-xs">chrome://extensions</code>), turn on Developer mode, and Load unpacked: <code className="font-mono text-xs">extension/.output/chrome-mv3</code>.</li>
+          <li>Click the Atlas icon to open the side panel, and paste the token above.</li>
+        </ol>
       </Group>
     </div>
   )

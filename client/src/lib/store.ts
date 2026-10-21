@@ -254,10 +254,32 @@ class Store {
     for (const chat of [...this.state.chats]) await this.deleteChat(chat.id)
   }
 
+  // ------------------------------------------------- hosts (the extension) --
+
+  /** The page new messages are about (side panel only); null in the web UI. */
+  page: api.PageRef | null = null
+  /** Runs a client call (a page operation) and returns its result. */
+  onClientCall: ((op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null
+
+  private clientCall(run: RunRef, event: { id: string; op: string; args: Record<string, unknown> }) {
+    const handler = this.onClientCall
+    const answer = async () => {
+      let result: Record<string, unknown>
+      try {
+        result = handler ? await handler(event.op, event.args ?? {}) : { error: "this window cannot reach a web page" }
+      } catch (error) {
+        result = { error: error instanceof Error ? error.message : String(error) }
+      }
+      await api.answerCall(run.id, event.id, result).catch(() => undefined)
+    }
+    void answer()
+  }
+
   private async ensureChat(): Promise<string> {
     if (this.state.chat) return this.state.chat.id
     if (this.state.stagedChat) return this.state.stagedChat
-    const created = await api.createChat()
+    const created = await api.createChat("", this.page
+      ? { source: "extension", page_url: this.page.url, page_title: this.page.title } : undefined)
     this.set({ chats: [created, ...this.state.chats], stagedChat: created.id })
     return created.id
   }
@@ -338,7 +360,7 @@ class Store {
     if (!text.trim() && !files.length && !refs.length) return false
     try {
       const chatId = await this.ensureChat()
-      const started = await api.send(chatId, { text, files, refs, thinking: this.state.thinking })
+      const started = await api.send(chatId, { text, files, refs, thinking: this.state.thinking, page: this.page })
       this.set({ staged: [], stagedChat: null, refs: [] })
       this.begin(started)
       void this.refreshChats()
@@ -352,7 +374,7 @@ class Store {
   async retry(turnId: string) {
     if (this.busy) return
     try {
-      this.begin(await api.retry(turnId, this.state.thinking))
+      this.begin(await api.retry(turnId, this.state.thinking, this.page))
     } catch (error) {
       this.fail(error)
     }
@@ -361,7 +383,7 @@ class Store {
   async edit(turnId: string, text: string, files?: ChatFile[]): Promise<boolean> {
     if (this.busy) return false
     try {
-      this.begin(await api.edit(turnId, { text, files, thinking: this.state.thinking }))
+      this.begin(await api.edit(turnId, { text, files, thinking: this.state.thinking, page: this.page }))
       return true
     } catch (error) {
       this.fail(error)
@@ -447,6 +469,7 @@ class Store {
         const stream = api.streamRun(run.id, this.seq + 1, (event) => {
           if (generation !== this.generation || event.seq <= this.seq) return
           this.seq = event.seq
+          if (event.type === "client_call") return void this.clientCall(run, event)
           this.pending.push(event)
           if (event.type === "done" || event.type === "error") terminal = true
           if (!this.frame) this.frame = requestAnimationFrame(() => this.flush(generation))

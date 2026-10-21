@@ -23,7 +23,20 @@ import {
   type StartedRun,
 } from "@/lib/types"
 
-const BASE = `${(import.meta.env.VITE_ATLAS_API as string | undefined) ?? ""}/api`
+/**
+ * Where the backend is, and the pairing token. The web UI is served by the
+ * backend (or proxied by Vite), so it needs neither. The browser extension
+ * sets both with `configureApi`.
+ */
+let BASE = `${(import.meta.env.VITE_ATLAS_API as string | undefined) ?? ""}/api`
+let TOKEN = ""
+
+export function configureApi({ base, token }: { base?: string; token?: string }) {
+  if (base !== undefined) BASE = `${base.replace(/\/$/, "")}/api`
+  if (token !== undefined) TOKEN = token
+}
+
+const auth = (): Record<string, string> => (TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {})
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -31,8 +44,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(`${BASE}${path}`, {
       ...init,
       headers: init?.body instanceof FormData
-        ? init.headers
-        : { "Content-Type": "application/json", ...init?.headers },
+        ? { ...auth(), ...init.headers }
+        : { "Content-Type": "application/json", ...auth(), ...init?.headers },
     })
   } catch {
     throw new ApiError("Cannot reach the Atlas backend. Is `atlas start` running?", 0)
@@ -61,7 +74,8 @@ const json = (method: string, body?: unknown): RequestInit => ({
 // ------------------------------------------------------------------ chats --
 
 export const listChats = () => request<ChatSummary[]>("/chats")
-export const createChat = (title = "") => request<ChatSummary>("/chats", json("POST", { title }))
+export const createChat = (title = "", page?: { source: "extension"; page_url: string; page_title: string }) =>
+  request<ChatSummary>("/chats", json("POST", { title, ...page }))
 export const getChat = (id: string) => request<ChatView>(`/chats/${id}`)
 export const renameChat = (id: string, title: string) =>
   request<ChatSummary>(`/chats/${id}`, json("PATCH", { title }))
@@ -75,9 +89,15 @@ export async function uploadFile(chatId: string, file: File): Promise<ChatFile> 
   return request<ChatFile>(`/chats/${chatId}/files`, { method: "POST", body: form })
 }
 
-/** A workspace file. `name` may contain folders; each segment is encoded. */
-export const fileUrl = (chatId: string, name: string, download = false) =>
-  `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${download ? "?download=1" : ""}`
+/** A workspace file. `name` may contain folders; each segment is encoded. A URL
+ * carries no header, so the extension's token goes in the query. */
+export function fileUrl(chatId: string, name: string, download = false): string {
+  const query = new URLSearchParams()
+  if (download) query.set("download", "1")
+  if (TOKEN) query.set("token", TOKEN)
+  const qs = query.toString()
+  return `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${qs ? `?${qs}` : ""}`
+}
 export const deleteUpload = (chatId: string, name: string) =>
   request<unknown>(`/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}`, json("DELETE"))
 export const listWorkspace = (chatId: string) => request<WorkspaceFile[]>(`/chats/${chatId}/workspace`)
@@ -86,12 +106,21 @@ export const sheetPreview = (chatId: string, name: string) =>
 
 // ------------------------------------------------------------------ turns --
 
-export const send = (chatId: string, body: { text: string; files: ChatFile[]; refs: Ref[]; thinking: boolean }) =>
+/** The tab a side-panel message is about; it turns on the page tools. */
+export interface PageRef {
+  url: string
+  title: string
+}
+
+export const send = (chatId: string, body: { text: string; files: ChatFile[]; refs: Ref[]; thinking: boolean; page?: PageRef | null }) =>
   request<StartedRun>(`/chats/${chatId}/messages`, json("POST", body))
-export const retry = (turnId: string, thinking: boolean) =>
-  request<StartedRun>(`/turns/${turnId}/retry`, json("POST", { thinking }))
-export const edit = (turnId: string, body: { text: string; files?: ChatFile[]; thinking: boolean }) =>
+export const retry = (turnId: string, thinking: boolean, page?: PageRef | null) =>
+  request<StartedRun>(`/turns/${turnId}/retry`, json("POST", { thinking, page }))
+export const edit = (turnId: string, body: { text: string; files?: ChatFile[]; thinking: boolean; page?: PageRef | null }) =>
   request<StartedRun>(`/turns/${turnId}/edit`, json("POST", body))
+/** The client's result for a `client_call` event (a page operation). */
+export const answerCall = (runId: string, callId: string, result: Record<string, unknown>) =>
+  request<unknown>(`/runs/${runId}/calls/${callId}`, json("POST", result))
 export const select = (turnId: string, delta: number) =>
   request<ChatView>(`/turns/${turnId}/select`, json("POST", { delta }))
 export const answerApproval = (runId: string, approvalId: string, allow: boolean) =>
@@ -115,7 +144,7 @@ export function streamRun(runId: string, after: number, onEvent: (e: RunEvent) =
   const done = (async () => {
     const response = await fetch(`${BASE}/runs/${runId}/events?after=${after}`, {
       signal: controller.signal,
-      headers: { Accept: "text/event-stream" },
+      headers: { Accept: "text/event-stream", ...auth() },
     })
     if (!response.ok || !response.body) throw new ApiError(await describe(response), response.status)
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
@@ -143,6 +172,11 @@ export function streamRun(runId: string, after: number, onEvent: (e: RunEvent) =
 // --------------------------------------------------------------- settings --
 
 export const getSettings = () => request<SettingsView>("/settings")
+export const getPairing = () => request<{ token: string }>("/pairing")
+export const resetPairing = () => request<{ token: string }>("/pairing/reset", json("POST"))
+/** A web page's table saved as xlsx/csv by the backend; no model involved. */
+export const saveTable = (body: { rows: string[][]; title: string; url: string; format: "xlsx" | "csv"; folder?: string }) =>
+  request<{ path: string; rows: number }>("/extension/table", json("POST", body))
 export const listModels = () => request<ModelList>("/models")
 export const restartStatus = () => request<RestartStatus>("/restart")
 export const restart = () => request<{ ok: boolean }>("/restart", json("POST"))

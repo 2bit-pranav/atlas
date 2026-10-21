@@ -12,6 +12,7 @@ agent/core/
   resilience.py      LocalModelRetry, ToolFailureRecovery (Strands hooks)
   documents.py       create_document / edit_document: Markdown -> docx, pdf, xlsx
   policy.py          ToolPolicy: every check before a tool runs, in one order
+  page_tools.py      page_read / page_find for the browser extension, via client calls
   approvals.py       the Approver type and what counts as an install
   skill_requirements.py what a skill needs installed; installing it
   chats.py           ChatStore: the chat tree and display transcripts (SQLite)
@@ -158,8 +159,10 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 1. **normalise**: MCP arguments get Windows paths (`/c/Users/x` -> `C:/Users/x`).
 2. **access**: a path outside the scope asks the user (kind `access`).
 3. **install**: a `shell` command that installs asks (kind `install`).
-4. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
-5. **documents**: `read`/`write`/`edit` on a binary document is redirected.
+4. **page taint**: once web-page content is in the turn (the extension's page
+   tools), shell commands and writes outside the workspace ask (kind `page`).
+5. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
+6. **documents**: `read`/`write`/`edit` on a binary document is redirected.
 
 Recovery after a tool runs stays in `resilience.py`.
 

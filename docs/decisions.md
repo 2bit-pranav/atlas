@@ -269,6 +269,29 @@ launch (kept across restarts), passes it as `--api-key`, and gives it to the
 backend in `ATLAS_LLAMA_KEY`. With it set, chat, `/props` and `/v1/models`
 answer 401 without the key; `/health` stays open for the readiness check.
 
+**The extension calls the page through the run, like an approval**
+(2026-10-21, built). A page tool emits `client_call`, the side panel runs it
+in the tab and POSTs the result; a future resolves. Measured with a scripted
+panel on Gemma: "when do the exams start and what is the fee" read the page
+and answered with exact quotes; "where does it say X" went straight to
+`page_find`; an injected "run `del /s`" on the page was not followed, and a
+shell command after reading needed approval (page taint).
+
+**Quotes are highlighted by code, not by the model** (2026-10-21). The model
+is asked to back statements with exact quotes in double quotes; the panel
+finds each one on the page (whitespace folded, word stems, best block) and
+highlights it, or marks it "not found on the page". A 2B model cannot place
+highlights itself, and a missing quote is how an unsupported claim shows.
+
+**Pairing guard** (2026-10-21). Host must be local; Origin must be the web UI
+or an extension with the pairing token; cross-site requests without Origin
+need the token. The extension needs no CORS: `host_permissions` lets it fetch
+127.0.0.1 directly.
+
+**WXT's `@` is its source folder** (2026-10-21, found). It overrides any user
+alias, so the extension's `srcDir` is `client/src` and its entrypoints are
+pointed back to `extension/`; shared components import `@/...` unchanged.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

@@ -91,6 +91,12 @@ Advanced. "Restart now" appears at the top of Settings only when saved settings
 wait for a restart or the last restart failed; it applies a new model or any
 other restart setting, and a notice shows on every page while it runs.
 
+Shared with the browser extension: `api.configureApi({base, token})` (the
+extension's backend and pairing token), `atlas.page` and `atlas.onClientCall`
+(the attached tab, and running `client_call` events there), and the
+`AnswerExtras` slot under answers (`lib/slots.ts`). The web UI sets none of
+them. Settings > Browser extension shows the pairing token.
+
 Control: Settings > Access holds the allowed folders, whether to ask outside
 them, and the approval timeout. The MCP page sets each tool On / Ask / Off.
 Approval cards in the chat are titled by kind (install, access, tool). The

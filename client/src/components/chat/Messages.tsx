@@ -7,7 +7,7 @@
  * and switching versions with `<` `>` re-renders the rows that switched.
  */
 
-import { memo, useEffect, useRef, useState } from "react"
+import { memo, useContext, useEffect, useRef, useState } from "react"
 import {
   BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Download, Eye, Gauge,
   Lightbulb, Pencil, Quote, RefreshCw, ShieldAlert, Sparkles, WholeWord, Wrench,
@@ -24,6 +24,7 @@ import { Composer, formatBytes } from "@/components/chat/Composer"
 import { ToolBlock } from "@/components/chat/ToolBlock"
 import { Tip } from "@/components/ui/tip"
 import { fullTime, timeAgo, useNow } from "@/lib/time"
+import { AnswerExtras } from "@/lib/slots"
 
 // ------------------------------------------------------------------ turn --
 
@@ -110,8 +111,10 @@ const ASK_TITLE = {
   install: "Atlas wants to install something",
   access: "Atlas wants to use a folder outside its allowed ones",
   tool: "Atlas wants to use a tool that needs your approval",
+  page: "Atlas read a web page and now wants to run this",
 } as const
-const DONE_TITLE = { install: "Install request", access: "Folder access request", tool: "Tool approval" } as const
+const DONE_TITLE = { install: "Install request", access: "Folder access request", tool: "Tool approval",
+                     page: "After reading a web page" } as const
 
 /**
  * The agent wants to do something that needs the user: install a package,
@@ -289,6 +292,7 @@ function AssistantMessage({ turn, chatId, parts, stats, running, isLast }: {
   const modelName = stats?.model ?? currentModel
   const empty = parts.length === 0
   const lastIndex = parts.length - 1
+  const extras = useContext(AnswerExtras)
 
   return (
     <div className="mt-6 w-full text-[15px] leading-[1.875rem]">
@@ -317,6 +321,8 @@ function AssistantMessage({ turn, chatId, parts, stats, running, isLast }: {
       )}
 
       {!running && stats?.files && stats.files.length > 0 && <ProducedFiles files={stats.files} chatId={chatId} />}
+
+      {!running && extras && turn.status === "completed" && extras(turn, answerText(parts))}
 
       {!running && (
         <>
