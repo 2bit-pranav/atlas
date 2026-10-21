@@ -229,6 +229,17 @@ top-p/k, min-p, penalties, max tokens, context size and the thinking switch
 are request or server parameters with the same meaning for any model,
 fine-tune or quant. No model profiles.
 
+**One PDF reader, OCR per page** (2026-10-21, measured). `read_pdf.py`
+reads the text layer where there is one and OCRs the rest: a page with
+almost no text and a page-sized image is rendered and read; a large picture
+on a text page is read and kept when it holds real text (at least 20
+characters, mean confidence 0.75), so a diagram does not turn into "O O".
+No second command: the model picks the first reader it sees. RapidOCR
+(PaddleOCR models on onnxruntime, CPU, no Tesseract install) read a
+synthetic scan and a table screenshot exactly, about 1.7 s a page; results
+are cached beside the document's images, so a second read is instant
+(0.24 s). The models download once on first use if missing.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 
