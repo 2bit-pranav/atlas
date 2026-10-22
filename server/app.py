@@ -948,9 +948,8 @@ def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
     skills.update({s: s for s in list(skills.values())})
     servers = {s["name"]: [t["agent_name"] for t in s["tools"] if t["enabled"]]
                for s in mcp.describe() if s["status"] == "connected"}
-    tools = set(ToolManager(settings).builtin_tools())
-    if settings.tools.documents:
-        tools |= {"create_document", "edit_document"}
+    manager = ToolManager(settings)
+    tools = set(manager.builtin_tools()) | set(manager.atlas_tools())
     for server_tools in servers.values():
         tools |= set(server_tools)
 

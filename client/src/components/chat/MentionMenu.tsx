@@ -1,7 +1,9 @@
 /**
- * The @ menu: point the agent at a file, a skill, a tool or an MCP server.
+ * The @ menu: point the agent at a file, a tool, a skill or an MCP server.
  *
  * Files are this chat's workspace only (uploads and what the agent made).
+ * Tools are the built-in and Atlas's own ones; an MCP server is listed by
+ * name, not tool by tool (its tools made the list too long to use).
  * Everything is inserted as text -- `@name`, or `@"a name"` when it has
  * spaces -- and the backend turns each known name into an explicit
  * instruction for the model (a file's path and how to read it),
@@ -23,8 +25,8 @@ export type Mention =
 
 const GROUPS: { kind: Mention["kind"]; title: string; icon: typeof Wrench }[] = [
   { kind: "file", title: "Files", icon: FileText },
-  { kind: "skill", title: "Skills", icon: Sparkles },
   { kind: "tool", title: "Tools", icon: Wrench },
+  { kind: "skill", title: "Skills", icon: Sparkles },
   { kind: "server", title: "MCP servers", icon: Plug },
 ]
 
@@ -42,16 +44,13 @@ export function useMentionables(chatId: string | null, active: boolean): Mention
     for (const f of files)
       out.push({ kind: "file", name: f.name,
                  file: { name: f.name, path: (f as WorkspaceFile & { path: string }).path, size: f.size, type: f.type } })
+    for (const t of [...(settings?.tools.builtin_tools ?? []), ...(settings?.tools.atlas_tools ?? [])])
+      out.push({ kind: "tool", name: t, detail: "built in" })
     for (const s of settings?.skills ?? [])
       if (s.enabled) out.push({ kind: "skill", name: s.folder, detail: s.description })
-    const tools = [...(settings?.tools.builtin_tools ?? [])]
-    if (settings?.values["tools.documents"] !== false) tools.push("create_document", "edit_document")
-    for (const t of tools) out.push({ kind: "tool", name: t, detail: "built in" })
-    for (const m of settings?.mcp ?? []) {
-      if (m.status !== "connected") continue
-      out.push({ kind: "server", name: m.name, detail: `${m.tools.filter((t) => t.enabled).length} tools` })
-      for (const t of m.tools) if (t.enabled) out.push({ kind: "tool", name: t.agent_name, detail: `MCP: ${m.name}` })
-    }
+    for (const m of settings?.mcp ?? [])
+      if (m.status === "connected")
+        out.push({ kind: "server", name: m.name, detail: `${m.tools.filter((t) => t.enabled).length} tools` })
     return out
   }, [files, settings])
 }

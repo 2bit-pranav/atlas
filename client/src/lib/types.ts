@@ -243,7 +243,7 @@ export interface SettingsView {
   values: Record<string, unknown>
   tiers: Record<string, Tier>
   pending_restart: Record<string, unknown>
-  tools: { available: string[]; builtin_tools: string[]; interventions: boolean }
+  tools: { available: string[]; builtin_tools: string[]; atlas_tools: string[]; interventions: boolean }
   skills: Skill[]
   mcp: McpServer[]
   paths: { root: string; data: string }

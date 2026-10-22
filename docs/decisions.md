@@ -394,6 +394,13 @@ the timeout kills the command's process tree; the suggested command has no
 1-2 with the page count, and refuses more than 15 pages per call with a hint
 to `--search` first.
 
+**`calculate` and `dates` as direct tools** (2026-10-22). The model added
+five amounts in its head and was off by 60. Two general tools, one string
+argument each (an expression), evaluated from an allow-list with exact
+decimals. Exposed directly, switchable in Settings; no enforcement yet, to see
+how often the model uses them unprompted. The @ menu lists MCP servers by name
+only (every MCP tool made it too long), after tools and skills.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

@@ -124,10 +124,33 @@ class BuiltinToolSettings(StrictModel):
     subagent: bool = False # untested
 
 
+class AtlasToolSettings(StrictModel):
+    """Atlas's own tools (not the harness's, not skills, not MCP), one switch each."""
+
+    create_document: bool = True  # agent/core/documents.py
+    edit_document: bool = True
+    calculate: bool = True  # agent/core/maths.py
+    dates: bool = True
+
+
 class ToolsSettings(StrictModel):
     builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
-    documents: bool = True # built-in `create_document` and `edit_document` (agent/core/documents.py).
+    atlas: AtlasToolSettings = Field(default_factory=AtlasToolSettings)
     interventions: bool = False # the UI cannot answer harness interventions (ToolManager.interventions)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_documents_switch(cls, data: Any) -> Any:
+        """An older settings.json had one `documents` switch for both document tools."""
+        if not isinstance(data, dict) or "documents" not in data:
+            return data
+        data = dict(data)
+        on = bool(data.pop("documents"))
+        atlas = dict(data.get("atlas") or {})
+        atlas.setdefault("create_document", on)
+        atlas.setdefault("edit_document", on)
+        data["atlas"] = atlas
+        return data
 
 
 class SkillSettings(StrictModel):
@@ -349,7 +372,10 @@ TIERS: dict[str, Tier] = {
     "tools.builtin.shell": Tier.LIVE,
     "tools.builtin.web_fetch": Tier.LIVE,
     "tools.builtin.subagent": Tier.LIVE,
-    "tools.documents": Tier.LIVE,
+    "tools.atlas.create_document": Tier.LIVE,
+    "tools.atlas.edit_document": Tier.LIVE,
+    "tools.atlas.calculate": Tier.LIVE,
+    "tools.atlas.dates": Tier.LIVE,
     "tools.interventions": Tier.LIVE,
     "skills.dir": Tier.LIVE,
     "skills.disabled": Tier.LIVE,

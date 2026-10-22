@@ -22,6 +22,7 @@ from agent.core.memory_manager import MemoryManager
 from agent.core.shell_env import WindowsLocalEnvironment, default_environment, model_path
 from agent.core.model import AtlasLlamaCppModel
 from agent.core.documents import document_tools
+from agent.core.maths import maths_tools
 from agent.core.policy import Approver, Scope, ToolPolicy
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
@@ -259,9 +260,11 @@ def build_agent(
     # harness prompt, so the harness guidance is always retained.
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
-    atlas_tools = (document_tools(paths.chat_dir(settings, chat_id), model_path,
-                                  _scope(settings, paths.chat_dir(settings, chat_id)).folders)
-                   if settings.tools.documents else [])
+    enabled = set(tool_manager.atlas_tools())
+    atlas_tools = [t for t in (*document_tools(paths.chat_dir(settings, chat_id), model_path,
+                                               _scope(settings, paths.chat_dir(settings, chat_id)).folders),
+                               *maths_tools())
+                   if t.tool_name in enabled]
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 

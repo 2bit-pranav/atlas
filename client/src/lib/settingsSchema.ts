@@ -64,6 +64,14 @@ export const SECTIONS: Section[] = [
             help: "Fetch a web page as text. Leaves this machine." },
           { key: "tools.builtin.subagent", label: "subagent", control: toggle,
             help: "Delegate a task to a child agent. Slow with one llama slot." },
+          { key: "tools.atlas.create_document", label: "create_document", control: toggle,
+            help: "Write a Word, PDF or Excel file from Markdown." },
+          { key: "tools.atlas.edit_document", label: "edit_document", control: toggle,
+            help: "Replace exact text inside a Word or Excel file." },
+          { key: "tools.atlas.calculate", label: "calculate", control: toggle,
+            help: "Exact arithmetic: totals, percentages, averages. Instead of the model adding in its head." },
+          { key: "tools.atlas.dates", label: "dates", control: toggle,
+            help: "Exact date counting: days between, weekdays, working days." },
         ],
       },
     ],
@@ -238,7 +246,7 @@ export const SECTIONS: Section[] = [
 ]
 
 /** Keys shown elsewhere (Skills, MCP pages) or deliberately not editable. */
-export const HIDDEN = new Set(["skills.disabled", "memory.enabled", "tools.interventions", "tools.documents"])
+export const HIDDEN = new Set(["skills.disabled", "memory.enabled", "tools.interventions"])
 
 export function describedKeys(): Set<string> {
   return new Set(SECTIONS.flatMap((s) => s.groups.flatMap((g) => g.fields.map((f) => f.key))))

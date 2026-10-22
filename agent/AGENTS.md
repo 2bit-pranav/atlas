@@ -11,6 +11,7 @@ agent/core/
   model.py           AtlasLlamaCppModel: thinking switch, streaming, timings
   resilience.py      LocalModelRetry, ToolFailureRecovery (Strands hooks)
   documents.py       create_document / edit_document: Markdown -> docx, pdf, xlsx
+  maths.py           calculate / dates: exact arithmetic and date counting from one expression
   policy.py          ToolPolicy: every check before a tool runs, in one order
   page_tools.py      page_read / page_find for the browser extension, via client calls
   approvals.py       the Approver type and what counts as an install
@@ -150,6 +151,20 @@ Images: the pdf and docx readers save a document's images into a hidden
 `.atlas-images/<name>/` folder beside it and print each as `![caption](path)`.
 `create_document` embeds such lines in docx and pdf, so a rewrite keeps its
 figures. Images that cannot be found are left out and named in the result.
+
+## Arithmetic and dates (`maths.py`)
+
+`calculate("3940 + 824.82 + 1895.5")` and `dates('days_between("2 Oct 2026",
+"15 Nov 2026")')` each take **one string**, so the model never picks an
+operation or counts arguments: it writes the sum it would have written in its
+answer, and code works it out. Parsed with `ast` and evaluated from an
+allow-list (numbers, quoted dates, `+ - * / // **`, a few named functions);
+nothing is executed. Numbers are `Decimal`, so money is exact. The docstrings
+carry examples, which a 2B model copies. Nothing yet forces their use.
+
+Atlas's own tools (these two and the document tools) are switched one by one
+in `tools.atlas` (Settings > Agent > Built-in tools); `ToolManager.atlas_tools()`
+resolves them. An older `tools.documents` switch still loads.
 
 ## Tool policy (`policy.py`)
 

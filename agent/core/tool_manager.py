@@ -19,6 +19,9 @@ from agent.core.settings import Settings
 #: `programmatic_tool_caller` (lets the model run tools without asking).
 SWITCHABLE: tuple[str, ...] = ("read", "write", "edit", "shell", "web_fetch", "subagent")
 
+#: Atlas's own tools, given to the agent directly (not a skill, not MCP).
+ATLAS_TOOLS: tuple[str, ...] = ("create_document", "edit_document", "calculate", "dates")
+
 
 class ToolManager:
     """Resolves `tools.builtin` into harness built-in tool names."""
@@ -42,6 +45,11 @@ class ToolManager:
             )
         return [n for n in BUILTIN_TOOL_NAMES if n in selected]
 
+    def atlas_tools(self) -> list[str]:
+        """Atlas's own tools that are switched on (`tools.atlas`), in a stable order."""
+        switches = self.settings.tools.atlas.model_dump()
+        return [name for name in ATLAS_TOOLS if switches.get(name)]
+
     def interventions(self) -> Any:
         """The `interventions=` argument, or None when `tools.interventions` is off.
 
@@ -60,8 +68,9 @@ class ToolManager:
         return {
             "available": list(SWITCHABLE),
             "builtin_tools": self.builtin_tools(),
+            "atlas_tools": self.atlas_tools(),
             "interventions": self.settings.tools.interventions,
         }
 
 
-__all__ = ["SWITCHABLE", "ToolManager"]
+__all__ = ["ATLAS_TOOLS", "SWITCHABLE", "ToolManager"]
