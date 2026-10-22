@@ -17,6 +17,7 @@ export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(() => {
     browser.contextMenus.create({ id: "ask-atlas", title: "Ask Atlas about “%s”", contexts: ["selection"] })
     browser.contextMenus.create({ id: "ask-atlas-image", title: "Ask Atlas about this image", contexts: ["image"] })
+    browser.contextMenus.create({ id: "save-table", title: "Save this table as a spreadsheet", contexts: ["page", "selection"] })
   })
 
   // Opening must happen in the same task as the user's click: no await before it.
@@ -31,6 +32,9 @@ export default defineBackground(() => {
       void openAndAsk(tab.id, { action: "ask", text: info.selectionText })
     if (info.menuItemId === "ask-atlas-image" && tab?.id !== undefined && info.srcUrl)
       void openAndAsk(tab.id, { action: "image", text: "", src: info.srcUrl })
+    // The content script knows what was right-clicked; it finds the table there.
+    if (info.menuItemId === "save-table" && tab?.id !== undefined)
+      void browser.tabs.sendMessage(tab.id, { type: "atlas:saveTableHere", format: "xlsx" }).catch(() => undefined)
   })
 
   browser.runtime.onMessage.addListener((message, sender, reply) => {

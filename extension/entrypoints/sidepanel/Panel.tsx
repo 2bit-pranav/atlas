@@ -35,7 +35,7 @@ import { fullTime, timeAgo, useNow } from "@/lib/time"
 import { ChatScreen } from "@/components/chat/ChatScreen"
 import { cn } from "@/lib/utils"
 import { blocked, loadSettings, saveSettings, type ExtensionSettings, type PendingAsk } from "@ext/settings"
-import { activeTab, tabCall, type TabInfo } from "@ext/tab"
+import { activeTab, tabCall, toTabInfo, viewerUrl, type TabInfo } from "@ext/tab"
 import { dataUrlToFile, fetchImage, screenshot } from "@ext/images"
 
 type Status = "loading" | "unpaired" | "offline" | "ready"
@@ -97,7 +97,8 @@ export function Panel() {
   }, [current, chat, attached?.id])
 
   const blockedReason = settings && attached ? blocked(attached.url, settings.neverRead) : null
-  const pdf = attached !== null && !blockedReason && isPdf(attached.url)
+  // A PDF in the browser's own viewer: sent as a file. In the Atlas viewer it is a readable page.
+  const pdf = attached !== null && !attached.viewer && !blockedReason && isPdf(attached.url)
 
   // The store sends the attached page with each message and runs client calls there.
   // A PDF has no content script: it goes as a file instead, attached once per chat.
@@ -175,6 +176,11 @@ export function Panel() {
     <div className="flex h-dvh flex-col">
       <header className="flex items-center gap-2 border-b px-3 py-2">
         <PageChip tab={attached} blocked={blockedReason} pdf={pdf} />
+        {attached && pdf && (
+          <button type="button" title="Open in the Atlas viewer: read, find and highlight beside this chat"
+                  onClick={() => void browser.tabs.update(attached.id, { url: viewerUrl(attached.url) })}
+                  className="shrink-0 rounded-md border px-2 py-1 text-xs hover:bg-accent">Open in Atlas viewer</button>
+        )}
         {attached && !blockedReason && !pdf && (
           <>
             <button type="button" title="Attach a screenshot of the page to your next message" onClick={async () => {
@@ -182,8 +188,10 @@ export function Panel() {
               if ("error" in shot) return void atlas.fail(new Error(shot.error))
               await atlas.attach_files([dataUrlToFile(`data:image/jpeg;base64,${shot.data}`, "screenshot.jpg")])
             }} className="rounded-md p-1.5 hover:bg-accent"><Camera className="h-4 w-4" /></button>
-            <button type="button" title="Suggest values for this page's form from your details" onClick={() => void suggestFill(attached, setFillStatus)}
-                    className="rounded-md p-1.5 hover:bg-accent"><TextCursorInput className="h-4 w-4" /></button>
+            {!attached.viewer && (
+              <button type="button" title="Suggest values for this page's form from your details" onClick={() => void suggestFill(attached, setFillStatus)}
+                      className="rounded-md p-1.5 hover:bg-accent"><TextCursorInput className="h-4 w-4" /></button>
+            )}
           </>
         )}
         <button type="button" title="New chat about this page" onClick={() => {
@@ -270,7 +278,8 @@ function PageChip({ tab, blocked: reason, pdf }: { tab: TabInfo | null; blocked:
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{tab?.title || "No page"}</p>
         <p className={cn("truncate text-[11px]", reason ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
-          {reason ? `Not read: ${reason}` : pdf ? `PDF · read as a file${host ? ` · ${host}` : ""}` : `Atlas can read this page · ${host}`}
+          {reason ? `Not read: ${reason}` : pdf ? `PDF · read as a file${host ? ` · ${host}` : ""}`
+            : tab?.viewer ? `PDF in the Atlas viewer${host ? ` · ${host}` : " · on this computer"}` : `Atlas can read this page · ${host}`}
         </p>
       </div>
     </div>
@@ -503,7 +512,8 @@ function usePendingAsks(ready: boolean, attach: (tab: TabInfo) => void) {
       handled.current = pendingAsk.at
       await browser.storage.session.remove("pendingAsk")
       const tab = await browser.tabs.get(pendingAsk.tabId)
-      const info: TabInfo = { id: pendingAsk.tabId, url: tab.url ?? "", title: tab.title ?? "", favIconUrl: tab.favIconUrl }
+      const info = toTabInfo(tab)
+      if (!info) return
       atlas.newChat()
       attach(info)
       atlas.page = { url: info.url, title: info.title }

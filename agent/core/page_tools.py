@@ -213,13 +213,13 @@ def write_table(rows: list[list[str]], title: str, url: str, fmt: str, folder: s
 MAX_PDF_BYTES = 100 * 1024 * 1024
 
 
-def import_pdf(url: str, workspace: Path) -> Path:
-    """A PDF from a link into the workspace: `file://` is copied, `http(s)://` downloaded.
+def pdf_source(url: str) -> tuple[str, Path | None, bytes | None]:
+    """A PDF by its link: (file name, local path or None, downloaded bytes or None).
 
-    Only PDFs (checked by their first bytes), and at most 100 MB, so the
-    endpoint cannot be used to copy other files off the disk.
+    `file://` is read from disk; `http(s)://` is downloaded. Only PDFs (checked
+    by their first bytes), at most 100 MB, so neither the import nor the Atlas
+    PDF viewer can be used to read other files off the disk.
     """
-    import shutil
     import urllib.parse
     import urllib.request
 
@@ -233,8 +233,8 @@ def import_pdf(url: str, workspace: Path) -> Path:
         with source.open("rb") as fh:
             if fh.read(5) != b"%PDF-":
                 raise ValueError(f"{source.name} is not a PDF")
-        name, data = source.name, None
-    elif parsed.scheme in ("http", "https"):
+        return source.name, source, None
+    if parsed.scheme in ("http", "https"):
         import httpx
 
         try:
@@ -246,15 +246,21 @@ def import_pdf(url: str, workspace: Path) -> Path:
             raise ValueError("the link did not return a PDF (it may need a login): download it and attach it")
         if len(data) > MAX_PDF_BYTES:
             raise ValueError("the PDF is larger than 100 MB")
-        name, source = Path(urllib.parse.unquote(parsed.path)).name or "document.pdf", None
-    else:
-        raise ValueError(f"cannot import a {parsed.scheme or 'plain'} link")
+        return Path(urllib.parse.unquote(parsed.path)).name or "document.pdf", None, data
+    raise ValueError(f"cannot open a {parsed.scheme or 'plain'} link")
+
+
+def import_pdf(url: str, workspace: Path) -> Path:
+    """A PDF from a link into the workspace: `file://` is copied, `http(s)://` downloaded."""
+    import shutil
+
+    name, source, data = pdf_source(url)
     stem = re.sub(r"[^\w.-]+", "-", Path(name).stem).strip("-.")[:80] or "document"
     target = workspace / f"{stem}.pdf"
     if source is not None:
         shutil.copyfile(source, target)
     else:
-        target.write_bytes(data)
+        target.write_bytes(data or b"")
     return target
 
 
@@ -268,4 +274,4 @@ def page_note(page: dict[str, Any]) -> str:
             'quotes, so it can be highlighted for the user.]')
 
 
-__all__ = ["INLINE_CHARS", "UNTRUSTED", "import_pdf", "page_note", "page_tools", "write_table"]
+__all__ = ["INLINE_CHARS", "UNTRUSTED", "import_pdf", "pdf_source", "page_note", "page_tools", "write_table"]

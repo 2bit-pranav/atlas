@@ -41,7 +41,7 @@ export function blocked(url: string | undefined, neverRead: string[]): string | 
   let host: string
   try {
     const parsed = new URL(url)
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "not a web page"
+    if (!["http:", "https:", "file:"].includes(parsed.protocol)) return "not a web page"
     host = parsed.hostname
   } catch {
     return "not a web page"

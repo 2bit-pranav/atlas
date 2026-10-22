@@ -314,6 +314,22 @@ ids and each select's options, "" when unknown. On an 8-field form it filled
 pin code from the address) and left "Father's name" empty rather than
 inventing it; 16 s. Never submits; secrets never collected.
 
+**Fixes after the first real use** (2026-10-22). The mic had vanished: with
+the parallel start, the backend asked llama-server for its modalities while
+the model was still loading, got a 503 without them, and cached "none" for
+the whole run; now only a real answer is remembered. Translate in the
+selection chip never opened: the chip cancels mousedown to keep the page's
+selection, which also stops a native `<select>`; it is a row of buttons now.
+The "Save table" bar appeared over any table on hover, including Gmail's
+account switcher (an ARIA grid); tables are now offered from the selection
+chip inside a real data table, or the right-click menu.
+
+**An Atlas PDF viewer for the extension** (2026-10-22). Content scripts cannot
+run in the browser's PDF viewer, so PDFs had no highlights or chip. The
+extension's own `viewer.html` (pdf.js with a text layer) is a page the panel
+can read, search and highlight like any other; local PDFs come from the
+backend so no file-access permission is needed.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

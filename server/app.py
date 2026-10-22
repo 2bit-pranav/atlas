@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from agent.core import form_fill, llama, paths
@@ -60,7 +60,7 @@ from agent.core.settings import (
     set_path,
     write_settings,
 )
-from agent.core.page_tools import import_pdf, page_note, page_tools, write_table
+from agent.core.page_tools import import_pdf, page_note, page_tools, pdf_source, write_table
 from agent.core.shell_env import model_path
 from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
@@ -186,11 +186,16 @@ class Atlas:
             try:
                 import httpx
 
-                props = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2,
-                                  headers=llama.auth_headers()).json()
-                self._modalities = {k: bool(v) for k, v in (props.get("modalities") or {}).items()}
+                response = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2,
+                                     headers=llama.auth_headers())
+                modalities = response.json().get("modalities") if response.status_code == 200 else None
             except Exception:  # noqa: BLE001 - not up yet: ask again next time
                 return {}
+            # The backend starts beside the model: while it loads, /props answers
+            # 503 with no modalities. Remembering that hid the mic for the whole run.
+            if not isinstance(modalities, dict):
+                return {}
+            self._modalities = {k: bool(v) for k, v in modalities.items()}
         return self._modalities
 
     def close(self) -> None:
@@ -429,6 +434,17 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             return await asyncio.to_thread(form_fill.suggest, state.settings, body.fields, body.title)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @api.get("/extension/pdf")
+    async def open_pdf(url: str) -> Any:
+        """A PDF's bytes for the Atlas PDF viewer: a local `file://` one, or a web one it could not fetch."""
+        try:
+            name, source, data = await asyncio.to_thread(pdf_source, url)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if source is not None:
+            return FileResponse(source, media_type="application/pdf")
+        return Response(content=data, media_type="application/pdf")
 
     @api.post("/extension/table")
     async def save_table(body: TableBody) -> dict[str, Any]:

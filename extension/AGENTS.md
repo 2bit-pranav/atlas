@@ -7,12 +7,14 @@ extension only adds what needs the browser. Design: `docs/extension.md`.
 ```
 entrypoints/
   sidepanel/Panel.tsx  pairing, the tab a chat is attached to, quote sources, chip questions, settings
-  content.ts           page operations, the selection chip, "Save table"
+  content.ts           page operations (the chip and table menu come from lib/chip.ts)
+  viewer/              the Atlas PDF viewer: pdf.js with a text layer, read / find / highlight
   background.ts        opens the panel; context menu; posts tables to the backend
 lib/
   page.ts              the page layer: readable Markdown, element list, tables, images, find, highlight
   fill.ts              fill suggestions: fields out, preview over them, fill on Apply, never submit
   images.ts            screenshots of the tab and images from the page, for the model
+  chip.ts              the selection chip (Explain, Simplify, Define, Translate, Save table) and right-click save
   overlay.ts           what is drawn on the page (shadow root, plain DOM)
   tab.ts               calling the content script (injects it into tabs opened before install)
   settings.ts          the extension's settings (storage.local)
@@ -51,10 +53,23 @@ preview panel's heavy libraries.
    highlighted (CSS Custom Highlight API) and clickable; missing ones are
    marked "not found on the page".
 
-A PDF tab is different: the browser's PDF viewer runs no content script. The
-panel attaches the PDF to the chat's first message instead (fetched here with
-the user's session; `file://` and fallbacks copied by the backend,
-`/api/chats/{id}/files/import`), and the pdf skill reads it, OCR included.
+A PDF tab is different: the browser's PDF viewer runs no content script.
+Two ways in:
+
+- **Open in Atlas viewer** (the panel's button): the PDF reopens in
+  `viewer.html`, an extension page with pdf.js and a text layer, where
+  reading (page by page), find, highlights and the selection chip work as on
+  a web page. A local `file://` PDF is served by the backend
+  (`/api/extension/pdf`, PDFs only), so no "allow access to file URLs" switch
+  is needed. The panel messages the viewer with `runtime.sendMessage` addressed
+  to its tab id (extension pages get no tab messages).
+- Otherwise the panel attaches the PDF to the chat's first message (fetched
+  with the user's session; `file://` and fallbacks copied by the backend,
+  `/api/chats/{id}/files/import`), and the pdf skill reads it, OCR included.
+
+**Tables** are offered only on request: select text inside a real data table
+(a `<table>` of 2+ rows and columns, not an ARIA grid like a menu or account
+switcher) and the chip adds xlsx / csv, or right-click inside it.
 
 **Looking at images.** `page_screenshot` and `page_image` return the image in
 the tool result (llama-server accepts images in tool messages); the panel
