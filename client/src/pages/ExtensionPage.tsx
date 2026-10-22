@@ -90,10 +90,31 @@ export function ExtensionPage() {
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Look again when the extension's script arrives after the first look (a
+  // slow page load, a reloaded extension), or on coming back to this tab.
+  useEffect(() => {
+    const ready = (event: MessageEvent) => {
+      if (event.source === window && event.data?.type === "atlas:ready") void check().catch(() => undefined)
+    }
+    const visible = () => {
+      if (document.visibilityState === "visible") void check().catch(() => undefined)
+    }
+    addEventListener("message", ready)
+    document.addEventListener("visibilitychange", visible)
+    return () => {
+      removeEventListener("message", ready)
+      document.removeEventListener("visibilitychange", visible)
+    }
+  }, [check])
+
   return (
     <PageShell title="Browser extension"
                description="A side panel in Edge or Chrome that reads the page you are on, with the same agent, tools and chats.">
-      <StatusCard state={state} version={version} busy={busy} onConnect={() => void connect()} onRecheck={() => void check()} />
+      <StatusCard state={state} version={version} busy={busy} onConnect={() => void connect()} onRecheck={() => {
+        setState("checking")
+        setError(null)
+        void check().catch(() => setState("missing"))
+      }} />
       {error && <div className="mt-3"><Notice tone="error" onClose={() => setError(null)}>{error}</Notice></div>}
       {state === "missing" && <Install devMode={devMode} />}
       {state === "connected" && <Uses />}
@@ -108,7 +129,7 @@ function StatusCard({ state, version, busy, onConnect, onRecheck }: {
 }) {
   const text = {
     checking: ["Looking for the extension…", ""],
-    missing: ["Not installed in this browser", "Install it below, then come back to this page."],
+    missing: ["Not found in this browser", "Install it below. Already installed? Reload this page."],
     unpaired: ["Installed, not connected", "Connect it to this Atlas. It only works with Atlas once connected."],
     connected: ["Connected", "Click the Atlas icon in the browser's toolbar to open the side panel on any page."],
   }[state]

@@ -17,10 +17,11 @@ import { loadSettings, localHttp, saveSettings, type PendingAsk } from "@ext/set
 export default defineBackground(() => {
   void browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 
-  browser.runtime.onInstalled.addListener(() => {
+  browser.runtime.onInstalled.addListener(async () => {
+    await browser.contextMenus.removeAll() // menus outlive updates: drop any an older version made
     browser.contextMenus.create({ id: "ask-atlas", title: "Ask Atlas about “%s”", contexts: ["selection"] })
     browser.contextMenus.create({ id: "ask-atlas-image", title: "Ask Atlas about this image", contexts: ["image"] })
-    browser.contextMenus.create({ id: "save-table", title: "Save this table as a spreadsheet", contexts: ["page", "selection"] })
+    void injectIntoAtlasTabs()
   })
 
   // Opening must happen in the same task as the user's click: no await before it.
@@ -35,9 +36,6 @@ export default defineBackground(() => {
       void openAndAsk(tab.id, { action: "ask", text: info.selectionText })
     if (info.menuItemId === "ask-atlas-image" && tab?.id !== undefined && info.srcUrl)
       void openAndAsk(tab.id, { action: "image", text: "", src: info.srcUrl })
-    // The content script knows what was right-clicked; it finds the table there.
-    if (info.menuItemId === "save-table" && tab?.id !== undefined)
-      void browser.tabs.sendMessage(tab.id, { type: "atlas:saveTableHere", format: "xlsx" }).catch(() => undefined)
   })
 
   browser.runtime.onMessage.addListener((message, sender, reply) => {
@@ -56,6 +54,18 @@ export default defineBackground(() => {
     }
   })
 })
+
+/**
+ * The browser does not put content scripts into tabs that were already open
+ * when the extension was installed, reloaded or updated. An open Atlas page
+ * would then say "not installed" until reloaded, so it gets one now.
+ */
+async function injectIntoAtlasTabs() {
+  const tabs = await browser.tabs.query({ url: ["http://127.0.0.1/*", "http://localhost/*"] })
+  for (const tab of tabs)
+    if (tab.id !== undefined)
+      void browser.scripting.executeScript({ target: { tabId: tab.id }, files: ["/content-scripts/content.js"] }).catch(() => undefined)
+}
 
 const trim = (base: string) => base.replace(/\/$/, "")
 

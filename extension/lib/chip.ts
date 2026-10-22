@@ -72,19 +72,25 @@ export function selectionChip(settings: () => ExtensionSettings, off: () => bool
 // ------------------------------------------------------------- save table --
 
 /**
- * The data table around `el`: a real <table> of at least 2 rows and 2
- * columns. ARIA grids (menus, account switchers, calendars) and one-row
- * layout tables are not offered.
+ * The data table around `el`, strictly: the innermost real <table> (layout
+ * tables wrap others), not marked as presentation and not inside a menu,
+ * dialog or navigation; a header (<th>) or at least 3 rows; at least 2 columns
+ * that most rows agree on; and short cells, as data has. Anything else (an
+ * account switcher, a page laid out with tables) gets no table buttons.
  */
 function dataTable(el: Element): Element | null {
-  let table = el.closest("table")
-  // The outermost table that is still data: layout tables nest them.
-  while (table) {
-    const rows = page.tableRows(table)
-    if (rows.length >= 2 && (rows[0]?.length ?? 0) >= 2 && !table.closest("[role=menu], [role=dialog], nav")) return table
-    table = table.parentElement?.closest("table") ?? null
-  }
-  return null
+  const table = el.closest("table")
+  if (!table || table.querySelector("table")) return null
+  if (table.matches("[role=presentation], [role=none]")) return null
+  if (table.closest("[role=menu], [role=menubar], [role=listbox], [role=dialog], nav")) return null
+  const rows = page.tableRows(table)
+  const width = rows[0]?.length ?? 0
+  if (rows.length < 2 || width < 2) return null
+  if (!table.querySelector("th") && rows.length < 3) return null
+  if (rows.filter((r) => r.length === width).length < rows.length * 0.8) return null
+  const cells = rows.flat()
+  if (cells.reduce((n, c) => n + c.length, 0) / cells.length > 120) return null
+  return table
 }
 
 async function saveTable(table: Element, format: "xlsx" | "csv", done?: () => void) {
@@ -96,19 +102,4 @@ async function saveTable(table: Element, format: "xlsx" | "csv", done?: () => vo
   }) as { path?: string; error?: string }
   if (reply?.error) toast(`Could not save the table: ${reply.error}`, true, 7000)
   else toast(`Saved ${rows.length} rows to ${reply.path}`, false, 7000)
-}
-
-/** Right-click inside a table, "Save this table as a spreadsheet". */
-export function tableMenu(off: () => boolean) {
-  let target: Element | null = null
-  document.addEventListener("contextmenu", (e) => {
-    target = e.target as Element
-  }, true)
-  browser.runtime.onMessage.addListener((message: { type?: string; format?: "xlsx" | "csv" }) => {
-    if (message?.type !== "atlas:saveTableHere") return
-    if (off()) return void toast("Atlas does not read this site (never-read list).", true)
-    const table = target ? dataTable(target) : null
-    if (!table) return void toast("Right-click inside a table to save it.", true)
-    void saveTable(table, message.format ?? "xlsx")
-  })
 }
