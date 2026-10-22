@@ -32,9 +32,12 @@ of its prompt tokens and the UI shows the total.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +70,11 @@ class _Server:
         self.error: str | None = None
         self.client: MCPClient | None = None
         self.tools: list[Any] = []
+        #: Set to give up a start in progress (Refresh, a settings change, shutdown).
+        self.cancel = threading.Event()
+        #: Set once no start is in progress, so whoever cancelled can wait for it.
+        self.idle = threading.Event()
+        self.idle.set()
 
     @property
     def rejected(self) -> set[str]:
@@ -137,6 +145,50 @@ def mcp_server_of(tool: Any) -> str | None:
     return None
 
 
+class _Cancelled(Exception):
+    """A start given up on purpose: not a failure."""
+
+
+def _start_bounded(client: MCPClient, timeout: float, cancel: threading.Event) -> None:
+    """`client.start()`, given up after `timeout` seconds or on `cancel`, leaving nothing running.
+
+    Strands' own startup timeout cannot stop a server that never answers
+    `initialize` (say, `uvx` still trying to download it): its `stop()` then
+    waits for the background thread forever, the server stays "connecting" and
+    its process lives on. Atlas waits itself instead, and when it gives up
+    cancels the background loop's tasks, which closes the transport and ends
+    the server's process tree.
+    """
+    done, error = threading.Event(), []
+
+    def run() -> None:
+        try:
+            client.start()
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
+            error.append(exc)
+        finally:
+            done.set()
+
+    threading.Thread(target=run, name="mcp-start", daemon=True).start()
+    deadline = time.monotonic() + timeout
+    while not done.wait(0.2):
+        if cancel.is_set() or time.monotonic() > deadline:
+            break
+    if done.is_set():
+        if error:
+            raise error[0]
+        return
+    loop = client._background_thread_event_loop  # noqa: SLF001 - see the docstring
+    if loop is not None:
+        loop.call_soon_threadsafe(lambda: [task.cancel() for task in asyncio.all_tasks(loop)])
+    if not client._init_future.done():  # noqa: SLF001
+        client._init_future.set_exception(TimeoutError())  # noqa: SLF001 - wakes start()
+    done.wait(15)
+    if cancel.is_set():
+        raise _Cancelled
+    raise TimeoutError(f"did not start in {timeout:g} seconds")
+
+
 class McpManager:
     """Owns `mcp.json` and one connection per enabled server."""
 
@@ -170,32 +222,39 @@ class McpManager:
     # ---------------------------------------------------------- lifecycle --
 
     def start_all(self) -> None:
-        """Connect every enabled server. Blocking; call from a worker thread."""
+        """Connect every enabled server, side by side so a slow one holds up no
+        other. Blocking; call from a worker thread."""
         try:
             config = self.read_config()
         except McpError as exc:
             logger.error("%s", exc)
             return
-        for name, server in config.items():
-            self._connect(name, server)
+        with ThreadPoolExecutor(max_workers=max(1, len(config)), thread_name_prefix="mcp") as pool:
+            list(pool.map(lambda item: self._connect(*item), config.items()))
 
     def stop_all(self) -> None:
+        """Stop every server, including any still starting, and wait until they are gone."""
         with self._lock:
-            for server in self._servers.values():
-                self._disconnect(server)
+            servers = list(self._servers.values())
             self._servers.clear()
+        with ThreadPoolExecutor(max_workers=max(1, len(servers)), thread_name_prefix="mcp") as pool:
+            list(pool.map(self._disconnect, servers))
 
     def _connect(self, name: str, config: dict[str, Any]) -> _Server:
         with self._lock:
-            old = self._servers.pop(name, None)
-            if old is not None:
-                self._disconnect(old)
+            old = self._servers.get(name)
             server = _Server(name, config)
             self._servers[name] = server
+        if old is not None:
+            # Stopped, or its start cancelled, and gone before the new one starts:
+            # two copies of one server fight over the same things (uv's cache
+            # lock, a port). Outside the lock: this can take a few seconds.
+            self._disconnect(old)
         if config.get("disabled"):
             return server
 
         server.status = "connecting"
+        server.idle.clear()
         try:
             # Connected without tool_filters (or Atlas's own keys), so a
             # switched-off tool can still be listed and switched back on.
@@ -203,22 +262,34 @@ class McpManager:
             unfiltered = {k: v for k, v in config.items() if k not in ("tool_filters", "atlas")}
             if FOLDERS in (unfiltered.get("args") or []):
                 unfiltered["args"] = self._expand_folders(unfiltered["args"])
-            unfiltered.setdefault("startup_timeout", int(self.settings.mcp.startup_timeout))
+            timeout = float(unfiltered.pop("startup_timeout", self.settings.mcp.startup_timeout))
+            # Strands' own timeout must never fire first (see _start_bounded).
+            unfiltered["startup_timeout"] = int(timeout) + 300
             (client,) = MCPClient.load_servers({name: unfiltered}, prefix_with_server_name=True)
             client.add_consumer(POOL)
-            client.start()
+            _start_bounded(client, timeout, server.cancel)
             client._tool_provider_started = True  # noqa: SLF001 - Strands' own lifecycle flag
             server.client = client
             server.tools = list(client._list_all_tools_sync())  # noqa: SLF001
+            if server.cancel.is_set():
+                raise _Cancelled
             for tool in server.tools:
                 _label(tool, name)
             server.status = "connected"
             logger.info("mcp %s connected (%d tools)", name, len(server.tools))
+        except _Cancelled:
+            server.status = "stopped"
+            self._release(server)
         except Exception as exc:  # noqa: BLE001 - one bad server must not stop the rest
             server.status = "failed"
             server.error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, TimeoutError) and Path(str(config.get("command", ""))).stem in ("uvx", "npx"):
+                server.error += (f" ({Path(str(config['command'])).stem} fetches the package from the internet;"
+                                 " check the connection, then Retry)")
             logger.warning("mcp %s failed: %s", name, server.error)
-            self._disconnect(server)
+            self._release(server)
+        finally:
+            server.idle.set()
         return server
 
     def _expand_folders(self, args: list[Any]) -> list[Any]:
@@ -257,8 +328,15 @@ class McpManager:
                         return server.mode(original) == "ask"
         return False
 
+    def _disconnect(self, server: _Server) -> None:
+        """Stop a server; one still starting is cancelled and waited for."""
+        server.cancel.set()
+        if not server.idle.wait(30):
+            logger.warning("mcp %s: its start did not end", server.name)
+        self._release(server)
+
     @staticmethod
-    def _disconnect(server: _Server) -> None:
+    def _release(server: _Server) -> None:
         if server.client is not None:
             try:
                 server.client.remove_consumer(POOL)

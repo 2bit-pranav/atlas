@@ -237,6 +237,14 @@ That click is the approval; the model never has to.
   stored as the server's standard `tool_filters.rejected` and applied when the
   turn's tool list is built, so switching needs no reconnect. Every tool schema
   costs prompt tokens on every request; the manager estimates them.
+- **MCP lifecycle.** Servers start side by side. A start is bounded by
+  `mcp.startup_timeout` and cancellable (`_start_bounded`): Strands' own
+  timeout cannot stop a server that never answers `initialize` (its `stop()`
+  waits forever and the process lives on), so Atlas cancels the client's
+  background tasks itself, which ends the server's process tree. Refresh, a
+  settings change and shutdown all cancel a start in progress and wait for it
+  before anything new starts: one copy of a server at a time, because two
+  copies fight over the same things (uv's cache lock, a port).
 - **Where tools come from.** Each MCP tool's description starts with
   `[MCP: <server>]`, and the prompt lists tools grouped by source (built in,
   skills, each MCP server). Without that, asked to use an MCP tool, the model
