@@ -322,7 +322,8 @@ selection chip never opened: the chip cancels mousedown to keep the page's
 selection, which also stops a native `<select>`; it is a row of buttons now.
 The "Save table" bar appeared over any table on hover, including Gmail's
 account switcher (an ARIA grid); tables are now offered from the selection
-chip inside a real data table, or the right-click menu.
+chip inside a real data table. The right-click entry went too (2026-10-22):
+browsers cannot limit a menu item to tables, so it showed on every page.
 
 **An Atlas PDF viewer for the extension** (2026-10-22). Content scripts cannot
 run in the browser's PDF viewer, so PDFs had no highlights or chip. The
@@ -344,6 +345,20 @@ where they can also edit them, and the extension's viewer reads PDFs beside the
 panel. The download chip stays. Workspace files are now served as downloads,
 with only raster images inline, so an agent-written HTML or SVG file never runs
 on Atlas's origin.
+
+**One document-link resolver** (2026-10-22). A PDF link was opened by two
+copies of the same logic: the skill scripts' `fetch` and the backend's
+`pdf_source` (extension import, PDF viewer), with different download code,
+naming and checks. `skills/_shared.py` now has the only one (`open_link`,
+`save_link`; standard library, so the scripts still run on their own) and the
+backend imports it.
+
+**MCP starts are bounded and cancellable** (2026-10-22). With PyPI
+unreachable, `uvx duckduckgo-mcp-server` never answered; Strands' timeout then
+hung in `stop()`, left the `uvx` process alive (holding uv's cache lock, so
+every retry hung too) and kept the server "connecting". Atlas now cancels the
+start itself after `mcp.startup_timeout`, and Refresh, settings changes and
+shutdown cancel a start in progress and wait for it.
 
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.

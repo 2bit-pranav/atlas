@@ -60,11 +60,12 @@ from agent.core.settings import (
     set_path,
     write_settings,
 )
-from agent.core.page_tools import import_pdf, page_note, page_tools, pdf_source, write_table
+from agent.core.page_tools import page_note, page_tools, write_table
 from agent.core.shell_env import model_path
 from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
 from server.security import EXTENSION_SCHEMES, Pairing, guard
+from skills._shared import LinkError, open_link, save_link  # the one document-link resolver
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
 from server.transcript import answer_of
@@ -439,8 +440,8 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     async def open_pdf(url: str) -> Any:
         """A PDF's bytes for the Atlas PDF viewer: a local `file://` one, or a web one it could not fetch."""
         try:
-            name, source, data = await asyncio.to_thread(pdf_source, url)
-        except ValueError as exc:
+            _name, source, data = await asyncio.to_thread(open_link, url, b"%PDF", "PDF")
+        except LinkError as exc:
             raise HTTPException(422, str(exc)) from exc
         if source is not None:
             return FileResponse(source, media_type="application/pdf")
@@ -553,8 +554,9 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         """
         state.require_chat(chat_id)
         try:
-            target = await asyncio.to_thread(import_pdf, body.url, state.chat_dir(chat_id))
-        except ValueError as exc:
+            target, _ = await asyncio.to_thread(save_link, body.url, ".pdf", b"%PDF", "PDF",
+                                                state.chat_dir(chat_id), copy_local=True)
+        except LinkError as exc:
             raise HTTPException(422, str(exc)) from exc
         return {"name": target.name, "path": str(target), "size": target.stat().st_size,
                 "type": "application/pdf"}

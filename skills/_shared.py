@@ -144,36 +144,44 @@ def is_link(value: str) -> bool:
     return unquote(value).lower().startswith(("http://", "https://", "file://"))
 
 
-#: A downloaded document larger than this is refused.
+#: A document larger than this is refused, local or downloaded.
 MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 
+#: The one place a document link is opened. The skill scripts (`fetch`) and
+#: the backend (the extension's PDF import and PDF viewer) all come through
+#: here, so `file://` and `http(s)://` are checked the same way everywhere.
 
-def fetch(link: str, suffix: str, magic: bytes) -> tuple[Path, str]:
-    """A document given as a link, as a local file: (path, what happened).
 
-    `file://` is read where it is. `http(s)://` is downloaded into the
-    workspace (the current folder) under the link's file name, so later steps
-    (merge, convert, a second read) can name it; the same link again reuses
-    the copy. A link that returns a web page instead (a login page, an error)
-    fails with a hint, rather than being read as a broken document.
+class LinkError(ValueError):
+    """A document link that cannot be opened; the message is one line."""
+
+
+def open_link(link: str, magic: bytes, kind: str) -> tuple[str, Path | None, bytes | None]:
+    """A document link, checked: (file name, local path or None, downloaded bytes or None).
+
+    `file://` is read where it is; `http(s)://` is downloaded. Either way the
+    document must start with `magic` (`b"%PDF"`) and be at most 100 MB, so a
+    link can never be used to read some other file off the disk. A link that
+    returns a web page instead (a login page, an error) is refused rather than
+    read as a broken document.
     """
-    import json
     import re
     import urllib.parse
     import urllib.request
 
-    link = unquote(link)
-    if link.lower().startswith("file://"):
-        parsed = urllib.parse.urlparse(link)
-        return Path(urllib.request.url2pathname(parsed.netloc + parsed.path)), "local file"
-
-    index = Path.cwd() / ".atlas-downloads.json"
-    try:
-        known = json.loads(index.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        known = {}
-    if (name := known.get(link)) and (Path.cwd() / name).is_file():
-        return Path.cwd() / name, f"downloaded earlier as {name}"
+    parsed = urllib.parse.urlparse(link)
+    if parsed.scheme == "file":
+        source = Path(urllib.request.url2pathname(parsed.netloc + parsed.path))
+        if not source.is_file():
+            raise LinkError(f"no such file: {source}")
+        if source.stat().st_size > MAX_DOWNLOAD_BYTES:
+            raise LinkError(f"{source.name} is larger than {MAX_DOWNLOAD_BYTES >> 20} MB")
+        with source.open("rb") as fh:
+            if not fh.read(len(magic)).startswith(magic):
+                raise LinkError(f"{source.name} is not a {kind}")
+        return source.name, source, None
+    if parsed.scheme not in ("http", "https"):
+        raise LinkError(f"cannot open a {parsed.scheme or 'plain'} link")
 
     request = urllib.request.Request(link, headers={"User-Agent": "Mozilla/5.0 (Atlas)", "Accept": "*/*"})
     try:
@@ -181,26 +189,63 @@ def fetch(link: str, suffix: str, magic: bytes) -> tuple[Path, str]:
             data = response.read(MAX_DOWNLOAD_BYTES + 1)
             final = response.geturl()
             disposition = response.headers.get("Content-Disposition", "")
-    except Exception as exc:  # noqa: BLE001 - one line for the model, not a traceback
-        raise SystemExit(f"ERROR: could not download {link}: {exc}") from None
+    except Exception as exc:  # noqa: BLE001 - one line, not a traceback
+        raise LinkError(f"could not download {link}: {exc}") from None
     if len(data) > MAX_DOWNLOAD_BYTES:
-        raise SystemExit(f"ERROR: {link} is larger than {MAX_DOWNLOAD_BYTES >> 20} MB")
+        raise LinkError(f"{link} is larger than {MAX_DOWNLOAD_BYTES >> 20} MB")
     if not data.startswith(magic):
-        raise SystemExit(
-            f"ERROR: {link} returned a web page, not a {suffix} file (it may need a login)\n"
-            "hint: ask the user to open it in the browser and ask from the Atlas side panel, "
-            "or to download it and attach it")
+        raise LinkError(f"{link} returned a web page, not a {kind} (it may need a login)")
+    m = re.search(r"""filename\*?=(?:UTF-8'')?"?([^";]+)""", disposition)
+    name = urllib.parse.unquote(m.group(1) if m else Path(urllib.parse.urlparse(final).path).name)
+    return name or "download", None, data
 
-    m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)', disposition)
-    raw = m.group(1) if m else Path(urllib.parse.urlparse(final).path).name
-    stem = re.sub(r"[^\w.-]+", "-", Path(urllib.parse.unquote(raw)).stem).strip("-.")[:80] or "download"
-    target, n = Path.cwd() / f"{stem}{suffix}", 2
+
+def save_link(link: str, suffix: str, magic: bytes, kind: str, folder: Path,
+              copy_local: bool = False) -> tuple[Path, str]:
+    """A document link as a file: (path, what happened).
+
+    A web document is saved in `folder` under its own name, so later steps
+    (merge, convert, a second read) can name it; the same link again reuses
+    the copy. A local one is used where it is, or copied into `folder` with
+    `copy_local` (an attachment, which the agent's workspace should hold).
+    """
+    import json
+    import re
+    import shutil
+
+    index = folder / ".atlas-downloads.json"
+    try:
+        known = json.loads(index.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        known = {}
+    if (name := known.get(link)) and (folder / name).is_file():
+        return folder / name, f"downloaded earlier as {name}"
+
+    name, source, data = open_link(link, magic, kind)
+    if source is not None and not copy_local:
+        return source, "local file"
+    stem = re.sub(r"[^\w.-]+", "-", Path(name).stem).strip("-.")[:80] or "download"
+    target, n = folder / f"{stem}{suffix}", 2
     while target.exists():
-        target, n = Path.cwd() / f"{stem}-{n}{suffix}", n + 1
-    target.write_bytes(data)
+        target, n = folder / f"{stem}-{n}{suffix}", n + 1
+    if source is not None:
+        shutil.copyfile(source, target)
+        return target, f"copied to {target.name}"
+    target.write_bytes(data or b"")
     known[link] = target.name
     index.write_text(json.dumps(known, indent=1), encoding="utf-8")
     return target, f"downloaded to {target.name}"
+
+
+def fetch(link: str, suffix: str, magic: bytes) -> tuple[Path, str]:
+    """`save_link` for the scripts: into the workspace (the current folder), failing in one line."""
+    kind = f"{suffix.lstrip('.').upper()} file"
+    try:
+        return save_link(unquote(link), suffix, magic, kind, Path.cwd())
+    except LinkError as exc:
+        hint = ("\nhint: ask the user to open it in the browser and ask from the Atlas side panel, "
+                "or to download it and attach it") if "web page" in str(exc) else ""
+        raise SystemExit(f"ERROR: {exc}{hint}") from None
 
 
 def add_common_arguments(parser: Any) -> Any:
