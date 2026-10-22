@@ -338,6 +338,13 @@ only for a local backend that answers 200 to it; a malicious local page could
 at most pair the extension with another local server it already runs. Tuning
 settings and the raw token sit behind a per-browser developer mode toggle.
 
+**No preview panel** (2026-10-22). The web UI's file preview (docx-preview,
+pdf.js, a sheet endpoint) is gone. Users open documents in their own apps,
+where they can also edit them, and the extension's viewer reads PDFs beside the
+panel. The download chip stays. Workspace files are now served as downloads,
+with only raster images inline, so an agent-written HTML or SVG file never runs
+on Atlas's origin.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

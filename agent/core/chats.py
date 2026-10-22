@@ -202,7 +202,7 @@ class ChatStore:
     ) -> dict[str, Any]:
         """Insert a turn and make it the selected version at its position.
 
-        `refs` are passages the user selected in the preview panel and attached
+        `refs` are passages the user selected in the former preview panel and attached
         to this question: `{"file", "path", "quote"}`.
         """
         tid, now = new_id(), _now()

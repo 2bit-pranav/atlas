@@ -97,7 +97,7 @@ class RenameChat(BaseModel):
 class SendMessage(BaseModel):
     text: str = ""
     files: list[dict[str, Any]] = Field(default_factory=list)
-    #: Passages selected in the preview panel: {"file", "path", "quote"}.
+    #: Quoted passages {"file", "path", "quote"}: the former preview panel made them; older turns keep them.
     refs: list[dict[str, Any]] = Field(default_factory=list)
     thinking: bool | None = None
     page: Page | None = None
@@ -596,19 +596,14 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
 
     @api.get("/chats/{chat_id}/files/{name:path}")
     async def download(chat_id: str, name: str, download: bool = False) -> FileResponse:
-        """Served inline for the preview panel; `?download=1` saves it instead."""
+        """A workspace file, downloaded. Raster images are shown inline (attachment
+        thumbnails); nothing else is, so a file the agent wrote (HTML, SVG) never
+        runs as a page on Atlas's own origin."""
         target = workspace_file(chat_id, name)
-        if download:
-            return FileResponse(target, filename=target.name)
-        return FileResponse(target, headers={"Cache-Control": "no-cache"})
-
-    @api.get("/chats/{chat_id}/preview/{name:path}")
-    async def preview(chat_id: str, name: str) -> dict[str, Any]:
-        """A spreadsheet as rows, for the preview panel. Capped, and says so."""
-        target = workspace_file(chat_id, name)
-        if target.suffix.lower() not in (".xlsx", ".xlsm"):
-            raise HTTPException(415, "only spreadsheets have a server-side preview")
-        return await asyncio.to_thread(_sheet_preview, target)
+        kind = mimetypes.guess_type(target.name)[0] or ""
+        if download or not kind.startswith("image/") or kind == "image/svg+xml":
+            return FileResponse(target, filename=target.name, headers={"X-Content-Type-Options": "nosniff"})
+        return FileResponse(target, headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"})
 
     # -------------------------------------------------------------- turns --
 
@@ -1003,25 +998,6 @@ def _changed(before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int
     return out
 
 
-def _sheet_preview(path: Path, max_rows: int = 500, max_cols: int = 50) -> dict[str, Any]:
-    from openpyxl import load_workbook
-
-    wb = load_workbook(str(path), read_only=True, data_only=True)
-    sheets = []
-    try:
-        for ws in wb.worksheets:
-            rows, truncated = [], False
-            for i, row in enumerate(ws.iter_rows(values_only=True)):
-                if i >= max_rows:
-                    truncated = True
-                    break
-                rows.append(["" if v is None else str(v) for v in row[:max_cols]])
-            sheets.append({"name": ws.title, "rows": rows, "truncated": truncated})
-    finally:
-        wb.close()
-    return {"kind": "sheet", "sheets": sheets}
-
-
 def _turn_view(turn: dict[str, Any], versions: list[str]) -> dict[str, Any]:
     return {
         "id": turn["id"],
@@ -1058,7 +1034,7 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
     parts = [user_text]
     quoted = [r for r in refs or [] if isinstance(r, dict) and r.get("quote")]
     if quoted:
-        # Selected in the preview panel. Named with the file's path, so a
+        # Quoted from a file (the former preview panel). Named with the file's path, so a
         # request like "reword this" can go straight to edit_document.
         parts.append("The user selected these passages and is asking about them:\n" + "\n".join(
             f"- from {r.get('file')} at {model_path(r['path']) if r.get('path') else r.get('file')}: "

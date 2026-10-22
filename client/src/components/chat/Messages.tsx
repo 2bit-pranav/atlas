@@ -9,7 +9,7 @@
 
 import { memo, useContext, useEffect, useRef, useState } from "react"
 import {
-  BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Download, Eye, Gauge,
+  BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Download, Gauge,
   Lightbulb, Pencil, Quote, RefreshCw, ShieldAlert, Sparkles, WholeWord, Wrench,
 } from "lucide-react"
 
@@ -200,8 +200,8 @@ function Superseded({ text }: { text: string }) {
   )
 }
 
-/** Passages selected in the preview panel that went with this question. */
-export function RefChips({ refs, onRemove }: { refs: Ref[]; onRemove?: (i: number) => void }) {
+/** Passages that went with this question (selected in the former preview panel; older chats only). */
+function RefChips({ refs }: { refs: Ref[] }) {
   return (
     <div className="flex max-w-[80%] flex-col items-end gap-1.5">
       {refs.map((r, i) => (
@@ -211,17 +211,13 @@ export function RefChips({ refs, onRemove }: { refs: Ref[]; onRemove?: (i: numbe
             <span className="line-clamp-2 italic text-foreground/80">{r.quote}</span>
             <span className="block truncate text-[11px] text-muted-foreground">{r.file}</span>
           </span>
-          {onRemove && (
-            <button type="button" onClick={() => onRemove(i)} aria-label="Remove passage"
-                    className="text-muted-foreground hover:text-foreground">×</button>
-          )}
         </div>
       ))}
     </div>
   )
 }
 
-/** Files this answer created or changed: open in the preview, or download. */
+/** Files this answer created or changed, to download. */
 function ProducedFiles({ files, chatId }: { files: ChangedFile[]; chatId: string }) {
   return (
     <div className="mt-3 flex flex-wrap gap-2">
@@ -234,12 +230,6 @@ function ProducedFiles({ files, chatId }: { files: ChangedFile[]; chatId: string
               <span className="block max-w-48 truncate text-sm font-medium" title={f.name}>{f.name}</span>
               <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Created" : "Updated"} · {formatBytes(f.size)}</span>
             </span>
-            <Tip label="Preview">
-              <button type="button" onClick={() => atlas.openPreview(f.name)}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
-                <Eye className="h-3.5 w-3.5" />
-              </button>
-            </Tip>
             <Tip label="Download">
               <a href={fileUrl(chatId, f.name, true)}
                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
@@ -260,19 +250,19 @@ function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
         const image = f.type.startsWith("image/")
         const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"
         return image ? (
-          <button key={f.path} type="button" onClick={() => atlas.openPreview(f.name)}
-                  className="overflow-hidden rounded-lg bg-muted shadow-lg">
+          <a key={f.path} href={fileUrl(chatId, f.name)} target="_blank" rel="noreferrer"
+             className="overflow-hidden rounded-lg bg-muted shadow-lg">
             <img src={fileUrl(chatId, f.name)} alt={f.name} className="max-h-40" />
-          </button>
+          </a>
         ) : (
-          <button key={f.path} type="button" onClick={() => atlas.openPreview(f.name)} title="Open in the preview panel"
+          <a key={f.path} href={fileUrl(chatId, f.name, true)} title="Download"
              className="flex items-center gap-3 rounded-lg border bg-muted p-2.5 text-left hover:bg-accent">
             <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">{ext}</span>
             <span className="min-w-0">
               <span className="block max-w-40 truncate text-sm font-medium">{f.name}</span>
               <span className="block text-xs text-muted-foreground">{formatBytes(f.size)}</span>
             </span>
-          </button>
+          </a>
         )
       })}
     </div>

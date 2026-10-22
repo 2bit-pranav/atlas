@@ -41,8 +41,8 @@ The token and address can still be typed under the panel's Advanced settings.
 WXT always maps `@` to its source folder, so `srcDir` is `../client/src` and
 `entrypointsDir` points back here; `@ext` is this folder's `lib/`. React,
 React DOM and the Radix tooltip are deduplicated (`resolve.dedupe`) so the
-panel and the shared components use one copy. Shared code must not import the
-preview panel's heavy libraries.
+panel and the shared components use one copy. Shared code must stay light:
+pdf.js is the viewer's alone.
 
 ## How a page question works
 

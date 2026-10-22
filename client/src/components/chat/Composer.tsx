@@ -9,7 +9,7 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react"
 import * as Dropdown from "@radix-ui/react-dropdown-menu"
-import { ArrowUp, Check, File as FileIcon, Lightbulb, LightbulbOff, Loader2, Mic, Plus, Quote, Square, X } from "lucide-react"
+import { ArrowUp, Check, File as FileIcon, Lightbulb, LightbulbOff, Loader2, Mic, Plus, Square, X } from "lucide-react"
 
 import * as api from "@/lib/api"
 import { atlas, useAtlas } from "@/lib/store"
@@ -38,7 +38,6 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
   const prefs = usePrefs()
   const busy = useAtlas((s) => s.run !== null)
   const staged = useAtlas((s) => s.staged)
-  const refs = useAtlas((s) => s.refs)
   const thinking = useAtlas((s) => s.thinking)
   const focusTick = useAtlas((s) => s.focusTick)
   const supportsThinking = useAtlas((s) => s.settings?.values["model.supports_thinking"] !== false)
@@ -108,7 +107,7 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
 
   const files = edit ? editFiles.map((f) => ({ ...f, key: f.path, uploading: false })) : staged
   const uploading = files.some((f) => f.uploading)
-  const canSend = !uploading && (text.trim().length > 0 || files.length > 0 || (!edit && refs.length > 0)) &&
+  const canSend = !uploading && (text.trim().length > 0 || files.length > 0) &&
     (!busy || Boolean(edit))
 
   // Grow with the text, up to llama.cpp's max-message-height.
@@ -168,21 +167,6 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
                      onPick={pickMention} onHover={setMentionIndex} />
       )}
       <div className={cn(INPUT_CLASSES, "overflow-hidden rounded-4xl backdrop-blur-md md:rounded-3xl")}>
-        {!edit && refs.length > 0 && (
-          <div className="flex flex-col gap-1.5 px-3 pt-3">
-            {refs.map((r, i) => (
-              <div key={i} className="flex items-start gap-2 rounded-lg border bg-background/60 px-2.5 py-1.5 text-xs">
-                <Quote className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1">
-                  <span className="line-clamp-2 italic">{r.quote}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">from {r.file}</span>
-                </span>
-                <button type="button" onClick={() => atlas.removeRef(i)} aria-label="Remove passage"
-                        className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
-              </div>
-            ))}
-          </div>
-        )}
         {files.length > 0 && (
           <div className="flex gap-2 overflow-x-auto px-3 pt-3">
             {files.map((f) => (

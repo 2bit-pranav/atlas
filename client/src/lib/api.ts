@@ -14,9 +14,7 @@ import {
   type RegistryServer,
   type RestartStatus,
   type RunEvent,
-  type Ref,
   type SettingsView,
-  type SheetPreview,
   type WorkspaceFile,
   type Skill,
   type SkillInstallResult,
@@ -104,8 +102,6 @@ export const importFile = (chatId: string, url: string) =>
 export const deleteUpload = (chatId: string, name: string) =>
   request<unknown>(`/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}`, json("DELETE"))
 export const listWorkspace = (chatId: string) => request<WorkspaceFile[]>(`/chats/${chatId}/workspace`)
-export const sheetPreview = (chatId: string, name: string) =>
-  request<SheetPreview>(`/chats/${chatId}/preview/${name.split("/").map(encodeURIComponent).join("/")}`)
 
 // ------------------------------------------------------------------ turns --
 
@@ -115,7 +111,7 @@ export interface PageRef {
   title: string
 }
 
-export const send = (chatId: string, body: { text: string; files: ChatFile[]; refs: Ref[]; thinking: boolean; page?: PageRef | null }) =>
+export const send = (chatId: string, body: { text: string; files: ChatFile[]; thinking: boolean; page?: PageRef | null }) =>
   request<StartedRun>(`/chats/${chatId}/messages`, json("POST", body))
 export const retry = (turnId: string, thinking: boolean, page?: PageRef | null) =>
   request<StartedRun>(`/turns/${turnId}/retry`, json("POST", { thinking, page }))

@@ -62,9 +62,8 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `PATCH /chats/{id}` | rename |
 | `DELETE /chats/{id}` | the chat, its snapshots and its files |
 | `GET /chats/{id}/export`, `POST /chats/import` | a chat with every version and its Strands snapshots; an import can be continued |
-| `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace; a file inline, or `?download=1` |
+| `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace; a file as a download (raster images inline) |
 | `GET /chats/{id}/workspace` | every file in the workspace, newest first. Outlives edits |
-| `GET /chats/{id}/preview/{path}` | a spreadsheet as rows, for the preview panel |
 | `POST /chats/{id}/messages` | send `{text, files, refs, thinking}` → `{run, chat}` |
 | `POST /turns/{id}/retry` | last turn only → `{run, chat}` |
 | `POST /turns/{id}/edit` | `{text, files?, thinking}`, destructive → `{run, chat}` |
@@ -90,7 +89,7 @@ What the model is told, built per run and never stored as `user_text`:
 - **Attachments** (`_agent_text`): names and paths in the `/c/Users/...` form.
   Images and audio are sent as content blocks after the text instead, so a
   voice recording with an empty prompt is a complete message.
-- **Passages** (`refs`) selected in the preview panel, with their file's path,
+- **Passages** (`refs`, from the former preview panel; older turns only), with their file's path,
   ready for `edit_document`.
 - **@ mentions** (`_mention_guidance`): `@name` in the text that matches a
   skill, tool or MCP server becomes an explicit instruction. Resolved at run

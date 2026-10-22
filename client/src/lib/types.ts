@@ -57,7 +57,7 @@ export type Part =
       expires_at: number
     }
 
-/** A passage selected in the preview panel and attached to a question. */
+/** A passage attached to a question (from the former preview panel; kept so older chats show it). */
 export interface Ref {
   file: string
   path: string | null
@@ -76,11 +76,6 @@ export interface WorkspaceFile {
   size: number
   modified: number
   type: string
-}
-
-export interface SheetPreview {
-  kind: "sheet"
-  sheets: { name: string; rows: string[][]; truncated: boolean }[]
 }
 
 export interface TurnStats {

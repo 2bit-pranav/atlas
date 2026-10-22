@@ -28,7 +28,6 @@ src/
   components/Sidebar.tsx
   lib/audio.ts               record the microphone; re-encode as 16 kHz mono WAV
   components/chat/           ChatScreen, Messages, Composer, MentionMenu, ContextGauge, Markdown, ToolBlock
-  components/preview/        PreviewPanel, FileView (docx, pdf, xlsx, images, text)
   components/ui/kit.tsx      Button, Switch, Notice, PageShell, ...
   pages/                     SettingsPage, SkillsPage, McpPage
 ```
@@ -111,14 +110,10 @@ for the missing ones.
 ## Working with files
 
 - **Download chips** under an answer list the files that turn created or
-  changed. Preview opens the panel; Download saves.
-- **The preview panel** (right side, resizable) renders a workspace file:
-  docx with `docx-preview`, pdf with pdf.js (canvas plus a text layer), xlsx
-  from the backend's sheet preview, images, and text. Its file menu lists the
-  whole workspace, so documents from turns that an edit removed are still
-  reachable. `?preview=<file>` in a chat URL opens it directly.
-- **Selecting text** in the panel offers "Ask about this": the passage goes to
-  the composer as a quote chip and is sent as a `ref`.
+  changed, to download and open in the user's own apps. There is no in-app
+  preview (removed 2026-10-22): desktop apps view and edit documents better,
+  and the extension's viewer covers PDFs. Older turns still show their quoted
+  passages (`refs`), which only the preview could create.
 
 ## The composer
 

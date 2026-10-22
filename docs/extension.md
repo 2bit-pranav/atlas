@@ -41,7 +41,7 @@ extension. Is it about files or Atlas itself? Then the web UI.
 
 What stays in the web UI:
 
-- Long work on documents, with the preview panel and the workspace files.
+- Long work on documents and the workspace files.
 - The chat tree: versions, retry, editing earlier turns.
 - Skills, MCP servers, settings and access folders.
 - Automations, later: reviewing recordings, run history, unread runs.
@@ -200,9 +200,8 @@ Three changes to the shared code:
 
 1. **Injectable base URL and token in `api.ts`.** `request()` and
    `streamRun()` take them from config instead of assuming the page's origin.
-2. **No heavy libraries in shared components.** `pdfjs-dist` and
-   `docx-preview` are the preview panel's and must not be imported by shared
-   code. KaTeX and highlight.js load lazily.
+2. **No heavy libraries in shared components.** pdf.js is the extension
+   viewer's alone. KaTeX and highlight.js load lazily.
 3. **Work at ~360px.** `ToolBlock` and Markdown tables are the likely
    problems; a `compact` density prop is usually enough.
 
