@@ -259,7 +259,8 @@ def build_agent(
     # harness prompt, so the harness guidance is always retained.
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
-    atlas_tools = (document_tools(paths.chat_dir(settings, chat_id), model_path)
+    atlas_tools = (document_tools(paths.chat_dir(settings, chat_id), model_path,
+                                  _scope(settings, paths.chat_dir(settings, chat_id)).folders)
                    if settings.tools.documents else [])
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
@@ -270,7 +271,8 @@ def build_agent(
         # Windows. `sandbox=` is the documented seam; the shell tool picks it
         # up from `agent.sandbox` with no other change.
         sandbox=sandbox if sandbox is not None else default_environment(
-            cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings)),
+            cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
+            folders=_scope(settings, workspace_dir).folders),
         instructions=instructions or None,
         session=session_manager,
         skills=[s["path"] for s in skills] or False,
@@ -294,7 +296,8 @@ def build_agent(
         # Before a tool runs: one ordered policy (policy.py). After: recovery.
         hooks=[ToolPolicy(_scope(settings, workspace_dir), approver=approver,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
-                          reader=lambda p: reader_command(settings, p, _shown(p, workspace_dir))),
+                          reader=lambda p: reader_command(settings, p, _shown(
+                              p, workspace_dir, _scope(settings, workspace_dir).folders))),
                ToolFailureRecovery(settings.resilience, notify=observer)],
     )
 
@@ -319,12 +322,16 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
     )
 
 
-def _shown(path: str, workspace: Path) -> str:
-    """A file in the workspace by its bare name (commands start there), else as given."""
-    from agent.core.shell_env import windows_path
+def _shown(path: str, workspace: Path, folders: list[Path] | None = None) -> str:
+    """A file in the workspace by its bare name (commands start there); a
+    relative path found in an allowed folder in full; else as given."""
+    from agent.core.shell_env import locate, model_path, windows_path
 
     if path.lower().startswith(("http://", "https://", "file://")):
         return path  # a link: the pdf reader takes it as it is
+    found = locate(path, workspace, folders or [])
+    if found is not None and found.parent.resolve() != workspace.resolve():
+        return model_path(found)
     p = Path(windows_path(path))
     return p.name if p.parent.resolve() == workspace.resolve() else path
 

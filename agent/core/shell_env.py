@@ -62,7 +62,8 @@ _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
     """A POSIX shell where one exists, `cmd.exe` where one does not."""
 
-    def __init__(self, cwd: Path | None = None, skills: Path | None = None) -> None:
+    def __init__(self, cwd: Path | None = None, skills: Path | None = None,
+                 folders: list[Path] | None = None) -> None:
         self.shell_dir = _find_posix_shell()
         #: Where commands run unless told otherwise: the chat's workspace. The
         #: model then names an attached file `"exp4.pdf"`, not a path holding
@@ -73,6 +74,11 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         #: `$ATLAS_SKILLS` in every command, so a SKILL.md can name its script
         #: wherever the command runs from.
         self.extra_env = {"ATLAS_SKILLS": model_path(skills)} if skills else {}
+        #: The allowed folders, where a relative path is looked for after the
+        #: workspace (`locate`). Scripts get them as `$ATLAS_FOLDERS`.
+        self.folders = list(folders or [])
+        if self.folders:
+            self.extra_env["ATLAS_FOLDERS"] = os.pathsep.join(str(f) for f in self.folders)
 
     def _env(self, env: dict[str, str] | None) -> dict[str, str]:
         return {**self.extra_env, **(env or {})}
@@ -86,10 +92,11 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         which pass that check, work unchanged in the shell, and are converted
         here for Python's own file calls. `/C:/Users/...` is accepted too,
         because a model given one form will sometimes produce the other. A
-        relative path is taken from the workspace, like the shell's.
+        relative path is looked for in the workspace, then in the allowed
+        folders (`locate`).
         """
         if not path.startswith("/") and not os.path.isabs(path) and self.cwd is not None:
-            return self.cwd / path
+            return locate(path, self.cwd, self.folders) or self.cwd / path
         return Path(windows_path(path))
 
     # ------------------------------------------------------------ execution --
@@ -515,13 +522,38 @@ def _decode(raw: bytes | None) -> str:
     return (raw or b"").decode("utf-8", errors="replace")
 
 
-def default_environment(cwd: Path | None = None, skills: Path | None = None) -> NotASandboxLocalEnvironment:
+def locate(path: str, workspace: Path, folders: list[Path]) -> Path | None:
+    """Where a relative path belongs: the workspace first, then each allowed
+    folder. An existing file wins; a new one (`Demo/Reports/x.xlsx`) goes
+    where its folder already exists. None when the path is absolute, or names
+    nothing anywhere (the caller then uses the workspace).
+
+    The one rule for relative paths, as the filesystem MCP server already
+    applies it: it lists `Demo/Invoices` from an allowed folder, so the
+    reader script, the file and document tools and the `read` hint must find
+    the same `Demo/Invoices/x.pdf`, not look in the chat's workspace only.
+    """
+    if not path or path.startswith("/") or os.path.isabs(path):
+        return None
+    roots = [Path(workspace), *map(Path, folders)]
+    for root in roots:
+        if (root / path).exists():
+            return root / path
+    if Path(path).parent != Path("."):
+        for root in roots:
+            if (root / path).parent.is_dir():
+                return root / path
+    return None
+
+
+def default_environment(cwd: Path | None = None, skills: Path | None = None,
+                        folders: list[Path] | None = None) -> NotASandboxLocalEnvironment:
     """The environment to use on this platform.
 
     Always the Windows subclass: where `sh` is found (as on POSIX) it runs
     commands through the stock implementation, so there is one code path.
     """
-    return WindowsLocalEnvironment(cwd=cwd, skills=skills)
+    return WindowsLocalEnvironment(cwd=cwd, skills=skills, folders=folders)
 
 
 __all__ = ["WindowsLocalEnvironment", "default_environment", "drive_path", "model_path", "windows_path"]

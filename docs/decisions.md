@@ -360,6 +360,30 @@ every retry hung too) and kept the server "connecting". Atlas now cancels the
 start itself after `mcp.startup_timeout`, and Refresh, settings changes and
 shutdown cancel a start in progress and wait for it.
 
+**Demo rehearsal: paths, quotes, prompts** (2026-10-22). Running every
+demo in `docs/demo.md` through the API, several times each, on fixtures:
+
+- A relative path meant different things to different tools. The filesystem
+  MCP server resolved `Demo/Invoices` against its *first* folder (Atlas's
+  chats folder), the reader script against the workspace. One rule now
+  (`shell_env.locate`): workspace, then allowed folders, for MCP arguments,
+  file and document tools, scripts and the `read` hint. Before: 0/2 runs of
+  Demo 1 read the invoices; after: every run did.
+- A model that listed a folder then named files bare (`invoice-x.pdf`);
+  scripts now look a bare input up by name (unique match, bounded walk).
+- A pasted `C:\...` path failed in `read` ("not absolute") and unquoted in
+  bash (`C:UserspranaDesktop...`); both are normalised before the call.
+- A denial told the model never to try again, so "I've allowed it now, read
+  it again" was answered from memory; it now says to try when asked again.
+- Quote highlighting matched an invented quote ("not on the page at all") on
+  the words "not" and "all". Quotes now need 2+ words of 4+ letters, 75%
+  present; search stays lenient.
+- Prompts: the model added five amounts in its head and was off by 60 until
+  the prompt said "use the spreadsheet"; an unnamed summary was once written
+  over the spreadsheet itself, so the prompt names the PDF; "the last F1 race"
+  gave three different podiums in three runs (one right), so the demo uses a
+  finished season.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

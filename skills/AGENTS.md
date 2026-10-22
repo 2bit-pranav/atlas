@@ -40,6 +40,12 @@ the Skills page with an install button.
   by `open_link` for every caller, the backend's PDF import and viewer
   included: checked for the file type and 100 MB, and refused when a link
   returns a web page instead.
+- **Resolve inputs with `_shared.resolve`.** A relative path is looked for in
+  the workspace, then the allowed folders (`$ATLAS_FOLDERS`); a bare name
+  found nowhere is looked up by name there (`find_by_name`: unique matches
+  only, bounded, inputs only). Name outputs with `default_output` and report
+  them with `created()`, which prints the path relative to the workspace: a
+  bare `x.docx` read as "beside the input" and the model looked there.
 - **Tolerate mangled quoting.** Paths may arrive with stray quotes or
   backslashes; `_shared.unquote` is there for that.
 - **Declare what you need.** `requirements.txt` for Python, `package.json`

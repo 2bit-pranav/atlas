@@ -156,7 +156,10 @@ figures. Images that cannot be found are left out and named in the result.
 Every check made before a tool runs is one `ToolPolicy` hook with ordered
 steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 
-1. **normalise**: MCP arguments get Windows paths (`/c/Users/x` -> `C:/Users/x`).
+1. **normalise**: paths in the form each tool takes. MCP arguments get Windows
+   paths (`/c/Users/x` -> `C:/Users/x`) and relative paths placed by `locate`;
+   `read`/`write`/`edit` get `/c/...` for a pasted `C:\...`; unquoted `C:\...` in
+   a shell command becomes `C:/...` (bash eats the backslashes).
 2. **access**: a path outside the scope asks the user (kind `access`).
 3. **install**: a `shell` command that installs asks (kind `install`).
 4. **page taint**: once web-page content is in the turn (the extension's page
@@ -174,7 +177,11 @@ and, read-only, the skills folder and Python install so scripts can be read.
 What is checked:
 
 - `read`, `write`, `edit`, `create_document`, `edit_document`: an absolute
-  `path` argument (relative paths are the workspace's).
+  `path` argument. A relative path is placed by `shell_env.locate`: the
+  workspace first, then each allowed folder (an existing file wins; a new
+  one goes where its folder exists). The filesystem MCP server, the skill
+  scripts (`$ATLAS_FOLDERS`) and the `read` hint follow the same rule, so
+  `Demo/Invoices/x.pdf` means one file to every tool.
 - `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
   quoted or bare). `/tmp` and other POSIX paths are the shell's own.
 - MCP tools: any string argument that is a drive path.
@@ -207,8 +214,8 @@ That click is the approval; the model never has to.
 
 ## Windows (`shell_env.py`)
 
-- Every shell command starts in the **chat's workspace**, and `$ATLAS_SKILLS`
-  points at the skills folder. An attached file is named by its name alone
+- Every shell command starts in the **chat's workspace**, `$ATLAS_SKILLS`
+  points at the skills folder and `$ATLAS_FOLDERS` lists the allowed folders. An attached file is named by its name alone
   (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
   `python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>"`. The attachment
   list gives each pdf/docx/xlsx's exact command.

@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from _shared import created, fail, main_wrapper, output_path, resolve  # noqa: E402
+from _shared import created, default_output, fail, main_wrapper, output_path, resolve  # noqa: E402
 
 _SOFFICE = [r"C:\Program Files\LibreOffice\program\soffice.exe",
             r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"]
@@ -67,7 +67,7 @@ def main() -> int:
         return fail(f"no such file: {src}")
     if src.suffix.lower() != ".docx":
         return fail(f"{src.name} is not a .docx")
-    out = output_path(args.output or src.with_suffix(".pdf").name)
+    out = output_path(args.output) if args.output else default_output(src, ".pdf")
     errors = []
     for name, convert in (("Word", _word), ("LibreOffice", _libreoffice)):
         error = convert(src.resolve(), out.resolve())

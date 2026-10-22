@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from _shared import created, fail, main_wrapper, output_path, page_list, require, resolve  # noqa: E402
+from _shared import created, default_output, fail, main_wrapper, output_path, page_list, require, resolve  # noqa: E402
 
 warnings.filterwarnings("ignore")      # PyMuPDF's deprecation notice for `fitz`
 pdf2docx, = require("pdf2docx")
@@ -36,7 +36,7 @@ def main() -> int:
     path = resolve(args.file)
     if not path.is_file():
         return fail(f"no such file: {path}")
-    out = output_path(args.output or path.with_suffix(".docx").name)
+    out = output_path(args.output) if args.output else default_output(path, ".docx")
     if out.suffix.lower() != ".docx":
         return fail(f"the output must be a .docx, not {out.name}")
 

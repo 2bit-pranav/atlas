@@ -125,19 +125,64 @@ def require(*names: str) -> tuple[Any, ...]:
 
 
 def resolve(path: str) -> Path:
-    """An absolute path as is; a relative one is tried in each chat folder under
-    ./data/chats, else returned unchanged (relative to the cwd)."""
+    """An input file's path. An absolute path as is. A relative one is looked
+    for where the command runs (the chat's workspace), then in each allowed
+    folder (`$ATLAS_FOLDERS`, the same rule as Atlas's file tools), then in
+    each chat folder under ./data/chats. A bare name found nowhere is looked
+    up by name in the allowed folders (`find_by_name`); else returned
+    unchanged."""
+    import os
+
     path = unquote(path)
     candidate = Path(path)
-    if candidate.is_absolute():
+    if candidate.is_absolute() or candidate.exists():
         return candidate
+    folders = [Path(f) for f in os.environ.get("ATLAS_FOLDERS", "").split(os.pathsep) if f]
+    for folder in folders:
+        if (folder / path).exists():
+            return folder / path
     here = Path.cwd() / "data" / "chats"
     if here.is_dir():
         for chat in here.iterdir():
             target = chat / path
             if target.exists():
                 return target
+    if candidate.parent == Path(".") and (found := find_by_name(candidate.name, folders)) is not None:
+        return found
     return candidate
+
+
+#: Folders `find_by_name` never walks: tools' and programs' own trees.
+_SKIP_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", "site-packages", "AppData"}
+
+
+def find_by_name(name: str, folders: list[Path], depth: int = 4, budget: int = 20000) -> Path | None:
+    """The one file called `name` within `depth` levels of the allowed folders.
+
+    After listing `Demo/Invoices`, a small model often names a file by its bare
+    name (`invoice-x.pdf`), which exists nowhere relative to anything. Only a
+    *unique* match is returned, so two files of the same name are never
+    guessed between; the walk is bounded, and for inputs only (never where to
+    write).
+    """
+    import os
+
+    matches: list[Path] = []
+    seen = 0
+    for root in folders:
+        base = len(Path(root).parts)
+        for dirpath, dirnames, filenames in os.walk(root):
+            seen += len(filenames) + len(dirnames)
+            if seen > budget:
+                return None
+            if len(Path(dirpath).parts) - base >= depth:
+                dirnames[:] = []
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+            if name in filenames:
+                matches.append(Path(dirpath) / name)
+                if len(matches) > 1:
+                    return None
+    return matches[0] if matches else None
 
 
 def is_link(value: str) -> bool:
@@ -360,7 +405,29 @@ def output_path(name: str) -> Path:
     return path
 
 
+def default_output(src: Path, suffix: str) -> Path:
+    """Where a conversion goes when no output is named: beside the input when
+    that is in the workspace (where the model then looks for it), else in the
+    workspace, so the user gets it as a download."""
+    target = src.with_suffix(suffix)
+    try:
+        target.resolve().relative_to(Path.cwd().resolve())
+        return target
+    except ValueError:
+        return Path.cwd() / target.name
+
+
+def shown(path: Path) -> str:
+    """A path as the model should repeat it: relative to the workspace when it
+    is in it (`Demo/x.docx`, not a bare `x.docx` that reads as "beside the
+    input"), else in full; forward slashes either way."""
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
 def created(names: Path | str, **details: Any) -> str:
     """The lines every writing script ends with, so the model tells the user."""
-    names = names.name if isinstance(names, Path) else names
+    names = shown(names) if isinstance(names, Path) else names
     return header(created=names, **details) + "\nThe user sees it as a download in the chat."

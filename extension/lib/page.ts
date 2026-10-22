@@ -297,16 +297,24 @@ function rangeFor(index: { nodes: Node_[] }, from: number, to: number): Range | 
 const STOP = new Set(["the", "and", "for", "that", "this", "with", "from", "are", "was", "where", "what", "does",
   "say", "says", "about", "page", "anything", "when", "which", "how", "is", "it", "of", "to", "in", "on", "a", "an"])
 
-/** Where `phrase` is: exact first, then the stretch holding most of its words. */
-function locate(index: { text: string }, phrase: string): [number, number] | null {
+/**
+ * Where `phrase` is: exact first, then the stretch holding most of its words.
+ *
+ * `strict` is for quotes, where "found" tells the user the page says it: only
+ * words of 4+ letters count, at least two of them, and three in four must be
+ * there. Loosely, "not on the page at all" came down to "not" and "all" and
+ * was "found" in an unrelated paragraph.
+ */
+function locate(index: { text: string }, phrase: string, strict = false): [number, number] | null {
   const needle = norm(phrase).trim().replace(/^["'“”]|["'“”]$/g, "")
   if (!needle) return null
   const exact = index.text.indexOf(needle)
   if (exact >= 0) return [exact, exact + needle.length]
   // Stems, so "exams" finds "examinations" and "paid" finds "payment".
   const words = needle.split(" ").map((w) => w.replace(/[^\p{L}\p{N}]/gu, "")).filter((w) => w.length > 2 && !STOP.has(w))
+    .filter((w) => !strict || w.length > 3)
     .map((w) => (w.length > 5 ? w.slice(0, w.length - 2) : w.length > 3 ? w.slice(0, 4) : w))
-  if (!words.length) return null
+  if (!words.length || (strict && words.length < 2)) return null
   // The block (paragraph, cell, item) holding most of the words; a shorter
   // block wins a tie, being the more specific answer.
   let best: [number, number, number, number] | null = null  // from, to, hits, block length
@@ -321,7 +329,8 @@ function locate(index: { text: string }, phrase: string): [number, number] | nul
     }
     blockStart += block.length + BREAK.length
   }
-  if (!best || best[2] < Math.max(1, Math.ceil(words.length * 0.6))) return null
+  const needed = strict ? Math.max(2, Math.ceil(words.length * 0.75)) : Math.max(1, Math.ceil(words.length * 0.6))
+  if (!best || best[2] < needed) return null
   return [best[0], best[1]]
 }
 
@@ -398,7 +407,7 @@ export function find(text: string, limit = 3): { matches: { text: string }[] } {
 export function highlight(quotes: string[]): { found: boolean[] } {
   const index = textIndex()
   const ranges: (Range | null)[] = quotes.map((q) => {
-    const hit = locate(index, q)
+    const hit = locate(index, q, true)
     return hit ? rangeFor(index, hit[0], hit[1]) : null
   })
   marked = ranges.filter((r): r is Range => r !== null)
