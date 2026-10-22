@@ -95,7 +95,12 @@ Shared with the browser extension: `api.configureApi({base, token})` (the
 extension's backend and pairing token), `atlas.page` and `atlas.onClientCall`
 (the attached tab, and running `client_call` events there), and the
 `AnswerExtras` slot under answers (`lib/slots.ts`). The web UI sets none of
-them. Settings > Browser extension shows the pairing token.
+them. The Browser extension page (`pages/ExtensionPage.tsx`, `/extension`) finds
+the extension and connects it with `postMessage` (`atlas:hello`, `atlas:pair`;
+the content script answers `atlas:here`), and holds "Your details".
+
+Developer mode (Settings > General, a per-browser pref) shows the Advanced
+settings sections and the raw pairing token; it is off by default.
 
 Control: Settings > Access holds the allowed folders, whether to ask outside
 them, and the approval timeout. The MCP page sets each tool On / Ask / Off.

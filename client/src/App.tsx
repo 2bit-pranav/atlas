@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/kit"
 import { SettingsPage } from "@/pages/SettingsPage"
 import { SkillsPage } from "@/pages/SkillsPage"
 import { McpPage } from "@/pages/McpPage"
+import { ExtensionPage } from "@/pages/ExtensionPage"
 
 const SIDEBAR_KEY = "atlas-sidebar-open"
 
@@ -166,6 +167,7 @@ export function App() {
               <Route path="/settings/:section" element={<SettingsPage />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/mcp" element={<McpPage />} />
+              <Route path="/extension" element={<ExtensionPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

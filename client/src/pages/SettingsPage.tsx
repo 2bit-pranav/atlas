@@ -22,14 +22,13 @@ import type { ModelList } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const navItem = (id: string) => ({ id, title: SECTIONS.find((s) => s.id === id)?.title ?? id })
-/** Most-used first: what changes results, then the model; tuning under Advanced. */
+/** Most-used first: what changes results, then the model; tuning under Advanced, in developer mode only. */
 const NAV = [
   { id: "general", title: "General" },
   navItem("agent"),
   { id: "extensions", title: "Skills & MCP" },
   navItem("access"),
   navItem("model"),
-  { id: "extension", title: "Browser extension" },
   { id: "conversations", title: "Conversations" },
   { id: "shortcuts", title: "Shortcuts" },
 ]
@@ -38,6 +37,8 @@ const ADVANCED = SECTIONS.filter((s) => s.advanced).map((s) => ({ id: s.id, titl
 export function SettingsPage() {
   const { section = "general" } = useParams()
   const navigate = useNavigate()
+  const { devMode } = usePrefs()
+  const advanced = devMode ? ADVANCED : []
   const settings = useAtlas((s) => s.settings)
   const [draft, setDraft] = useState<Record<string, unknown>>({})
   const [saved, setSaved] = useState(false)
@@ -73,10 +74,10 @@ export function SettingsPage() {
   const [query, setQuery] = useState("")
   const q = query.trim().toLowerCase()
   // Every described field that matches, with its section, across all sections.
-  const matches = useMemo(() => !q ? [] : SECTIONS.flatMap((s) => s.groups.flatMap((g) =>
+  const matches = useMemo(() => !q ? [] : SECTIONS.filter((s) => devMode || !s.advanced).flatMap((s) => s.groups.flatMap((g) =>
     g.fields.filter((f) => f.key in values &&
       [f.label, f.help ?? "", f.key, g.title].some((t) => t.toLowerCase().includes(q)))
-      .map((f) => ({ field: f, where: `${s.title} · ${g.title}` })))), [q, values])
+      .map((f) => ({ field: f, where: `${s.title} · ${g.title}` })))), [q, values, devMode])
 
   return (
     <div className="flex h-full min-h-0">
@@ -84,7 +85,7 @@ export function SettingsPage() {
         <Link to="/" className="px-2 text-xs text-muted-foreground hover:text-foreground">← Back to chat</Link>
         <p className="mt-4 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Settings</p>
         <SettingsSearch value={query} onChange={setQuery} />
-        {[{ title: "", items: NAV }, { title: "Advanced", items: ADVANCED }].map((list) => (
+        {[{ title: "", items: NAV }, { title: "Advanced", items: advanced }].filter((l) => l.items.length).map((list) => (
           <ul key={list.title} className="mt-2 space-y-0.5">
             {list.title && <li className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{list.title}</li>}
             {list.items.map((item) => (
@@ -112,9 +113,11 @@ export function SettingsPage() {
               className="mb-4 h-9 w-full rounded-lg border bg-background px-2 text-sm md:hidden"
             >
               {NAV.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
-              <optgroup label="Advanced">
-                {ADVANCED.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
-              </optgroup>
+              {devMode && (
+                <optgroup label="Advanced">
+                  {ADVANCED.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
+                </optgroup>
+              )}
             </select>
             <div className="mb-4 md:hidden"><SettingsSearch value={query} onChange={setQuery} /></div>
 
@@ -152,7 +155,7 @@ export function SettingsPage() {
               </div>
             )}
             {!q && section === "general" && <GeneralSection />}
-            {!q && SECTIONS.filter((s) => s.id === section).map((s) => (
+            {!q && SECTIONS.filter((s) => s.id === section && (devMode || !s.advanced)).map((s) => (
               <div key={s.id}>
                 <SectionHead title={s.title} text={s.description} />
                 {s.groups.map((g) => (
@@ -167,7 +170,6 @@ export function SettingsPage() {
               </div>
             ))}
             {!q && section === "extensions" && <ExtensionsSection />}
-            {!q && section === "extension" && <ExtensionSection />}
             {!q && section === "conversations" && <ConversationsSection />}
             {!q && section === "shortcuts" && <ShortcutsSection />}
           </div>
@@ -367,6 +369,11 @@ function GeneralSection() {
           <Switch checked={prefs.sendOnEnter} onChange={(v) => setPrefs({ sendOnEnter: v })} />
         </Row>
       </Group>
+      <Group title="Developer">
+        <Row label="Developer mode" help="Shows the tuning settings (recovery, sampling, llama-server, ports) and the extension's pairing token.">
+          <Switch checked={prefs.devMode} onChange={(v) => setPrefs({ devMode: v })} />
+        </Row>
+      </Group>
     </div>
   )
 }
@@ -400,92 +407,6 @@ function ExtensionsSection() {
         <div className="px-4 py-2.5"><Link to="/mcp" className="text-xs text-primary hover:underline">Manage MCP servers →</Link></div>
       </Group>
     </div>
-  )
-}
-
-/** Pairing the browser extension: the token it needs, and how to load it. */
-function ExtensionSection() {
-  const [token, setToken] = useState("")
-  const [shown, setShown] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [confirm, setConfirm] = useState(false)
-  useEffect(() => {
-    api.getPairing().then((r) => setToken(r.token)).catch(() => setToken(""))
-  }, [])
-  const copy = async () => {
-    await navigator.clipboard.writeText(token)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-  return (
-    <div>
-      <SectionHead title="Browser extension"
-                   text="A side panel in Edge or Chrome that reads the page you are on, with the same agent, tools and chats." />
-      <Group title="Pairing">
-        <Row label="Pairing token" help="Paste it into the extension once. Only the extension holding it can use Atlas; other websites are refused."
-             wide>
-          <div className="flex flex-wrap items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-2 py-1.5 font-mono text-xs">
-              {token ? (shown ? token : "•".repeat(24)) : "unavailable"}
-            </code>
-            <Button size="sm" variant="outline" onClick={() => setShown(!shown)}>{shown ? "Hide" : "Show"}</Button>
-            <Button size="sm" onClick={() => void copy()} disabled={!token}>{copied ? "Copied" : "Copy"}</Button>
-          </div>
-        </Row>
-        <Row label="New token" help="The extension stops working until the new token is pasted into it.">
-          {confirm ? (
-            <span className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setConfirm(false)}>Cancel</Button>
-              <Button size="sm" onClick={async () => {
-                setToken((await api.resetPairing()).token)
-                setConfirm(false)
-              }}>Make a new token</Button>
-            </span>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => setConfirm(true)}>Reset…</Button>
-          )}
-        </Row>
-      </Group>
-      <ProfileGroup />
-      <Group title="Install">
-        <ol className="list-decimal space-y-1.5 px-5 py-3 text-sm text-muted-foreground">
-          <li>Build it once: <code className="font-mono text-xs">cd extension</code>, <code className="font-mono text-xs">npm install</code>, <code className="font-mono text-xs">npm run build</code>.</li>
-          <li>Open <code className="font-mono text-xs">edge://extensions</code> (or <code className="font-mono text-xs">chrome://extensions</code>), turn on Developer mode, and Load unpacked: <code className="font-mono text-xs">extension/.output/chrome-mv3</code>.</li>
-          <li>Click the Atlas icon to open the side panel, and paste the token above.</li>
-        </ol>
-      </Group>
-    </div>
-  )
-}
-
-/** The details the extension's fill suggestions use. They stay in Atlas. */
-function ProfileGroup() {
-  const [text, setText] = useState<string | null>(null)
-  const [saved, setSaved] = useState("")
-  useEffect(() => {
-    api.getProfile().then((r) => {
-      setText(r.text)
-      setSaved(r.text)
-    }).catch(() => setText(""))
-  }, [])
-  return (
-    <Group title="Your details">
-      <div className="space-y-2 px-4 py-3">
-        <p className="text-xs text-muted-foreground">
-          Used only to suggest values for forms in the browser extension. One detail per line, in your own words.
-          They stay on this computer, and the extension never reads them; it only gets the values for a form's fields.
-        </p>
-        <textarea rows={8} value={text ?? ""} onChange={(e) => setText(e.target.value)}
-                  placeholder={"Name: Your Name\nRoll no: 21CS045\nABC ID: 123-456-789-012\nEmail: you@example.com\nPhone: +91 98765 43210\nDate of birth: 4 March 2004\nAddress: 12 Lake Road, Pune 411001"}
-                  className="w-full rounded-md border bg-background p-2.5 font-mono text-xs leading-relaxed outline-none focus:ring-2 focus:ring-ring/30" />
-        <div className="flex justify-end">
-          <Button size="sm" disabled={text === null || text === saved} onClick={async () => {
-            const r = await api.putProfile(text ?? "")
-            setSaved(r.text)
-          }}>{text !== null && text !== saved ? "Save details" : "Saved"}</Button>
-        </div>
-      </div>
-    </Group>
   )
 }
 

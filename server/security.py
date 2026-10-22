@@ -14,8 +14,8 @@ opens, so the API checks each request:
 
 Requests from local programs (curl, `atlas`) send no Origin and pass: they
 already run as the user. The pairing token lives in `<data>/pairing-token`,
-made on first start and shown in Settings > Browser extension; the user pastes
-it into the extension once. The extension sends it as `Authorization: Bearer`,
+made on first start. "Connect" on the web UI's Browser extension page hands it
+to the extension, which checks it against `/api/health` before keeping it. The extension sends it as `Authorization: Bearer`,
 or as `?token=` where a URL is all it can give.
 """
 
@@ -66,8 +66,8 @@ def guard(pairing: Pairing, trusted_origins: set[str]):
             if not origin.startswith(EXTENSION_SCHEMES):
                 return JSONResponse({"detail": f"requests from {origin} are not allowed"}, status_code=403)
             if not pairing.valid(request):
-                return JSONResponse({"detail": "not paired: paste the token from Atlas > Settings > "
-                                     "Browser extension"}, status_code=401)
+                return JSONResponse({"detail": "not paired: connect the extension from the Browser "
+                                     "extension page in Atlas"}, status_code=401)
         elif not origin and request.headers.get("sec-fetch-site") == "cross-site" and not pairing.valid(request):
             return JSONResponse({"detail": "cross-site requests are not allowed"}, status_code=403)
         return await call_next(request)

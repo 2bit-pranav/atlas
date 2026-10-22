@@ -72,7 +72,7 @@ def suggest(settings: Settings, fields: list[dict[str, Any]], title: str = "") -
     """`{"values": {field id: value}, "missing": [labels]}`. Raises ValueError for the user."""
     profile = read_profile(settings).strip()
     if not profile:
-        raise ValueError("Add your details first: Atlas > Settings > Browser extension > Your details.")
+        raise ValueError("Add your details first: Atlas > Browser extension > Your details.")
     fields = [f for f in fields if isinstance(f, dict) and f.get("id") and f.get("label")][:60]
     if not fields:
         raise ValueError("No fillable fields were found on this page.")

@@ -11,7 +11,7 @@ page in double quotes and the panel highlights each quote (or marks it as not
 found) under the answer; `page_find` highlights and scrolls for "where does it
 say X?". Version 2 so far adds looking at images (`page_screenshot`,
 `page_image`, the camera button, "Ask Atlas about this image") and fill
-suggestions from the user's details (Settings > Browser extension).
+suggestions from the user's details (the Browser extension page in Atlas).
 
 ---
 

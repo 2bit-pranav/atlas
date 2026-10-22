@@ -401,10 +401,10 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
 
     @api.get("/pairing")
     async def get_pairing(request: Request) -> dict[str, Any]:
-        """The token to paste into the browser extension. Not for the extension itself."""
+        """The extension's token and the address it should use. Not for the extension itself."""
         if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
             raise HTTPException(403, "the extension cannot read the pairing token")
-        return {"token": pairing.token}
+        return {"token": pairing.token, "base": f"http://127.0.0.1:{ports.backend}"}
 
     @api.post("/pairing/reset")
     async def reset_pairing(request: Request) -> dict[str, Any]:

@@ -175,7 +175,7 @@ export function streamRun(runId: string, after: number, onEvent: (e: RunEvent) =
 // --------------------------------------------------------------- settings --
 
 export const getSettings = () => request<SettingsView>("/settings")
-export const getPairing = () => request<{ token: string }>("/pairing")
+export const getPairing = () => request<{ token: string; base: string }>("/pairing")
 /** The user's details for fill suggestions (web UI only). */
 export const getProfile = () => request<{ text: string }>("/profile")
 export const putProfile = (text: string) => request<{ text: string }>("/profile", json("PUT", { text }))

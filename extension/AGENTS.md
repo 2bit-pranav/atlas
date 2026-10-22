@@ -29,8 +29,12 @@ npm run dev          # Edge with the extension loaded and hot reload
 ```
 
 `edge://extensions` (or `chrome://extensions`), Developer mode, Load unpacked:
-`extension/.output/chrome-mv3`. Pair it with the token from Atlas > Settings >
-Browser extension.
+`extension/.output/chrome-mv3`. Then Connect, from the panel or from Atlas's
+Browser extension page: the page posts `atlas:pair` with the token, the
+content script (only on a local http page, only from that page's own window)
+relays it to the background worker, which keeps it only if the backend at that
+local address accepts it. The page learns whether it is connected, never more.
+The token and address can still be typed under the panel's Advanced settings.
 
 ## Sharing the web UI
 

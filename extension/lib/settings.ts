@@ -6,7 +6,7 @@
 export interface ExtensionSettings {
   /** The Atlas backend. */
   base: string
-  /** From Atlas > Settings > Browser extension. */
+  /** Set by "Connect" on Atlas's Browser extension page. */
   token: string
   /** Sites Atlas never reads (one host per line; `*.bank.com` covers subdomains). */
   neverRead: string[]
@@ -33,6 +33,16 @@ export async function saveSettings(patch: Partial<ExtensionSettings>): Promise<E
   const next = { ...(await loadSettings()), ...patch }
   await browser.storage.local.set({ settings: next })
   return next
+}
+
+/** An address on this computer over plain http: the only place Atlas runs, and the only page that may pair the extension. */
+export function localHttp(url: string | undefined): boolean {
+  try {
+    const parsed = new URL(url ?? "")
+    return parsed.protocol === "http:" && ["127.0.0.1", "localhost"].includes(parsed.hostname)
+  } catch {
+    return false
+  }
 }
 
 /** True when `url` is on the never-read list, or not a web page at all. */

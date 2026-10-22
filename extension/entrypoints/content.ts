@@ -8,11 +8,13 @@
  *   or right-click inside it. The rows go straight to the backend; no model.
  * - Fill suggestions: the form's fields out, a preview of values back, filled
  *   only on Apply, never submitted (`lib/fill.ts`).
+ * - Pairing, on Atlas's own page only: relays "are you connected?" and
+ *   "Connect" to the background worker, which checks and keeps the token.
  *
  * Nothing runs on sites in the never-read list.
  */
 
-import { blocked, loadSettings, type ExtensionSettings } from "@ext/settings"
+import { blocked, loadSettings, localHttp, type ExtensionSettings } from "@ext/settings"
 import { selectionChip, tableMenu } from "@ext/chip"
 import * as fill from "@ext/fill"
 import * as page from "@ext/page"
@@ -44,8 +46,28 @@ export default defineContentScript({
 
     selectionChip(() => settings, off)
     tableMenu(off)
+    pairingBridge()
   },
 })
+
+/**
+ * Atlas's Browser extension page talks to the extension with `postMessage`:
+ * `atlas:hello` (is it installed and connected?) and `atlas:pair` (Connect).
+ * Only on a local http page, and only from the page itself; the answers say
+ * whether it is connected, never the token.
+ */
+function pairingBridge() {
+  if (!localHttp(location.href)) return
+  addEventListener("message", (event) => {
+    if (event.source !== window || event.origin !== location.origin) return
+    const data = event.data as { type?: string; base?: string; token?: string } | null
+    if (data?.type !== "atlas:hello" && data?.type !== "atlas:pair") return
+    const message = data.type === "atlas:pair" ? { type: "atlas:pair", base: data.base, token: data.token } : { type: "atlas:status", base: data.base }
+    void browser.runtime.sendMessage(message)
+      .catch(() => ({ connected: false, error: "the extension could not check: reload this page" }))
+      .then((answer) => postMessage({ type: "atlas:here", ...(answer as object) }, location.origin))
+  })
+}
 
 function run(op: string, args: Record<string, unknown>): Record<string, unknown> {
   switch (op) {

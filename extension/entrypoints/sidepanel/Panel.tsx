@@ -4,7 +4,8 @@
  * The chat itself is the web UI's (`ChatScreen`, the shared store). What the
  * panel adds:
  *
- * - pairing with the backend (the token from Atlas > Settings > Browser extension);
+ * - pairing with the backend: "Connect" opens Atlas's Browser extension page,
+ *   which hands the token to the extension (the background worker keeps it);
  * - attaching the chat to one tab: messages carry that page, which turns on
  *   the page tools, and the store's client calls run in that tab;
  * - switching tabs offers a new chat or re-attaching, never silently reading
@@ -69,10 +70,17 @@ export function Panel() {
   }, [])
 
   useEffect(() => {
-    void loadSettings().then((s) => {
+    const load = () => void loadSettings().then((s) => {
       setSettings(s)
       void connect(s)
     })
+    load()
+    // Paired from Atlas's page while the panel is open: connect straight away.
+    const changed = (changes: Record<string, unknown>) => {
+      if ("settings" in changes) load()
+    }
+    browser.storage.onChanged.addListener(changed)
+    return () => browser.storage.onChanged.removeListener(changed)
   }, [connect])
 
   // The current tab, kept up to date.
@@ -156,10 +164,8 @@ export function Panel() {
         settings={settings}
         status={status}
         onSave={async (patch) => {
-          const next = await saveSettings(patch)
-          setSettings(next)
+          await saveSettings(patch) // the storage listener reconnects
           setShowSettings(false)
-          await connect(next)
         }}
         onClose={status === "ready" ? () => setShowSettings(false) : undefined}
       />
@@ -552,18 +558,22 @@ function SettingsView({ settings, status, onSave, onClose }: {
     <div className="h-dvh overflow-y-auto p-4 text-sm">
       <h1 className="text-base font-semibold">Atlas</h1>
       {status === "unpaired" && (
-        <p className="mt-2 rounded-md bg-muted p-2.5 text-xs leading-relaxed">
-          Pair this extension with Atlas: in Atlas, open <b>Settings › Browser extension</b>, copy the pairing token, and paste it below.
-        </p>
+        <div className="mt-3 rounded-lg border bg-muted/40 p-3">
+          <p className="text-sm font-medium">Connect to Atlas</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Opens Atlas in a tab and connects this extension. Atlas has to be running (<code>atlas start</code>).
+          </p>
+          <button type="button" className="mt-2.5 w-full rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground"
+                  onClick={() => void browser.tabs.create({ url: `${settings.base.replace(/\/$/, "")}/extension?connect=1` })}>
+            Connect
+          </button>
+        </div>
       )}
       {status === "offline" && (
         <p className="mt-2 rounded-md bg-destructive/10 p-2.5 text-xs text-destructive">
           Atlas is not answering at {settings.base}. Start it with <code>atlas start</code>, then Save to try again.
         </p>
       )}
-      <label className="mt-4 block text-xs font-medium">Pairing token</label>
-      <input type="password" className={cn(field, "mt-1 font-mono")} value={draft.token}
-             onChange={(e) => setDraft({ ...draft, token: e.target.value.trim() })} placeholder="Paste the token" />
       <label className="mt-4 block text-xs font-medium">Never read these sites</label>
       <p className="text-[11px] text-muted-foreground">One per line, e.g. mybank.com (subdomains included). Atlas will not read or highlight them.</p>
       <textarea rows={4} className={cn(field, "mt-1 font-mono text-xs")} value={draft.neverRead}
@@ -574,9 +584,16 @@ function SettingsView({ settings, status, onSave, onClose }: {
       <label className="mt-4 block text-xs font-medium">Translate into</label>
       <input className={cn(field, "mt-1")} value={draft.languages}
              onChange={(e) => setDraft({ ...draft, languages: e.target.value })} />
-      <label className="mt-4 block text-xs font-medium">Atlas address</label>
-      <input className={cn(field, "mt-1 font-mono text-xs")} value={draft.base}
-             onChange={(e) => setDraft({ ...draft, base: e.target.value.trim() })} />
+      <details className="mt-4">
+        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Advanced</summary>
+        <label className="mt-3 block text-xs font-medium">Atlas address</label>
+        <input className={cn(field, "mt-1 font-mono text-xs")} value={draft.base}
+               onChange={(e) => setDraft({ ...draft, base: e.target.value.trim() })} />
+        <label className="mt-3 block text-xs font-medium">Pairing token</label>
+        <p className="text-[11px] text-muted-foreground">Set by Connect. Paste one only if Connect cannot reach Atlas.</p>
+        <input type="password" className={cn(field, "mt-1 font-mono")} value={draft.token}
+               onChange={(e) => setDraft({ ...draft, token: e.target.value.trim() })} placeholder="Pairing token" />
+      </details>
       <div className="mt-5 flex gap-2">
         <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground"
                 onClick={() => void onSave({

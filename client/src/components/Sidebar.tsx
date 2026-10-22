@@ -8,7 +8,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import * as Dropdown from "@radix-ui/react-dropdown-menu"
 import {
-  Download, Globe, Loader2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plug, Search,
+  Download, Globe, Loader2, PanelRight, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plug, Search,
   Settings, Sparkles, SquarePen, Trash2, X,
 } from "lucide-react"
 
@@ -47,6 +47,7 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
     { icon: Search, label: "Search", action: "search", run: () => { if (!open) onToggle(); setSearching(true) } },
     { icon: Sparkles, label: "Skills", path: "/skills", run: () => navigate("/skills") },
     { icon: Plug, label: "MCP", path: "/mcp", run: () => navigate("/mcp") },
+    { icon: PanelRight, label: "Browser extension", path: "/extension", run: () => navigate("/extension") },
     { icon: Settings, label: "Settings", action: "settings", path: "/settings", run: () => navigate("/settings") },
   ]
 

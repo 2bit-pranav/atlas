@@ -7,9 +7,12 @@
  *   question in `storage.session` and open the panel, which picks it up.
  * - "Save table" rows are POSTed to the backend here: the worker holds the
  *   pairing token, which the page's own context never sees.
+ * - Pairing: Atlas's own page (on 127.0.0.1 or localhost) asks whether the
+ *   extension is connected, and "Connect" hands over the token, which is
+ *   checked against that Atlas before it is kept.
  */
 
-import { loadSettings, type PendingAsk } from "@ext/settings"
+import { loadSettings, localHttp, saveSettings, type PendingAsk } from "@ext/settings"
 
 export default defineBackground(() => {
   void browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
@@ -47,8 +50,39 @@ export default defineBackground(() => {
       void saveTable(message).then(reply)
       return true
     }
+    if ((message?.type === "atlas:status" || message?.type === "atlas:pair") && localHttp(sender.url) && localHttp(message.base)) {
+      void (message.type === "atlas:pair" ? pair(message.base, String(message.token ?? "")) : status(message.base)).then(reply)
+      return true
+    }
   })
 })
+
+const trim = (base: string) => base.replace(/\/$/, "")
+
+/** Whether `token` opens the Atlas at `base`: the backend answers 401 to a wrong one. */
+async function works(base: string, token: string): Promise<boolean | null> {
+  try {
+    const response = await fetch(`${trim(base)}/api/health`, { headers: { Authorization: `Bearer ${token}` } })
+    return response.ok
+  } catch {
+    return null
+  }
+}
+
+/** Connected means paired with the Atlas at `base`, with a token it still accepts. */
+async function status(base: string) {
+  const settings = await loadSettings()
+  const connected = Boolean(settings.token) && trim(settings.base) === trim(base) && (await works(base, settings.token)) === true
+  return { connected, version: browser.runtime.getManifest().version }
+}
+
+async function pair(base: string, token: string) {
+  const ok = token ? await works(base, token) : false
+  if (ok === null) return { connected: false, error: `Atlas is not answering at ${base}` }
+  if (!ok) return { connected: false, error: "Atlas did not accept the token" }
+  await saveSettings({ base: trim(base), token })
+  return { connected: true, version: browser.runtime.getManifest().version }
+}
 
 async function saveTable(message: { rows: string[][]; title: string; url: string; format: string }) {
   const settings = await loadSettings()

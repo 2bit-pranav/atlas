@@ -330,6 +330,14 @@ extension's own `viewer.html` (pdf.js with a text layer) is a page the panel
 can read, search and highlight like any other; local PDFs come from the
 backend so no file-access permission is needed.
 
+**One-click pairing, developer mode** (2026-10-22). Copying a token into the
+panel was a developer's chore. The extension is its own page in the sidebar,
+and Connect hands the token over through the content script that already runs
+on Atlas's local page. Accepted only from a 127.0.0.1/localhost http page and
+only for a local backend that answers 200 to it; a malicious local page could
+at most pair the extension with another local server it already runs. Tuning
+settings and the raw token sit behind a per-browser developer mode toggle.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 
