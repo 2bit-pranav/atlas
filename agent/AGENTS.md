@@ -219,6 +219,11 @@ That click is the approval; the model never has to.
   (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
   `python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>"`. The attachment
   list gives each pdf/docx/xlsx's exact command.
+- **Stop ends a running command.** Strands stops a turn only at its safe
+  points, and a running shell command is not one. The environment watches the
+  agent's cancel signal (set on it in `build_agent`) and, on Stop or timeout,
+  kills the command's whole process tree (`taskkill /T`: killing `sh.exe`
+  alone left the Python script it ran going).
 - Commands run through Git Bash when it exists (`cmd.exe` as a fallback); the
   venv's `Scripts` is first on PATH, so a bare `python` is the project's.
 - The model is shown every path as `/c/Users/...` (`model_path`). That one form

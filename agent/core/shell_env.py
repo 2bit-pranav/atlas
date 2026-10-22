@@ -27,13 +27,18 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from strands.sandbox.base import ExecutionResult, StreamChunk
+from strands.sandbox.errors import SandboxTimeoutError
+from strands.sandbox.posix_shell import build_shell_env_prefix
 from strands.sandbox.not_a_sandbox_local_environment import (
     NotASandboxLocalEnvironment,
 )
@@ -77,6 +82,9 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         #: The allowed folders, where a relative path is looked for after the
         #: workspace (`locate`). Scripts get them as `$ATLAS_FOLDERS`.
         self.folders = list(folders or [])
+        #: The agent's cancel signal (`agent_factory` sets it): Stop ends a
+        #: running command too, not only the model's turn.
+        self.cancel_signal: threading.Event | None = None
         if self.folders:
             self.extra_env["ATLAS_FOLDERS"] = os.pathsep.join(str(f) for f in self.folders)
 
@@ -114,14 +122,14 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         env = self._env(env)
         try:
             if self.shell_dir is not None:
-                async for chunk in super().execute_streaming(
-                    command, timeout=timeout, cwd=cwd, env=_posix_env(env), **kwargs
-                ):
+                async for chunk in self._posix(command, timeout=timeout, cwd=cwd, env=env):
                     yield chunk
                 return
 
             async for chunk in self._cmd(command, timeout=timeout, cwd=cwd, env=env):
                 yield chunk
+        except SandboxTimeoutError:
+            raise  # the shell tool reports it, with the output so far
         except Exception as exc:
             loop_name = type(asyncio.get_running_loop()).__name__
             yield ExecutionResult(
@@ -130,6 +138,52 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
                 exit_code=1,
             )
     
+    async def _posix(
+        self,
+        command: str,
+        *,
+        timeout: float | None,
+        cwd: str | None,
+        env: dict[str, str] | None,
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+        """`sh -c` in the workspace, as Strands runs it, but stoppable.
+
+        Strands' own runner kills the process only when the task consuming it
+        is cancelled, and Stop cancels no task; on Windows it would kill only
+        `sh.exe` anyway. A 67-page OCR read went on for minutes after Stop.
+        Here the command's whole process tree is ended on Stop or timeout.
+        """
+        full = f"cd {shlex.quote(cwd or os.getcwd())} && {build_shell_env_prefix(_posix_env(env))}{command}"
+        process = await asyncio.create_subprocess_exec(
+            "sh", "-c", full, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        yield await self._finish(process, timeout)
+
+    async def _finish(self, process: asyncio.subprocess.Process, timeout: float | None) -> ExecutionResult:
+        """Wait for a command; on Stop or after `timeout` (default 120 s), kill its
+        whole process tree and report what it printed so far."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + (timeout or 120.0)
+        work = asyncio.ensure_future(process.communicate())
+        stopped = False
+        while not work.done():
+            await asyncio.wait({work}, timeout=0.25)
+            if work.done():
+                break
+            stopped = self.cancel_signal is not None and self.cancel_signal.is_set()
+            if stopped or loop.time() > deadline:
+                _kill_tree(process)
+                try:
+                    await asyncio.wait_for(asyncio.shield(work), 10)
+                except asyncio.TimeoutError:
+                    work.cancel()
+                break
+        stdout, stderr = (_decode(b) for b in work.result()) if work.done() and not work.cancelled() else ("", "")
+        if stopped:
+            return ExecutionResult(stdout=stdout, stderr=(stderr + "\nStopped by the user.").strip(), exit_code=130)
+        if process.returncode is None or loop.time() > deadline:
+            raise SandboxTimeoutError(timeout or 120.0, stdout=stdout, stderr=stderr)
+        return ExecutionResult(stdout=stdout, stderr=stderr, exit_code=process.returncode)
+
     async def _cmd(
         self,
         command: str,
@@ -164,24 +218,12 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
             ) from exc
 
         try:
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=timeout or 120.0
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                raise
+            result = await self._finish(process, timeout)
         finally:
             # Deleted whatever happened, including a timeout, so one .cmd per
             # tool call does not accumulate.
             _discard(batch)
-
-        yield ExecutionResult(
-            stdout=_decode(stdout),
-            stderr=_decode(stderr),
-            exit_code=process.returncode if process.returncode is not None else 1,
-        )
+        yield result
 
     async def execute(
         self,
@@ -238,19 +280,7 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
             cwd=cwd or (str(self.cwd) if self.cwd else None),
             env=_cmd_env(self._env(env)),
         )
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=timeout or 120.0
-            )
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            raise
-        return ExecutionResult(
-            stdout=_decode(stdout),
-            stderr=_decode(stderr),
-            exit_code=process.returncode if process.returncode is not None else 1,
-        )
+        return await self._finish(process, timeout)
 
     async def execute_code_streaming(
         self,
@@ -516,6 +546,17 @@ def _discard(path: str | None) -> None:
         os.unlink(path)
     except OSError:
         pass
+
+
+def _kill_tree(process: asyncio.subprocess.Process) -> None:
+    """End a command and everything it started. On Windows killing `sh.exe`
+    leaves the `python.exe` it ran alive, so the whole tree goes (`taskkill /T`)."""
+    if process.returncode is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
+    else:
+        process.kill()
 
 
 def _decode(raw: bytes | None) -> str:

@@ -384,6 +384,16 @@ demo in `docs/demo.md` through the API, several times each, on fixtures:
   gave three different podiums in three runs (one right), so the demo uses a
   finished season.
 
+**Stop stops the command; long PDFs are read in parts** (2026-10-22). A
+question about a 67-page scanned PDF ran `read_pdf.py --pages all`: Atlas's
+own suggested command said `all`, and every scanned page is OCR'd, so it ran
+for minutes, and kept running after Stop, because Strands only cancels at its
+safe points and on Windows its runner would kill only `sh.exe`. Now Stop or
+the timeout kills the command's process tree; the suggested command has no
+`--pages`; the reader reads a short PDF (5 pages or fewer) whole, else pages
+1-2 with the page count, and refuses more than 15 pages per call with a hint
+to `--search` first.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

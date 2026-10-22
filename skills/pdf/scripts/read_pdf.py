@@ -42,6 +42,12 @@ pdfium, = require("pypdfium2")
 import _ocr  # noqa: E402 - beside this script
 
 
+#: A document this short is read whole when no --pages is given.
+SHORT_DOC = 5
+#: The most pages one call reads.
+MAX_PAGES = 15
+
+
 def parse_pages(spec: str, total: int) -> list[int]:
     """`1-3,7` -> [0, 1, 2, 6] (1-based in, 0-based out), sorted and deduplicated.
 
@@ -104,8 +110,9 @@ def page_images(doc, index: int, source: Path, budget: list[int], skip: set[int]
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read text from a PDF")
     parser.add_argument("path", help="path to the PDF")
-    parser.add_argument("--pages", default="1-2",
-                        help="page range, 1-based, e.g. 1-3 or 1,4,7")
+    parser.add_argument("--pages", default=None,
+                        help="page range, 1-based, e.g. 1-3 or 1,4,7 (default: all of a short "
+                             f"document, else 1-2; at most {MAX_PAGES} at once)")
     # nargs="*" and rejoined: `cmd.exe` can split a quoted multi-word term on
     # its spaces before argparse sees it (see _shared.join_sql).
     parser.add_argument("--search", nargs="*", default=[],
@@ -166,9 +173,17 @@ def main() -> int:
         print("\n\n".join(body))
         return 0
 
+    if args.pages is None:
+        args.pages = "all" if total <= SHORT_DOC else "1-2"
     pages = parse_pages(args.pages, total)
     if not pages:
         return fail(f"no pages in --pages {args.pages!r} (document has {total})")
+    if len(pages) > MAX_PAGES:
+        # Every scanned page is read by OCR, seconds each: 67 pages took minutes
+        # and printed far more than the output budget anyway.
+        return fail(f"the document has {total} pages; read at most {MAX_PAGES} at once",
+                    hint=f'find the pages that matter with --search "<word>", then read them, '
+                         f"e.g. --pages 1-{MAX_PAGES}")
 
     cache = _ocr.Cache(images_dir(path), path)
     chunks = []

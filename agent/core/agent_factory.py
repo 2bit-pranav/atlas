@@ -19,7 +19,7 @@ from strands_harness import build_system_prompt, create_harness
 
 from agent.core import paths
 from agent.core.memory_manager import MemoryManager
-from agent.core.shell_env import default_environment, model_path
+from agent.core.shell_env import WindowsLocalEnvironment, default_environment, model_path
 from agent.core.model import AtlasLlamaCppModel
 from agent.core.documents import document_tools
 from agent.core.policy import Approver, Scope, ToolPolicy
@@ -301,6 +301,8 @@ def build_agent(
                ToolFailureRecovery(settings.resilience, notify=observer)],
     )
 
+    if isinstance(agent.sandbox, WindowsLocalEnvironment):
+        agent.sandbox.cancel_signal = agent.cancel_signal  # Stop ends a running command too
     if restore_snapshot_id:
         _restore(agent, session_manager, restore_snapshot_id, instructions)
 
