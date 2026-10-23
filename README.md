@@ -60,18 +60,3 @@ skill fails with an empty error. `atlas start` never uses it.
 | `.data/` | Everything Atlas generates: `atlas.db`, Strands snapshots, each chat's uploads and workspace | |
 | `launched.json` | Written by `atlas start`: what is running, and with which settings | |
 
-## The rules that shape everything
-
-1. **Use Strands; do not rebuild it.** If the harness or SDK does something,
-   Atlas configures it rather than reimplementing it.
-2. **Strands owns the model's history.** Atlas stores the shape of a chat
-   (which turn follows which, which version is selected) and the snapshot ids
-   to restore, plus a display copy of each answer. It never feeds its own copy
-   back to the model.
-3. **Nothing is parsed at upload.** Files are saved; the model reads them on
-   demand through skills.
-4. **A small model gets ready-made tools, not instructions to write code.**
-   Skills ship scripts. Recovery from failures is code (Strands hooks), not a
-   sentence in the system prompt.
-5. **Measure, then write it down.** A surprising behaviour goes into
-   `docs/decisions.md` with what was observed, so nobody rediscovers it.
