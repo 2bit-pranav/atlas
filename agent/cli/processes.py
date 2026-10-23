@@ -1,9 +1,9 @@
-"""
-Process supervision, process tree termination, and log plumbing.
+"""Child processes: spawning, log capture, and killing whole process trees.
 
-Ensures that child processes are monitored, log-streamed with prefixes and
-banners, and reliably terminated on Ctrl+C or shutdown without leaving orphan
-workers holding network ports.
+Every line a child prints goes, unfiltered, to its service's log file and to a
+callback; nothing here writes to the terminal. On Windows each child joins a
+Job Object that kills it when Atlas exits, however it exits, so no orphan
+keeps a port.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import contextlib
 import ctypes
 import logging
 import os
-import queue
 import re
 import signal
 import subprocess
@@ -21,46 +20,36 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import IO
+from typing import IO, Callable
 
 logger = logging.getLogger(__name__)
 
 IS_WINDOWS = sys.platform == "win32"
 TERM_GRACE_SECONDS = 2.0
-BANNER_WIDTH = 66
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
 class SpawnFailed(RuntimeError):
-    """Raised when a child process fails to execute."""
+    """A child process could not be started at all."""
 
 
 def kill_pid_tree(pid: int, timeout: float = 2.0) -> None:
-    """Forcefully terminate a process and all its child workers."""
+    """Kill a process and everything it started."""
     try:
         import psutil
 
         proc = psutil.Process(pid)
         children = proc.children(recursive=True)
-        for child in children:
+        for p in [*children, proc]:
             with contextlib.suppress(Exception):
-                child.kill()
-        with contextlib.suppress(Exception):
-            proc.kill()
-        _, alive = psutil.wait_procs([proc, *children], timeout=timeout)
-        for survivor in alive:
-            with contextlib.suppress(Exception):
-                survivor.kill()
-    except Exception:
+                p.kill()
+        psutil.wait_procs([proc, *children], timeout=timeout)
+    except Exception:  # noqa: BLE001 - already gone, or not ours to see
         pass
-
     if IS_WINDOWS:
-        # Definitive tree kill on Windows
+        # psutil misses grandchildren that re-parent; taskkill /T does not.
         with contextlib.suppress(Exception):
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True,
-                timeout=5,
-            )
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=5)
 
 
 # --------------------------------------------------------------- Windows Job --
@@ -71,19 +60,13 @@ if IS_WINDOWS:
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
     JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK = 0x00001000
     JobObjectExtendedLimitInformation = 9
-
     PROCESS_TERMINATE = 0x0001
     PROCESS_SET_QUOTA = 0x0100
 
     class IO_COUNTERS(ctypes.Structure):
-        _fields_ = [
-            ("ReadOperationCount", ctypes.c_ulonglong),
-            ("WriteOperationCount", ctypes.c_ulonglong),
-            ("OtherOperationCount", ctypes.c_ulonglong),
-            ("ReadTransferCount", ctypes.c_ulonglong),
-            ("WriteTransferCount", ctypes.c_ulonglong),
-            ("OtherTransferCount", ctypes.c_ulonglong),
-        ]
+        _fields_ = [(n, ctypes.c_ulonglong) for n in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
 
     class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
         _fields_ = [
@@ -110,44 +93,34 @@ if IS_WINDOWS:
 
 
 class _WindowsJob:
-    """Windows Job Object ensuring children terminate if handle closes."""
+    """A Job Object whose children die when its handle closes (or Atlas dies)."""
 
     def __init__(self) -> None:
         self._handle = None
-
-    def open(self) -> None:
         kernel32 = ctypes.windll.kernel32
         kernel32.CreateJobObjectW.restype = wintypes.HANDLE
         handle = kernel32.CreateJobObjectW(None, None)
         if not handle:
             return
-
         info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
         info.BasicLimitInformation.LimitFlags = (
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK
-        )
-        if not kernel32.SetInformationJobObject(
-            handle,
-            JobObjectExtendedLimitInformation,
-            ctypes.byref(info),
-            ctypes.sizeof(info),
-        ):
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
+        if kernel32.SetInformationJobObject(handle, JobObjectExtendedLimitInformation,
+                                            ctypes.byref(info), ctypes.sizeof(info)):
+            self._handle = handle
+        else:
             kernel32.CloseHandle(handle)
-            return
-
-        self._handle = handle
 
     def assign(self, pid: int) -> None:
         if self._handle is None:
             return
         kernel32 = ctypes.windll.kernel32
         process = kernel32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)
-        if not process:
-            return
-        try:
-            kernel32.AssignProcessToJobObject(self._handle, process)
-        finally:
-            kernel32.CloseHandle(process)
+        if process:
+            try:
+                kernel32.AssignProcessToJobObject(self._handle, process)
+            finally:
+                kernel32.CloseHandle(process)
 
     def close(self) -> None:
         if self._handle:
@@ -155,179 +128,102 @@ class _WindowsJob:
             self._handle = None
 
 
-# ---------------------------------------------------------------- Log Relay --
-
-
-def banner(sink: IO[str], name: str, title: str = "") -> None:
-    label = f" {name} {title} ".rstrip()
-    rule = "=" * BANNER_WIDTH
-    sink.write(f"\n{rule}\n{label.center(BANNER_WIDTH)}\n{rule}\n")
-    sink.flush()
+# ------------------------------------------------------------------ capture --
 
 
 class LogRelay:
-    """Multiplexes stdout and stderr into a single synchronized console writer."""
+    """Reads a child's stdout and stderr line by line.
 
-    def __init__(
-        self,
-        name: str,
-        sink: IO[str],
-        *,
-        ready_pattern: str | None = None,
-        tail_lines: int = 200,
-    ) -> None:
-        self.name = name
-        self._sink = sink
+    Each line is written to the log file with our timestamp and handed to
+    `on_line` without colour codes. The last lines are kept for failure
+    messages.
+    """
+
+    def __init__(self, service: str, log: IO[str], on_line: Callable[[str, str], None],
+                 tail: int = 200) -> None:
+        self.service = service
+        self._log = log
+        self._on_line = on_line
         self._lock = threading.Lock()
-        self._ready_re = re.compile(ready_pattern) if ready_pattern else None
-        self._queue: queue.Queue[str | None] = queue.Queue()
-        self.ready = threading.Event()
-        self.tail: deque[str] = deque(maxlen=tail_lines)
+        self.tail: deque[str] = deque(maxlen=tail)
 
     def attach(self, proc: subprocess.Popen[bytes]) -> None:
-        streams = [s for s in (proc.stdout, proc.stderr) if s is not None]
-        for stream in streams:
-            threading.Thread(target=self._read, args=(stream,), daemon=True).start()
-        threading.Thread(target=self._write, args=(len(streams),), daemon=True).start()
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                threading.Thread(target=self._read, args=(stream,), daemon=True).start()
 
     def _read(self, stream: IO[bytes]) -> None:
         try:
             for raw in iter(stream.readline, b""):
-                text = raw.decode("utf-8", errors="replace").rstrip()
-                if not text:
+                text = _ANSI.sub("", raw.decode("utf-8", errors="replace")).rstrip()
+                if not text.strip():
                     continue
-                if self._ready_re is not None and self._ready_re.search(text):
-                    self.ready.set()
-                self._queue.put(text)
+                with self._lock:
+                    self.tail.append(text)
+                    with contextlib.suppress(ValueError, OSError):
+                        self._log.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+                        self._log.flush()
+                self._on_line(self.service, text)
         except (ValueError, OSError):
             pass
-        finally:
-            self._queue.put(None)
 
-    def _write(self, stream_count: int) -> None:
-        closed = 0
-        while closed < stream_count:
-            item = self._queue.get()
-            if item is None:
-                closed += 1
-                continue
-            with self._lock:
-                self.tail.append(item)
-            try:
-                self._sink.write(f"{time.strftime('%H:%M:%S')} [{self.name}] {item}\n")
-                self._sink.flush()
-            except (ValueError, OSError):
-                pass
-
-    def tail_text(self, lines: int = 15) -> str:
+    def last(self, lines: int = 12) -> list[str]:
         with self._lock:
-            return "\n".join(list(self.tail)[-lines:])
-
-
-# ------------------------------------------------------------- ProcessGroup --
+            return list(self.tail)[-lines:]
 
 
 class ProcessGroup:
-    """Manages active processes and handles orderly tree termination."""
+    """The children of one `atlas start`, stopped in reverse start order."""
 
     def __init__(self) -> None:
-        self._children: list[tuple[str, subprocess.Popen[bytes]]] = []
-        self._relays: dict[str, LogRelay] = {}
-        self._job: _WindowsJob | None = _WindowsJob() if IS_WINDOWS else None
-        if self._job is not None:
-            self._job.open()
+        self._children: dict[str, tuple[subprocess.Popen[bytes], LogRelay]] = {}
+        #: Every service started at some point, so its port may need sweeping.
+        self.spawned: set[str] = set()
+        self._job = _WindowsJob() if IS_WINDOWS else None
 
-    def spawn(
-        self,
-        name: str,
-        args: list[str],
-        *,
-        cwd: Path | None = None,
-        env: dict[str, str] | None = None,
-        ready_pattern: str | None = None,
-        sink: IO[str] | None = None,
-    ) -> tuple[subprocess.Popen[bytes], LogRelay]:
-        extra: dict = {}
-        if not IS_WINDOWS:
-            extra["start_new_session"] = True
-
-        banner(sink or sys.stdout, name, "starting")
+    def spawn(self, service: str, args: list[str], *, log: IO[str],
+              on_line: Callable[[str, str], None], cwd: Path | None = None,
+              env: dict[str, str] | None = None) -> tuple[subprocess.Popen[bytes], LogRelay]:
+        extra: dict = {} if IS_WINDOWS else {"start_new_session": True}
         try:
-            proc = subprocess.Popen(
-                args,
-                cwd=str(cwd) if cwd else None,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                **extra,
-            )
+            proc = subprocess.Popen(args, cwd=str(cwd) if cwd else None, env=env,
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, **extra)
         except OSError as exc:
-            raise SpawnFailed(
-                f"could not start {name}: {args[0]!r} failed ({exc}). "
-                "Check binary path and settings.json."
-            ) from exc
-
-        self._children.append((name, proc))
-
-        relay = LogRelay(name, sink or sys.stdout, ready_pattern=ready_pattern)
+            raise SpawnFailed(f"could not run {args[0]!r}: {exc}") from exc
+        relay = LogRelay(service, log, on_line)
         relay.attach(proc)
-        self._relays[name] = relay
-
         if self._job is not None:
-            with contextlib.suppress(OSError):
-                self._job.assign(proc.pid)
-
-        logger.info("started %s (pid %d)", name, proc.pid)
+            self._job.assign(proc.pid)
+        self._children[service] = (proc, relay)
+        self.spawned.add(service)
+        logger.debug("started %s (pid %d)", service, proc.pid)
         return proc, relay
 
-    def children(self) -> list[tuple[str, subprocess.Popen[bytes]]]:
-        return list(self._children)
+    def get(self, service: str) -> tuple[subprocess.Popen[bytes], LogRelay] | None:
+        return self._children.get(service)
 
-    def running(self) -> list[tuple[str, subprocess.Popen[bytes]]]:
-        return [(n, p) for n, p in self._children if p.poll() is None]
+    def running(self) -> dict[str, subprocess.Popen[bytes]]:
+        return {s: p for s, (p, _) in self._children.items() if p.poll() is None}
 
-    def stop(self, name: str, grace: float = TERM_GRACE_SECONDS, sink: IO[str] | None = None) -> None:
-        """Stop one child by name and forget it, so it can be spawned again."""
-        procs = [p for n, p in self._children if n == name and p.poll() is None]
-        for proc in procs:
-            banner(sink or sys.stdout, name, "stopping")
-            logger.info("stopping %s (pid %d)", name, proc.pid)
-            self._signal(proc, force=False)
-        deadline = time.monotonic() + grace
-        while time.monotonic() < deadline and any(p.poll() is None for p in procs):
-            time.sleep(0.1)
-        for proc in procs:
-            self._signal(proc, force=True)
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                proc.wait(timeout=2)
-        self._children = [(n, p) for n, p in self._children if n != name]
-        self._relays.pop(name, None)
-
-    def shutdown(self, grace: float = TERM_GRACE_SECONDS, sink: IO[str] | None = None) -> None:
-        alive = self.running()
-        if not alive:
+    def stop(self, service: str, grace: float = TERM_GRACE_SECONDS) -> None:
+        """Stop one child and forget it, so it can be spawned again."""
+        entry = self._children.pop(service, None)
+        if entry is None:
             return
-
-        for name, proc in reversed(alive):
-            banner(sink or sys.stdout, name, "stopping")
-            logger.info("stopping %s (pid %d)", name, proc.pid)
+        proc = entry[0]
+        if proc.poll() is None:
             self._signal(proc, force=False)
-
-        deadline = time.monotonic() + grace
-        while time.monotonic() < deadline and self.running():
-            time.sleep(0.1)
-
-        for name, proc in self.running():
-            logger.warning("%s did not exit cleanly within %.1fs; killing process tree", name, grace)
+            deadline = time.monotonic() + grace
+            while proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
             self._signal(proc, force=True)
-
-        for _, proc in self.running():
             with contextlib.suppress(subprocess.TimeoutExpired):
                 proc.wait(timeout=2)
 
-    def close(self, sink: IO[str] | None = None) -> None:
-        self.shutdown(sink=sink)
+    def close(self) -> None:
+        for service in reversed(list(self._children)):
+            self.stop(service)
         if self._job is not None:
             self._job.close()
             self._job = None
@@ -347,4 +243,4 @@ class ProcessGroup:
             pass
 
 
-__all__ = ["LogRelay", "ProcessGroup", "SpawnFailed", "banner", "kill_pid_tree"]
+__all__ = ["LogRelay", "ProcessGroup", "SpawnFailed", "kill_pid_tree"]

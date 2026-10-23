@@ -22,7 +22,7 @@ import type { ModelList } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const navItem = (id: string) => ({ id, title: SECTIONS.find((s) => s.id === id)?.title ?? id })
-/** Most-used first: what changes results, then the model; tuning under Advanced. */
+/** Most-used first: what changes results, then the model; tuning under Advanced, in developer mode only. */
 const NAV = [
   { id: "general", title: "General" },
   navItem("agent"),
@@ -37,6 +37,8 @@ const ADVANCED = SECTIONS.filter((s) => s.advanced).map((s) => ({ id: s.id, titl
 export function SettingsPage() {
   const { section = "general" } = useParams()
   const navigate = useNavigate()
+  const { devMode } = usePrefs()
+  const advanced = devMode ? ADVANCED : []
   const settings = useAtlas((s) => s.settings)
   const [draft, setDraft] = useState<Record<string, unknown>>({})
   const [saved, setSaved] = useState(false)
@@ -72,10 +74,10 @@ export function SettingsPage() {
   const [query, setQuery] = useState("")
   const q = query.trim().toLowerCase()
   // Every described field that matches, with its section, across all sections.
-  const matches = useMemo(() => !q ? [] : SECTIONS.flatMap((s) => s.groups.flatMap((g) =>
+  const matches = useMemo(() => !q ? [] : SECTIONS.filter((s) => devMode || !s.advanced).flatMap((s) => s.groups.flatMap((g) =>
     g.fields.filter((f) => f.key in values &&
       [f.label, f.help ?? "", f.key, g.title].some((t) => t.toLowerCase().includes(q)))
-      .map((f) => ({ field: f, where: `${s.title} · ${g.title}` })))), [q, values])
+      .map((f) => ({ field: f, where: `${s.title} · ${g.title}` })))), [q, values, devMode])
 
   return (
     <div className="flex h-full min-h-0">
@@ -83,7 +85,7 @@ export function SettingsPage() {
         <Link to="/" className="px-2 text-xs text-muted-foreground hover:text-foreground">← Back to chat</Link>
         <p className="mt-4 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Settings</p>
         <SettingsSearch value={query} onChange={setQuery} />
-        {[{ title: "", items: NAV }, { title: "Advanced", items: ADVANCED }].map((list) => (
+        {[{ title: "", items: NAV }, { title: "Advanced", items: advanced }].filter((l) => l.items.length).map((list) => (
           <ul key={list.title} className="mt-2 space-y-0.5">
             {list.title && <li className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{list.title}</li>}
             {list.items.map((item) => (
@@ -111,9 +113,11 @@ export function SettingsPage() {
               className="mb-4 h-9 w-full rounded-lg border bg-background px-2 text-sm md:hidden"
             >
               {NAV.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
-              <optgroup label="Advanced">
-                {ADVANCED.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
-              </optgroup>
+              {devMode && (
+                <optgroup label="Advanced">
+                  {ADVANCED.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
+                </optgroup>
+              )}
             </select>
             <div className="mb-4 md:hidden"><SettingsSearch value={query} onChange={setQuery} /></div>
 
@@ -151,7 +155,7 @@ export function SettingsPage() {
               </div>
             )}
             {!q && section === "general" && <GeneralSection />}
-            {!q && SECTIONS.filter((s) => s.id === section).map((s) => (
+            {!q && SECTIONS.filter((s) => s.id === section && (devMode || !s.advanced)).map((s) => (
               <div key={s.id}>
                 <SectionHead title={s.title} text={s.description} />
                 {s.groups.map((g) => (
@@ -363,6 +367,11 @@ function GeneralSection() {
       <Group title="Input">
         <Row label="Enter sends" help="Off: Enter adds a line and Ctrl+Enter sends.">
           <Switch checked={prefs.sendOnEnter} onChange={(v) => setPrefs({ sendOnEnter: v })} />
+        </Row>
+      </Group>
+      <Group title="Developer">
+        <Row label="Developer mode" help="Shows the tuning settings (recovery, sampling, llama-server, ports) and the extension's pairing token.">
+          <Switch checked={prefs.devMode} onChange={(v) => setPrefs({ devMode: v })} />
         </Row>
       </Group>
     </div>

@@ -16,6 +16,8 @@ export interface Prefs {
   expandTools: boolean
   showContextMeter: boolean
   autoScroll: boolean
+  /** Shows the tuning settings, the extension's pairing token and build steps. */
+  devMode: boolean
 }
 
 const KEY = "atlas-prefs"
@@ -27,6 +29,7 @@ const DEFAULTS: Prefs = {
   expandTools: false,
   showContextMeter: true,
   autoScroll: false,
+  devMode: false,
 }
 
 function load(): Prefs {

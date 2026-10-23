@@ -61,6 +61,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS chats (
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL DEFAULT '',
+    source        TEXT NOT NULL DEFAULT 'web',
+    page_url      TEXT NOT NULL DEFAULT '',
+    page_title    TEXT NOT NULL DEFAULT '',
     selected_root TEXT,
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL
@@ -124,6 +127,13 @@ class ChatStore:
             have = {r["name"] for r in self._conn.execute("PRAGMA table_info(turns)")}
             if "refs_json" not in have:
                 self._conn.execute("ALTER TABLE turns ADD COLUMN refs_json TEXT NOT NULL DEFAULT '[]'")
+            # Where a chat started (`web` or `extension`) and, from the
+            # extension, the page it was about.
+            have = {r["name"] for r in self._conn.execute("PRAGMA table_info(chats)")}
+            for column in ("source TEXT NOT NULL DEFAULT 'web'", "page_url TEXT NOT NULL DEFAULT ''",
+                           "page_title TEXT NOT NULL DEFAULT ''"):
+                if column.split()[0] not in have:
+                    self._conn.execute(f"ALTER TABLE chats ADD COLUMN {column}")
             self._conn.commit()
 
     def close(self) -> None:
@@ -147,10 +157,11 @@ class ChatStore:
 
     # ------------------------------------------------------------- chats --
 
-    def create_chat(self, title: str = "") -> dict[str, Any]:
+    def create_chat(self, title: str = "", *, source: str = "web", page_url: str = "",
+                    page_title: str = "") -> dict[str, Any]:
         cid, now = new_id(), _now()
-        self._write(("INSERT INTO chats(id, title, created_at, updated_at) VALUES(?,?,?,?)",
-                     (cid, title, now, now)))
+        self._write(("INSERT INTO chats(id, title, source, page_url, page_title, created_at, updated_at) "
+                     "VALUES(?,?,?,?,?,?,?)", (cid, title, source, page_url, page_title, now, now)))
         return self.get_chat(cid)  # type: ignore[return-value]
 
     def list_chats(self) -> list[dict[str, Any]]:
@@ -191,7 +202,7 @@ class ChatStore:
     ) -> dict[str, Any]:
         """Insert a turn and make it the selected version at its position.
 
-        `refs` are passages the user selected in the preview panel and attached
+        `refs` are passages the user selected in the former preview panel and attached
         to this question: `{"file", "path", "quote"}`.
         """
         tid, now = new_id(), _now()

@@ -30,7 +30,6 @@ import { ApiError } from "@/lib/types"
 import type {
   ChatFile,
   ChatSummary,
-  Ref,
   ChatView,
   RunEvent,
   RunRef,
@@ -61,12 +60,6 @@ export interface AtlasState {
   connected: boolean
   /** Bumps when something asks the composer to take focus. */
   focusTick: number
-  /** The workspace file open in the preview panel, if any. */
-  preview: string | null
-  /** Bumps when the open file may have changed on disk, so the panel reloads it. */
-  previewTick: number
-  /** Passages selected in the preview, waiting to go with the next message. */
-  refs: Ref[]
   /** A restart from the UI in progress (llama-server and the backend). */
   restarting: boolean
   /** Why the last restart failed; the model is not running until another one works. */
@@ -89,9 +82,6 @@ class Store {
     error: null,
     connected: true,
     focusTick: 0,
-    preview: null,
-    previewTick: 0,
-    refs: [],
     restarting: false,
     restartError: null,
   }
@@ -210,7 +200,7 @@ class Store {
   /** Show an empty chat. Nothing is created until the first message. */
   newChat() {
     this.detach()
-    this.set({ chat: null, run: null, live: null, error: null, preview: null, refs: [],
+    this.set({ chat: null, run: null, live: null, error: null,
                focusTick: this.state.focusTick + 1 })
   }
 
@@ -219,7 +209,7 @@ class Store {
     this.detach()
     try {
       const chat = await api.getChat(id)
-      this.set({ chat, run: chat.active_run, live: null, error: null, preview: null, refs: [],
+      this.set({ chat, run: chat.active_run, live: null, error: null,
                  staged: this.state.stagedChat === id ? this.state.staged : [],
                  focusTick: this.state.focusTick + 1 })
       if (chat.active_run) this.attach(chat.active_run)
@@ -254,10 +244,37 @@ class Store {
     for (const chat of [...this.state.chats]) await this.deleteChat(chat.id)
   }
 
+  // ------------------------------------------------- hosts (the extension) --
+
+  /** The page new messages are about (side panel only); null in the web UI. */
+  page: api.PageRef | null = null
+  /** The page a new chat is about, recorded on it (also when the page tools are off, e.g. a PDF). */
+  origin: api.PageRef | null = null
+  /** Runs before a message is sent: the extension attaches a PDF tab here. */
+  beforeSend: (() => Promise<void>) | null = null
+  /** Runs a client call (a page operation) and returns its result. */
+  onClientCall: ((op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null
+
+  private clientCall(run: RunRef, event: { id: string; op: string; args: Record<string, unknown> }) {
+    const handler = this.onClientCall
+    const answer = async () => {
+      let result: Record<string, unknown>
+      try {
+        result = handler ? await handler(event.op, event.args ?? {}) : { error: "this window cannot reach a web page" }
+      } catch (error) {
+        result = { error: error instanceof Error ? error.message : String(error) }
+      }
+      await api.answerCall(run.id, event.id, result).catch(() => undefined)
+    }
+    void answer()
+  }
+
   private async ensureChat(): Promise<string> {
     if (this.state.chat) return this.state.chat.id
     if (this.state.stagedChat) return this.state.stagedChat
-    const created = await api.createChat()
+    const about = this.origin ?? this.page
+    const created = await api.createChat("", about
+      ? { source: "extension", page_url: about.url, page_title: about.title } : undefined)
     this.set({ chats: [created, ...this.state.chats], stagedChat: created.id })
     return created.id
   }
@@ -289,6 +306,21 @@ class Store {
     }))
   }
 
+  /** Stage a file the host saves into the chat itself (`save` gets the chat id). */
+  async attachSaved(name: string, save: (chatId: string) => Promise<ChatFile>) {
+    const chatId = await this.ensureChat()
+    const key = crypto.randomUUID()
+    this.set({ staged: [...this.state.staged, { key, name, path: "", size: 0, type: "application/pdf", uploading: true }],
+               stagedChat: chatId })
+    try {
+      const saved = await save(chatId)
+      this.set({ staged: this.state.staged.map((s) => (s.key === key ? { ...saved, key, uploading: false } : s)) })
+    } catch (error) {
+      this.set({ staged: this.state.staged.filter((s) => s.key !== key) })
+      throw error
+    }
+  }
+
   /**
    * Take a file off the message being written. It was already uploaded, so
    * it is deleted too: otherwise it lingers in the workspace and in the @ menu
@@ -300,25 +332,6 @@ class Store {
     const chatId = this.state.chat?.id ?? this.state.stagedChat
     if (file && !file.uploading && file.path && chatId)
       void api.deleteUpload(chatId, file.name).catch(() => undefined)
-  }
-
-  // -------------------------------------------------------------- preview --
-
-  openPreview(path: string) {
-    this.set({ preview: path, previewTick: this.state.previewTick + 1 })
-  }
-
-  closePreview() {
-    this.set({ preview: null })
-  }
-
-  addRef(ref: Ref) {
-    if (this.state.refs.some((r) => r.file === ref.file && r.quote === ref.quote)) return
-    this.set({ refs: [...this.state.refs, ref], focusTick: this.state.focusTick + 1 })
-  }
-
-  removeRef(index: number) {
-    this.set({ refs: this.state.refs.filter((_, i) => i !== index) })
   }
 
   setThinking(thinking: boolean) {
@@ -333,13 +346,20 @@ class Store {
 
   async send(text: string): Promise<boolean> {
     if (this.busy || this.state.staged.some((s) => s.uploading)) return false
+    if (this.beforeSend) {
+      try {
+        await this.beforeSend()
+      } catch (error) {
+        this.fail(error)
+        return false
+      }
+    }
     const files = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
-    const refs = this.state.refs
-    if (!text.trim() && !files.length && !refs.length) return false
+    if (!text.trim() && !files.length) return false
     try {
       const chatId = await this.ensureChat()
-      const started = await api.send(chatId, { text, files, refs, thinking: this.state.thinking })
-      this.set({ staged: [], stagedChat: null, refs: [] })
+      const started = await api.send(chatId, { text, files, thinking: this.state.thinking, page: this.page })
+      this.set({ staged: [], stagedChat: null })
       this.begin(started)
       void this.refreshChats()
       return true
@@ -352,7 +372,7 @@ class Store {
   async retry(turnId: string) {
     if (this.busy) return
     try {
-      this.begin(await api.retry(turnId, this.state.thinking))
+      this.begin(await api.retry(turnId, this.state.thinking, this.page))
     } catch (error) {
       this.fail(error)
     }
@@ -361,7 +381,7 @@ class Store {
   async edit(turnId: string, text: string, files?: ChatFile[]): Promise<boolean> {
     if (this.busy) return false
     try {
-      this.begin(await api.edit(turnId, { text, files, thinking: this.state.thinking }))
+      this.begin(await api.edit(turnId, { text, files, thinking: this.state.thinking, page: this.page }))
       return true
     } catch (error) {
       this.fail(error)
@@ -447,6 +467,7 @@ class Store {
         const stream = api.streamRun(run.id, this.seq + 1, (event) => {
           if (generation !== this.generation || event.seq <= this.seq) return
           this.seq = event.seq
+          if (event.type === "client_call") return void this.clientCall(run, event)
           this.pending.push(event)
           if (event.type === "done" || event.type === "error") terminal = true
           if (!this.frame) this.frame = requestAnimationFrame(() => this.flush(generation))
@@ -492,9 +513,6 @@ class Store {
       // Replace the live view and the stored transcript in one update, so the
       // answer never blinks out between the two.
       if (this.state.chat?.id === chatId) this.set({ chat })
-      const touched = chat.turns.at(-1)?.stats?.files ?? []
-      if (this.state.preview && touched.some((f) => f.name === this.state.preview))
-        this.set({ previewTick: this.state.previewTick + 1 })
     } catch {
       /* keep what was streamed */
     }

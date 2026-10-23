@@ -32,10 +32,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from agent.core import llama, paths
+from agent.core import form_fill, llama, paths
 from agent.core.agent_factory import RetryPlan, build_agent, clock_note, retry_hint
 from agent.core.chats import (
     CANCELLED,
@@ -60,9 +60,12 @@ from agent.core.settings import (
     set_path,
     write_settings,
 )
+from agent.core.page_tools import page_note, page_tools, write_table
 from agent.core.shell_env import model_path
 from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
+from server.security import EXTENSION_SCHEMES, Pairing, guard
+from skills._shared import LinkError, open_link, save_link  # the one document-link resolver
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
 from server.transcript import answer_of
@@ -75,6 +78,17 @@ logger = logging.getLogger(__name__)
 
 class CreateChat(BaseModel):
     title: str = ""
+    #: `web`, or `extension` for a chat started in the browser side panel.
+    source: str = "web"
+    page_url: str = ""
+    page_title: str = ""
+
+
+class Page(BaseModel):
+    """The tab a side-panel message is about. Its presence turns on the page tools."""
+
+    url: str = ""
+    title: str = ""
 
 
 class RenameChat(BaseModel):
@@ -84,13 +98,15 @@ class RenameChat(BaseModel):
 class SendMessage(BaseModel):
     text: str = ""
     files: list[dict[str, Any]] = Field(default_factory=list)
-    #: Passages selected in the preview panel: {"file", "path", "quote"}.
+    #: Quoted passages {"file", "path", "quote"}: the former preview panel made them; older turns keep them.
     refs: list[dict[str, Any]] = Field(default_factory=list)
     thinking: bool | None = None
+    page: Page | None = None
 
 
 class RetryTurn(BaseModel):
     thinking: bool | None = None
+    page: Page | None = None
 
 
 class EditTurn(BaseModel):
@@ -98,6 +114,7 @@ class EditTurn(BaseModel):
     files: list[dict[str, Any]] | None = None
     refs: list[dict[str, Any]] | None = None
     thinking: bool | None = None
+    page: Page | None = None
 
 
 class SelectTurn(BaseModel):
@@ -106,6 +123,35 @@ class SelectTurn(BaseModel):
 
 class Answer(BaseModel):
     allow: bool
+
+
+class ProfileBody(BaseModel):
+    text: str
+
+
+class FillBody(BaseModel):
+    #: [{id, label, type, options?, required?}]; never the fields' contents.
+    fields: list[dict[str, Any]]
+    title: str = ""
+
+
+class ImportFile(BaseModel):
+    url: str
+
+
+class TableBody(BaseModel):
+    rows: list[list[str]]
+    title: str = ""
+    url: str = ""
+    format: str = "xlsx"
+    #: Where to save; the extension's setting. Default: Downloads/Atlas.
+    folder: str = ""
+
+
+class CallResult(BaseModel):
+    """What the client did for a client call: anything, or `error`."""
+
+    model_config = {"extra": "allow"}
 
 
 # ------------------------------------------------------------------ state --
@@ -141,10 +187,16 @@ class Atlas:
             try:
                 import httpx
 
-                props = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2).json()
-                self._modalities = {k: bool(v) for k, v in (props.get("modalities") or {}).items()}
+                response = httpx.get(f"http://127.0.0.1:{self.boot.ports.llama}/props", timeout=2,
+                                     headers=llama.auth_headers())
+                modalities = response.json().get("modalities") if response.status_code == 200 else None
             except Exception:  # noqa: BLE001 - not up yet: ask again next time
                 return {}
+            # The backend starts beside the model: while it loads, /props answers
+            # 503 with no modalities. Remembering that hid the mic for the whole run.
+            if not isinstance(modalities, dict):
+                return {}
+            self._modalities = {k: bool(v) for k, v in modalities.items()}
         return self._modalities
 
     def close(self) -> None:
@@ -193,14 +245,27 @@ class Atlas:
 
     def launch(
         self, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None = None,
+        page: Page | None = None,
     ) -> Run:
         try:
             run = self.runs.start(turn["chat_id"], turn["id"],
                                   context_size=self.settings.model.context_size)
         except RunConflict as exc:
             raise HTTPException(409, str(exc)) from exc
+        run.page = page.model_dump() if page else None
         run.task = asyncio.create_task(self.execute(run, turn, thinking=thinking, retry=retry))
         return run
+
+    def _page_tools(self, run: Run) -> list[Any]:
+        """The page tools, for a turn sent from the side panel with its tab attached."""
+        if not run.page:
+            return []
+
+        def read() -> None:
+            run.tainted = True
+
+        workspace = self.chat_dir(run.chat_id)
+        return page_tools(run.client_call, workspace, lambda p: model_path(str(p)), on_read=read)
 
     async def execute(
         self, run: Run, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None,
@@ -219,6 +284,10 @@ class Atlas:
                            workspace=workspace)
         if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
             text = f"{text}\n\n{guidance}".strip()
+        if links := _link_guidance(turn["user_text"], settings):
+            text = f"{text}\n\n{links}".strip()
+        if run.page:
+            text = f"{text}\n\n{page_note(run.page)}".strip()
         # Only the model sees this; the chat shows the user's own text.
         text = f"{text}\n\n{clock_note()}".strip()
         hint = retry_hint(settings, retry) if retry else ""
@@ -235,10 +304,11 @@ class Atlas:
             agent = await asyncio.to_thread(
                 build_agent, settings, chat_id=run.chat_id, thinking=thinking,
                 restore_snapshot_id=turn["before_snap"], session_manager=manager,
-                retry=retry, observer=run.observe, tools=self.mcp.agent_tools(),
+                retry=retry, observer=run.observe, tools=self.mcp.agent_tools() + self._page_tools(run),
                 approver=lambda kind, detail: run.request_approval(
                     kind, detail, settings.approvals.timeout),
                 sensitive=self.mcp.is_sensitive,
+                tainted=lambda: run.tainted,
             )
             run.agent = agent
             if run.cancel.is_set():
@@ -288,6 +358,9 @@ class Atlas:
             self.store.finish_turn(run.turn_id, status, after_snap=after_snap,
                                    render=run.transcript.parts, stats=stats, error=error)
             self.store.touch(run.chat_id)
+            title = (self.store.get_chat(run.chat_id) or {}).get("title") or "untitled"
+            logger.info("run %s %s · chat “%s” · %s model calls · %.1fs", run.id[:4], status,
+                        title, stats.get("model_calls", 0), (stats.get("duration_ms") or 0) / 1000)
         except Exception:  # noqa: BLE001 - the turn may have been cut by an edit
             logger.exception("could not record the end of turn %s", run.turn_id)
         run.finish(status, error)
@@ -319,14 +392,80 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
 
     app = FastAPI(title="Atlas", lifespan=lifespan)
     app.state.atlas = state
+    pairing = Pairing(paths.data_dir(state.settings) / "pairing-token")
+    ports = state.boot.ports
+    trusted = {f"http://{h}:{p}" for h in ("127.0.0.1", "localhost") for p in (ports.backend, ports.client)}
+    app.middleware("http")(guard(pairing, trusted))
     api = APIRouter(prefix="/api")
+
+    # ------------------------------------------------------------ pairing --
+
+    @api.get("/pairing")
+    async def get_pairing(request: Request) -> dict[str, Any]:
+        """The extension's token and the address it should use. Not for the extension itself."""
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            raise HTTPException(403, "the extension cannot read the pairing token")
+        return {"token": pairing.token, "base": f"http://127.0.0.1:{ports.backend}"}
+
+    @api.post("/pairing/reset")
+    async def reset_pairing(request: Request) -> dict[str, Any]:
+        """A new token: the extension has to be paired again."""
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            raise HTTPException(403, "the extension cannot reset the pairing token")
+        return {"token": pairing.reset()}
+
+    @api.get("/profile")
+    async def get_profile(request: Request) -> dict[str, Any]:
+        """The user's details for fill suggestions. The web UI's, never the extension's."""
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            raise HTTPException(403, "the extension cannot read your details")
+        return {"text": form_fill.read_profile(state.settings)}
+
+    @api.put("/profile")
+    async def put_profile(body: ProfileBody, request: Request) -> dict[str, Any]:
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            raise HTTPException(403, "edit your details in Atlas, not in the extension")
+        await asyncio.to_thread(form_fill.write_profile, state.settings, body.text)
+        return {"text": body.text}
+
+    @api.post("/extension/fill")
+    async def fill(body: FillBody) -> dict[str, Any]:
+        """Suggested values for a form's fields, from the user's details. Nothing is filled here."""
+        try:
+            return await asyncio.to_thread(form_fill.suggest, state.settings, body.fields, body.title)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @api.get("/extension/pdf")
+    async def open_pdf(url: str) -> Any:
+        """A PDF's bytes for the Atlas PDF viewer: a local `file://` one, or a web one it could not fetch."""
+        try:
+            _name, source, data = await asyncio.to_thread(open_link, url, b"%PDF", "PDF")
+        except LinkError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if source is not None:
+            return FileResponse(source, media_type="application/pdf")
+        return Response(content=data, media_type="application/pdf")
+
+    @api.post("/extension/table")
+    async def save_table(body: TableBody) -> dict[str, Any]:
+        """A table from a web page, saved as xlsx or csv. Code only: no model involved."""
+        try:
+            path = await asyncio.to_thread(write_table, body.rows, body.title, body.url, body.format,
+                                           body.folder)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"path": str(path), "rows": len(body.rows)}
 
     # ------------------------------------------------------------- health --
 
     @api.get("/health")
     async def health() -> dict[str, Any]:
         run = state.runs.active()
-        return {"status": "ok", "active_run": _run_view(run) if run else None}
+        if run is None:
+            return {"status": "ok", "active_run": None}
+        chat = state.store.get_chat(run.chat_id) or {}
+        return {"status": "ok", "active_run": {**_run_view(run), "chat_title": chat.get("title") or ""}}
 
     # -------------------------------------------------------------- chats --
 
@@ -336,7 +475,11 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
 
     @api.post("/chats")
     async def create_chat(body: CreateChat | None = None) -> dict[str, Any]:
-        return state.store.create_chat((body.title if body else "") or "")
+        if body is None:
+            return state.store.create_chat("")
+        source = body.source if body.source in ("web", "extension") else "web"
+        return state.store.create_chat(body.title or "", source=source, page_url=body.page_url[:2000],
+                                       page_title=body.page_title[:300])
 
     @api.get("/chats/{chat_id}")
     async def get_chat(chat_id: str) -> dict[str, Any]:
@@ -399,6 +542,25 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         return {"name": name, "path": str(target), "size": target.stat().st_size,
                 "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
 
+    @api.post("/chats/{chat_id}/files/import")
+    async def import_file(chat_id: str, body: ImportFile) -> dict[str, Any]:
+        """A PDF the extension's tab shows, as an attachment.
+
+        The browser's PDF viewer runs no content script, so the page tools
+        cannot read it; the file goes to the workspace for the pdf skill. A
+        `file://` PDF is copied from disk (so no "allow access to file URLs"
+        switch is needed); a web one is downloaded, for when the extension could
+        not fetch it itself.
+        """
+        state.require_chat(chat_id)
+        try:
+            target, _ = await asyncio.to_thread(save_link, body.url, ".pdf", b"%PDF", "PDF",
+                                                state.chat_dir(chat_id), copy_local=True)
+        except LinkError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"name": target.name, "path": str(target), "size": target.stat().st_size,
+                "type": "application/pdf"}
+
     def workspace_file(chat_id: str, name: str) -> Path:
         state.require_chat(chat_id)
         root = paths.chat_dir(state.settings, chat_id).resolve()
@@ -436,19 +598,14 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
 
     @api.get("/chats/{chat_id}/files/{name:path}")
     async def download(chat_id: str, name: str, download: bool = False) -> FileResponse:
-        """Served inline for the preview panel; `?download=1` saves it instead."""
+        """A workspace file, downloaded. Raster images are shown inline (attachment
+        thumbnails); nothing else is, so a file the agent wrote (HTML, SVG) never
+        runs as a page on Atlas's own origin."""
         target = workspace_file(chat_id, name)
-        if download:
-            return FileResponse(target, filename=target.name)
-        return FileResponse(target, headers={"Cache-Control": "no-cache"})
-
-    @api.get("/chats/{chat_id}/preview/{name:path}")
-    async def preview(chat_id: str, name: str) -> dict[str, Any]:
-        """A spreadsheet as rows, for the preview panel. Capped, and says so."""
-        target = workspace_file(chat_id, name)
-        if target.suffix.lower() not in (".xlsx", ".xlsm"):
-            raise HTTPException(415, "only spreadsheets have a server-side preview")
-        return await asyncio.to_thread(_sheet_preview, target)
+        kind = mimetypes.guess_type(target.name)[0] or ""
+        if download or not kind.startswith("image/") or kind == "image/svg+xml":
+            return FileResponse(target, filename=target.name, headers={"X-Content-Type-Options": "nosniff"})
+        return FileResponse(target, headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"})
 
     # -------------------------------------------------------------- turns --
 
@@ -469,7 +626,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         )
         if first_words := " ".join(body.text.split())[:60]:
             state.store.set_title(chat_id, first_words, only_if_empty=True)
-        run = state.launch(turn, thinking=state.thinking(body.thinking))
+        run = state.launch(turn, thinking=state.thinking(body.thinking), page=body.page)
         return {"run": _run_view(run), "chat": state.view(chat_id)}
 
     @api.post("/turns/{turn_id}/retry")
@@ -491,7 +648,8 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             refs=json.loads(turn.get("refs_json") or "[]"),
         )
         run = state.launch(new, thinking=state.thinking(body.thinking if body else None),
-                           retry=RetryPlan(previous=[p for p in previous if p.strip()]))
+                           retry=RetryPlan(previous=[p for p in previous if p.strip()]),
+                           page=body.page if body else None)
         return {"run": _run_view(run), "chat": state.view(turn["chat_id"])}
 
     @api.post("/turns/{turn_id}/edit")
@@ -516,7 +674,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
             old["chat_id"], body.text, parent_turn_id=old["parent_turn_id"],
             before_snap=old["before_snap"], files=files, refs=refs,
         )
-        run = state.launch(new, thinking=state.thinking(body.thinking))
+        run = state.launch(new, thinking=state.thinking(body.thinking), page=body.page)
         return {"run": _run_view(run), "chat": state.view(old["chat_id"])}
 
     @api.post("/turns/{turn_id}/select")
@@ -563,6 +721,16 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
         if not run.answer(approval_id, body.allow):
             raise HTTPException(409, "that question was already answered or has expired")
         return {"id": approval_id, "decision": "allowed" if body.allow else "denied"}
+
+    @api.post("/runs/{run_id}/calls/{call_id}")
+    async def answer_call(run_id: str, call_id: str, body: CallResult) -> dict[str, Any]:
+        """The side panel's result for a page operation the run asked for."""
+        run = state.runs.get(run_id)
+        if run is None:
+            raise HTTPException(404, f"no run {run_id}")
+        if not run.resolve_call(call_id, body.model_dump()):
+            raise HTTPException(409, "that call was already answered or has timed out")
+        return {"id": call_id}
 
     @api.post("/runs/{run_id}/cancel")
     async def cancel_run(run_id: str) -> dict[str, Any]:
@@ -656,7 +824,36 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     from server.extensions import register as register_extensions  # noqa: PLC0415
 
     register_extensions(app, state)
+    _serve_client(app)
     return app
+
+
+def _serve_client(app: FastAPI) -> None:
+    """The built web UI (`client/dist`), on the API's own port and origin.
+
+    `atlas start` uses this instead of the Vite dev server, so normal use needs
+    no Node. Any path that is not a file in the build gets `index.html`, so a
+    reload on `/settings/agent` still opens the app. Registered after the API,
+    whose routes win. Looked up per request: `atlas start` may still be
+    building it when the backend comes up. With `--dev` (ATLAS_DEV_UI set),
+    pages redirect to Vite, so the backend's port never shows a stale build.
+    """
+    dist = paths.ROOT / "client" / "dist"
+    dev_ui = os.environ.get("ATLAS_DEV_UI")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def client(path: str, request: Request) -> Any:
+        if path.startswith("api/"):
+            raise HTTPException(404, f"no route /{path}")
+        if dev_ui:  # `atlas start --dev`: the live UI is Vite's, on its own port
+            query = f"?{request.url.query}" if request.url.query else ""
+            return RedirectResponse(f"{dev_ui}/{path}{query}")
+        if not (dist / "index.html").is_file():
+            raise HTTPException(503, "The web UI is not built: run `npm run build` in client/, or `atlas start --dev`.")
+        target = (dist / path).resolve()
+        if path and target.is_file() and dist.resolve() in target.parents:
+            return FileResponse(target)
+        return FileResponse(dist / "index.html")
 
 
 # ---------------------------------------------------------------- helpers --
@@ -713,6 +910,26 @@ def _media_blocks(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
 _MENTION = re.compile(r'(?<![\w@])@(?:"([^"\n]+)"|([\w.-]+))')
 
 
+#: A PDF given as a link in the message: on the web, or a local file:// path.
+_PDF_LINK = re.compile(r"""(?:https?|file)://[^\s<>"')\]]+?\.pdf(?:\?[^\s<>"')\]]*)?(?=[\s<>"')\],.;!?]|$)""", re.I)
+
+
+def _link_guidance(user_text: str, settings: Settings) -> str:
+    """The exact command for each PDF link, as attachments get one.
+
+    Without it the model tried the `read` tool on the URL, which cannot fetch,
+    and asked the user to upload the file instead.
+    """
+    lines = []
+    for link in dict.fromkeys(_PDF_LINK.findall(user_text)):
+        from urllib.parse import urlparse
+
+        if command := reader_command(settings, urlparse(link).path, link):  # the path names the type, not ?query
+            lines.append(f"- {link}: read it with: {command}")
+    return ("PDF links in this message (the reader downloads them into your workspace):\n"
+            + "\n".join(lines)) if lines else ""
+
+
 def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
                       workspace: Path | None = None) -> str:
     """`@name` in a message, resolved against workspace files, MCP servers,
@@ -731,9 +948,8 @@ def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
     skills.update({s: s for s in list(skills.values())})
     servers = {s["name"]: [t["agent_name"] for t in s["tools"] if t["enabled"]]
                for s in mcp.describe() if s["status"] == "connected"}
-    tools = set(ToolManager(settings).builtin_tools())
-    if settings.tools.documents:
-        tools |= {"create_document", "edit_document"}
+    manager = ToolManager(settings)
+    tools = set(manager.builtin_tools()) | set(manager.atlas_tools())
     for server_tools in servers.values():
         tools |= set(server_tools)
 
@@ -783,25 +999,6 @@ def _changed(before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int
     return out
 
 
-def _sheet_preview(path: Path, max_rows: int = 500, max_cols: int = 50) -> dict[str, Any]:
-    from openpyxl import load_workbook
-
-    wb = load_workbook(str(path), read_only=True, data_only=True)
-    sheets = []
-    try:
-        for ws in wb.worksheets:
-            rows, truncated = [], False
-            for i, row in enumerate(ws.iter_rows(values_only=True)):
-                if i >= max_rows:
-                    truncated = True
-                    break
-                rows.append(["" if v is None else str(v) for v in row[:max_cols]])
-            sheets.append({"name": ws.title, "rows": rows, "truncated": truncated})
-    finally:
-        wb.close()
-    return {"kind": "sheet", "sheets": sheets}
-
-
 def _turn_view(turn: dict[str, Any], versions: list[str]) -> dict[str, Any]:
     return {
         "id": turn["id"],
@@ -820,7 +1017,8 @@ def _turn_view(turn: dict[str, Any], versions: list[str]) -> dict[str, Any]:
 
 
 def _run_view(run: Run) -> dict[str, Any]:
-    return {"id": run.id, "chat_id": run.chat_id, "turn_id": run.turn_id, "status": run.status}
+    return {"id": run.id, "chat_id": run.chat_id, "turn_id": run.turn_id, "status": run.status,
+            "tokens_per_second": run.transcript.stats.get("tokens_per_second")}
 
 
 def _agent_text(user_text: str, files: list[dict[str, Any]],
@@ -837,7 +1035,7 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
     parts = [user_text]
     quoted = [r for r in refs or [] if isinstance(r, dict) and r.get("quote")]
     if quoted:
-        # Selected in the preview panel. Named with the file's path, so a
+        # Quoted from a file (the former preview panel). Named with the file's path, so a
         # request like "reword this" can go straight to edit_document.
         parts.append("The user selected these passages and is asking about them:\n" + "\n".join(
             f"- from {r.get('file')} at {model_path(r['path']) if r.get('path') else r.get('file')}: "

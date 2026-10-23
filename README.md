@@ -17,9 +17,18 @@ switch on `web_fetch`.
 ```
 pip install -e .                 # once, into .venv; provides the `atlas` command
 cp settings.example.json settings.json   # then set model.name (see below)
-atlas start                      # llama-server :8080, backend :8000, web UI :5173
-atlas stop                       # stops all three and checks the ports are free
+atlas start                      # the model, the backend and the web UI, at http://127.0.0.1:8000
+atlas stop                       # stops everything, one line per service
+atlas status                     # what is running, on which ports, since when
+atlas logs [llama|backend|web]   # the full logs (-f to follow, -n N lines)
 ```
+
+`atlas start` shows a small live panel (o opens the UI, l shows logs, r
+restarts, q stops). The backend serves the built UI, so normal use needs no
+Node; the first start builds it if `client/dist` is missing. `atlas start
+--dev` runs Vite with hot reload instead (UI at :5173) and prints filtered
+logs under a pinned status line; `--raw` prints every line unfiltered. Logs
+are kept in `.data/logs/`, five starts back.
 
 Models live in `llm/`, one subfolder each with its `.gguf` (and an `mmproj`
 file for image input): `llm/gemma/`. Pick one under Settings > Model and
@@ -30,7 +39,7 @@ restart with it.
 `atlas settings check` validates `settings.json`; `atlas settings show
 --restart-required` lists saved settings the running servers do not have yet.
 
-Open http://127.0.0.1:5173. Ports come from `settings.json` and nowhere else.
+Open http://127.0.0.1:8000 (5173 with `--dev`). Ports come from `settings.json` and nowhere else.
 
 Do not start the backend with `uvicorn --reload`: on Windows its worker runs
 an event loop that cannot start subprocesses, so every shell call and every
@@ -43,6 +52,7 @@ skill fails with an empty error. `atlas start` never uses it.
 | `agent/` | The agent library: settings, the agent factory, the model adapter, the chat tree, skills, MCP, the CLI | [agent/AGENTS.md](agent/AGENTS.md) |
 | `server/` | FastAPI: runs, the event stream, the HTTP API | [server/AGENTS.md](server/AGENTS.md) |
 | `client/` | The web UI | [client/AGENTS.md](client/AGENTS.md) |
+| `extension/` | The browser extension (Edge, Chrome): a side panel on the page you are on | [extension/AGENTS.md](extension/AGENTS.md) |
 | `skills/` | Skills: a `SKILL.md` and ready-made scripts per document type | [skills/AGENTS.md](skills/AGENTS.md) |
 | `docs/decisions.md` | Why things are the way they are, measured findings, dated | |
 | `settings.json` | Every setting. Per machine, not committed | |
@@ -50,18 +60,3 @@ skill fails with an empty error. `atlas start` never uses it.
 | `.data/` | Everything Atlas generates: `atlas.db`, Strands snapshots, each chat's uploads and workspace | |
 | `launched.json` | Written by `atlas start`: what is running, and with which settings | |
 
-## The rules that shape everything
-
-1. **Use Strands; do not rebuild it.** If the harness or SDK does something,
-   Atlas configures it rather than reimplementing it.
-2. **Strands owns the model's history.** Atlas stores the shape of a chat
-   (which turn follows which, which version is selected) and the snapshot ids
-   to restore, plus a display copy of each answer. It never feeds its own copy
-   back to the model.
-3. **Nothing is parsed at upload.** Files are saved; the model reads them on
-   demand through skills.
-4. **A small model gets ready-made tools, not instructions to write code.**
-   Skills ship scripts. Recovery from failures is code (Strands hooks), not a
-   sentence in the system prompt.
-5. **Measure, then write it down.** A surprising behaviour goes into
-   `docs/decisions.md` with what was observed, so nobody rediscovers it.

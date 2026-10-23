@@ -8,7 +8,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import * as Dropdown from "@radix-ui/react-dropdown-menu"
 import {
-  Download, Loader2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plug, Search,
+  Download, Globe, Loader2, PanelRight, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plug, Search,
   Settings, Sparkles, SquarePen, Trash2, X,
 } from "lucide-react"
 
@@ -47,6 +47,7 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
     { icon: Search, label: "Search", action: "search", run: () => { if (!open) onToggle(); setSearching(true) } },
     { icon: Sparkles, label: "Skills", path: "/skills", run: () => navigate("/skills") },
     { icon: Plug, label: "MCP", path: "/mcp", run: () => navigate("/mcp") },
+    { icon: PanelRight, label: "Browser extension", path: "/extension", run: () => navigate("/extension") },
     { icon: Settings, label: "Settings", action: "settings", path: "/settings", run: () => navigate("/settings") },
   ]
 
@@ -213,7 +214,10 @@ const ChatItem = memo(function ChatItem({ chat, active, running, renaming, onOpe
       >
         <span className="flex min-w-0 items-center gap-2">
           {running && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
-          <span className="truncate text-sm font-medium">{chat.title || "New chat"}</span>
+          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium" title={chat.page_url || undefined}>
+            {chat.source === "extension" && <Globe className="h-3 w-3 shrink-0 text-muted-foreground" />}
+            <span className="truncate">{chat.title || "New chat"}</span>
+          </span>
         </span>
         <Dropdown.Root>
           <Dropdown.Trigger asChild>

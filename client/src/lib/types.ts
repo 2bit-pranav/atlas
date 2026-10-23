@@ -26,6 +26,10 @@ export interface ChatSummary {
   title: string
   created_at: number
   updated_at: number
+  /** `extension`: started in the browser side panel, about `page_url`. */
+  source?: "web" | "extension"
+  page_url?: string
+  page_title?: string
 }
 
 export type Part =
@@ -46,14 +50,14 @@ export type Part =
       kind: "approval"
       id: string
       /** What is asked: an install, a folder outside the allowed ones, or an MCP tool marked "ask". */
-      request?: "install" | "access" | "tool"
+      request?: "install" | "access" | "tool" | "page"
       folder?: string | null
       command: string
       status: "pending" | "allowed" | "denied" | "expired"
       expires_at: number
     }
 
-/** A passage selected in the preview panel and attached to a question. */
+/** A passage attached to a question (from the former preview panel; kept so older chats show it). */
 export interface Ref {
   file: string
   path: string | null
@@ -72,11 +76,6 @@ export interface WorkspaceFile {
   size: number
   modified: number
   type: string
-}
-
-export interface SheetPreview {
-  kind: "sheet"
-  sheets: { name: string; rows: string[][]; truncated: boolean }[]
 }
 
 export interface TurnStats {
@@ -134,9 +133,11 @@ export type RunEvent = { seq: number } & (
   | { type: "tool_start"; id: string; name: string; args: unknown }
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
   | { type: "tool_end"; id: string; name: string; status: string; text: string }
-  | { type: "approval_request"; id: string; kind: "install" | "access" | "tool"; command: string; folder?: string;
+  | { type: "approval_request"; id: string; kind: "install" | "access" | "tool" | "page"; command: string; folder?: string;
       timeout: number; expires_at: number }
   | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
+  /** The backend asks the client to do something (the extension: a page operation). */
+  | { type: "client_call"; id: string; op: string; args: Record<string, unknown> }
   | ({ type: "stats" } & TurnStats)
   | { type: "usage"; input: number; output: number; total: number; reported?: number }
   | { type: "done"; status: TurnStatus }
@@ -242,7 +243,7 @@ export interface SettingsView {
   values: Record<string, unknown>
   tiers: Record<string, Tier>
   pending_restart: Record<string, unknown>
-  tools: { available: string[]; builtin_tools: string[]; interventions: boolean }
+  tools: { available: string[]; builtin_tools: string[]; atlas_tools: string[]; interventions: boolean }
   skills: Skill[]
   mcp: McpServer[]
   paths: { root: string; data: string }

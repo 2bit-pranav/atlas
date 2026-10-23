@@ -28,7 +28,6 @@ src/
   components/Sidebar.tsx
   lib/audio.ts               record the microphone; re-encode as 16 kHz mono WAV
   components/chat/           ChatScreen, Messages, Composer, MentionMenu, ContextGauge, Markdown, ToolBlock
-  components/preview/        PreviewPanel, FileView (docx, pdf, xlsx, images, text)
   components/ui/kit.tsx      Button, Switch, Notice, PageShell, ...
   pages/                     SettingsPage, SkillsPage, McpPage
 ```
@@ -91,6 +90,17 @@ Advanced. "Restart now" appears at the top of Settings only when saved settings
 wait for a restart or the last restart failed; it applies a new model or any
 other restart setting, and a notice shows on every page while it runs.
 
+Shared with the browser extension: `api.configureApi({base, token})` (the
+extension's backend and pairing token), `atlas.page` and `atlas.onClientCall`
+(the attached tab, and running `client_call` events there), and the
+`AnswerExtras` slot under answers (`lib/slots.ts`). The web UI sets none of
+them. The Browser extension page (`pages/ExtensionPage.tsx`, `/extension`) finds
+the extension and connects it with `postMessage` (`atlas:hello`, `atlas:pair`;
+the content script answers `atlas:here`), and holds "Your details".
+
+Developer mode (Settings > General, a per-browser pref) shows the Advanced
+settings sections and the raw pairing token; it is off by default.
+
 Control: Settings > Access holds the allowed folders, whether to ask outside
 them, and the approval timeout. The MCP page sets each tool On / Ask / Off.
 Approval cards in the chat are titled by kind (install, access, tool). The
@@ -100,14 +110,10 @@ for the missing ones.
 ## Working with files
 
 - **Download chips** under an answer list the files that turn created or
-  changed. Preview opens the panel; Download saves.
-- **The preview panel** (right side, resizable) renders a workspace file:
-  docx with `docx-preview`, pdf with pdf.js (canvas plus a text layer), xlsx
-  from the backend's sheet preview, images, and text. Its file menu lists the
-  whole workspace, so documents from turns that an edit removed are still
-  reachable. `?preview=<file>` in a chat URL opens it directly.
-- **Selecting text** in the panel offers "Ask about this": the passage goes to
-  the composer as a quote chip and is sent as a `ref`.
+  changed, to download and open in the user's own apps. There is no in-app
+  preview (removed 2026-10-22): desktop apps view and edit documents better,
+  and the extension's viewer covers PDFs. Older turns still show their quoted
+  passages (`refs`), which only the preview could create.
 
 ## The composer
 

@@ -19,9 +19,10 @@ from strands_harness import build_system_prompt, create_harness
 
 from agent.core import paths
 from agent.core.memory_manager import MemoryManager
-from agent.core.shell_env import default_environment, model_path
+from agent.core.shell_env import WindowsLocalEnvironment, default_environment, model_path
 from agent.core.model import AtlasLlamaCppModel
 from agent.core.documents import document_tools
+from agent.core.maths import maths_tools
 from agent.core.policy import Approver, Scope, ToolPolicy
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
@@ -186,7 +187,7 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
     return (
         f"Today is {today:%A, %d %B %Y}. Read \"last\", \"latest\", \"this year\" and "
         "similar words against this date, not against what you remember. Each "
-        "message from the user ends with the time it was sent.\n"
+        "message from the user ends with the time it was sent; use it, never repeat it.\n"
         "For facts from the web, prefer the original source (the organisation's "
         "own site, official docs, PyPI or GitHub releases) over sites that "
         "repeat it, and give the link you used.\n\n"
@@ -212,7 +213,8 @@ def clock_note(now: datetime | None = None) -> str:
     """The send time appended to every user message: local time and its offset."""
     now = (now or datetime.now()).astimezone()
     offset = now.strftime("%z")
-    return f"[Sent {now:%a %d %b %Y, %H:%M} (UTC{offset[:3]}:{offset[3:]})]"
+    # Worded as context, not a line to copy: shorter, the model echoed it.
+    return f"[Context, not to repeat: sent {now:%a %d %b %Y, %H:%M} (UTC{offset[:3]}:{offset[3:]})]"
 
 
 def build_agent(
@@ -227,6 +229,7 @@ def build_agent(
     observer: Callable[[dict[str, Any]], None] | None = None,
     approver: Approver | None = None,
     sensitive: Callable[[str], bool] | None = None,
+    tainted: Callable[[], bool] | None = None,
     sandbox: Any = None,
 ) -> Any:
     """Build one Strands `Agent` for one turn.
@@ -241,6 +244,7 @@ def build_agent(
             sensitive MCP tools). Without one, those calls are refused with an
             explanation.
         sensitive: whether an MCP tool, by its agent-facing name, must ask first.
+        tainted: whether web-page content has entered the turn (page tools).
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -256,8 +260,11 @@ def build_agent(
     # harness prompt, so the harness guidance is always retained.
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
-    atlas_tools = (document_tools(paths.chat_dir(settings, chat_id), model_path)
-                   if settings.tools.documents else [])
+    enabled = set(tool_manager.atlas_tools())
+    atlas_tools = [t for t in (*document_tools(paths.chat_dir(settings, chat_id), model_path,
+                                               _scope(settings, paths.chat_dir(settings, chat_id)).folders),
+                               *maths_tools())
+                   if t.tool_name in enabled]
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
@@ -267,7 +274,8 @@ def build_agent(
         # Windows. `sandbox=` is the documented seam; the shell tool picks it
         # up from `agent.sandbox` with no other change.
         sandbox=sandbox if sandbox is not None else default_environment(
-            cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings)),
+            cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
+            folders=_scope(settings, workspace_dir).folders),
         instructions=instructions or None,
         session=session_manager,
         skills=[s["path"] for s in skills] or False,
@@ -290,11 +298,14 @@ def build_agent(
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
         # Before a tool runs: one ordered policy (policy.py). After: recovery.
         hooks=[ToolPolicy(_scope(settings, workspace_dir), approver=approver,
-                          ask_outside=settings.access.ask_outside, sensitive=sensitive,
-                          reader=lambda p: reader_command(settings, p, _shown(p, workspace_dir))),
+                          ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
+                          reader=lambda p: reader_command(settings, p, _shown(
+                              p, workspace_dir, _scope(settings, workspace_dir).folders))),
                ToolFailureRecovery(settings.resilience, notify=observer)],
     )
 
+    if isinstance(agent.sandbox, WindowsLocalEnvironment):
+        agent.sandbox.cancel_signal = agent.cancel_signal  # Stop ends a running command too
     if restore_snapshot_id:
         _restore(agent, session_manager, restore_snapshot_id, instructions)
 
@@ -316,10 +327,16 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
     )
 
 
-def _shown(path: str, workspace: Path) -> str:
-    """A file in the workspace by its bare name (commands start there), else as given."""
-    from agent.core.shell_env import windows_path
+def _shown(path: str, workspace: Path, folders: list[Path] | None = None) -> str:
+    """A file in the workspace by its bare name (commands start there); a
+    relative path found in an allowed folder in full; else as given."""
+    from agent.core.shell_env import locate, model_path, windows_path
 
+    if path.lower().startswith(("http://", "https://", "file://")):
+        return path  # a link: the pdf reader takes it as it is
+    found = locate(path, workspace, folders or [])
+    if found is not None and found.parent.resolve() != workspace.resolve():
+        return model_path(found)
     p = Path(windows_path(path))
     return p.name if p.parent.resolve() == workspace.resolve() else path
 

@@ -676,16 +676,20 @@ def _failed(message: str) -> dict[str, Any]:
     return {"status": "error", "content": [{"text": f"Error: {message}"}]}
 
 
-def document_tools(workspace: Path, shown: Callable[[Path], str]) -> list[Any]:
+def document_tools(workspace: Path, shown: Callable[[Path], str],
+                   folders: list[Path] | None = None) -> list[Any]:
     """The two agent tools, bound to one chat's workspace.
 
-    `shown` turns a path into the form the model is shown (`model_path`).
+    `shown` turns a path into the form the model is shown (`model_path`). A
+    relative path is placed by `shell_env.locate`, like every other tool's.
     """
-    from agent.core.shell_env import windows_path
+    from agent.core.shell_env import locate, windows_path
 
     def resolve(path: str) -> Path:
         p = Path(windows_path(path)) if path.startswith("/") else Path(path)
-        return p if p.is_absolute() else workspace / p
+        if p.is_absolute():
+            return p
+        return locate(path, workspace, folders or []) or workspace / p
 
     @tool(name="create_document")
     def create_document(path: str, content: str, title: str = "") -> Any:

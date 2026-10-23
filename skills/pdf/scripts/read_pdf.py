@@ -26,9 +26,11 @@ from _shared import (  # noqa: E402
     MIN_IMAGE_PX,
     add_common_arguments,
     fail,
+    fetch,
     header,
     image_line,
     images_dir,
+    is_link,
     limit_for,
     main_wrapper,
     require,
@@ -38,6 +40,12 @@ from _shared import (  # noqa: E402
 
 pdfium, = require("pypdfium2")
 import _ocr  # noqa: E402 - beside this script
+
+
+#: A document this short is read whole when no --pages is given.
+SHORT_DOC = 5
+#: The most pages one call reads.
+MAX_PAGES = 15
 
 
 def parse_pages(spec: str, total: int) -> list[int]:
@@ -102,8 +110,9 @@ def page_images(doc, index: int, source: Path, budget: list[int], skip: set[int]
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read text from a PDF")
     parser.add_argument("path", help="path to the PDF")
-    parser.add_argument("--pages", default="1-2",
-                        help="page range, 1-based, e.g. 1-3 or 1,4,7")
+    parser.add_argument("--pages", default=None,
+                        help="page range, 1-based, e.g. 1-3 or 1,4,7 (default: all of a short "
+                             f"document, else 1-2; at most {MAX_PAGES} at once)")
     # nargs="*" and rejoined: `cmd.exe` can split a quoted multi-word term on
     # its spaces before argparse sees it (see _shared.join_sql).
     parser.add_argument("--search", nargs="*", default=[],
@@ -115,7 +124,12 @@ def main() -> int:
     add_common_arguments(parser)
     args = parser.parse_args()
 
-    path = resolve(args.path)
+    # A link (a PDF on the web, or file:///...) is fetched into the workspace first.
+    source = ""
+    if is_link(args.path):
+        path, source = fetch(args.path, ".pdf", b"%PDF")
+    else:
+        path = resolve(args.path)
     if not path.is_file():
         return fail(f"no such PDF: {path}")
 
@@ -159,9 +173,17 @@ def main() -> int:
         print("\n\n".join(body))
         return 0
 
+    if args.pages is None:
+        args.pages = "all" if total <= SHORT_DOC else "1-2"
     pages = parse_pages(args.pages, total)
     if not pages:
         return fail(f"no pages in --pages {args.pages!r} (document has {total})")
+    if len(pages) > MAX_PAGES:
+        # Every scanned page is read by OCR, seconds each: 67 pages took minutes
+        # and printed far more than the output budget anyway.
+        return fail(f"the document has {total} pages; read at most {MAX_PAGES} at once",
+                    hint=f'find the pages that matter with --search "<word>", then read them, '
+                         f"e.g. --pages 1-{MAX_PAGES}")
 
     cache = _ocr.Cache(images_dir(path), path)
     chunks = []
@@ -195,7 +217,7 @@ def main() -> int:
 
     limit, hint = limit_for(args)
     text, cut = truncate(body, limit, more_hint=f"--pages <range> {hint}")
-    print(header(file=path.name, pages=total, read=", ".join(
+    print(header(file=path.name, source=source or None, pages=total, read=", ".join(
         str(i + 1) for i in pages), truncated=cut or "no",
                empty_pages=empty_pages or "none", images=images,
                ocr_pages=", ".join(map(str, ocr_pages)) or None,

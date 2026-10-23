@@ -29,8 +29,10 @@ fastembed>=0.9          # CPU ONNX runtime; keeps torch out of the hot path
 python-docx>=1.2
 reportlab>=4.0           # create_document: Markdown -> PDF
 markdown-it-py>=3.0      # create_document: the Markdown parser
+python-dateutil>=2.9     # the `dates` tool: dates as people write them
 matplotlib>=3.11
 
 # --- tooling ---
+rich>=13             # atlas start: the start screen and dev view
 psutil>=7.0            # process identity (pid + create_time) for `atlas down`
 pytest>=8.0

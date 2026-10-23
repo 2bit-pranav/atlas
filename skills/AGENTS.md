@@ -6,7 +6,8 @@ body when one applies, and then runs the skill's scripts through `shell`.
 
 ```
 skills/
-  _shared.py           output budget, truncation notices, friendly import errors
+  _shared.py           output budget, truncation notices, friendly import errors,
+                       and the one document-link resolver (`open_link`, `save_link`)
   pdf/   SKILL.md  scripts/read_pdf.py, merge_pdf.py, split_pdf.py, pdf_to_docx.py
   docx/  SKILL.md  scripts/read_docx.py, docx_to_pdf.py   (needs Word or LibreOffice)
   xlsx/  SKILL.md  scripts/read_xlsx.py, query_xlsx.py   (SQL via DuckDB),
@@ -35,6 +36,16 @@ the Skills page with an install button.
   the fragment.
 - **Fail in one sentence.** `_shared.require()` turns a missing library into a
   short message. A traceback is what provokes the model to `pip install`.
+- **Take links with `_shared.fetch`.** `file://` and `http(s)://` are opened
+  by `open_link` for every caller, the backend's PDF import and viewer
+  included: checked for the file type and 100 MB, and refused when a link
+  returns a web page instead.
+- **Resolve inputs with `_shared.resolve`.** A relative path is looked for in
+  the workspace, then the allowed folders (`$ATLAS_FOLDERS`); a bare name
+  found nowhere is looked up by name there (`find_by_name`: unique matches
+  only, bounded, inputs only). Name outputs with `default_output` and report
+  them with `created()`, which prints the path relative to the workspace: a
+  bare `x.docx` read as "beside the input" and the model looked there.
 - **Tolerate mangled quoting.** Paths may arrive with stray quotes or
   backslashes; `_shared.unquote` is there for that.
 - **Declare what you need.** `requirements.txt` for Python, `package.json`

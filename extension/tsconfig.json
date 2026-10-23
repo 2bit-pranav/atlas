@@ -1,0 +1,12 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    // The shared web-UI files are checked under the web UI's rules.
+    "noUncheckedIndexedAccess": false,
+    "verbatimModuleSyntax": false,
+    "types": ["vite/client"]
+  },
+  "include": ["entrypoints", "lib", ".wxt/wxt.d.ts"]
+}

@@ -140,8 +140,10 @@ def reader_command(settings: Settings, path: str, shown: str) -> str | None:
     script_path = paths.skills_dir(settings) / folder / "scripts" / script
     if not script_path.is_file():
         return None
-    extra = " --pages all" if folder == "pdf" else ""
-    return f'python "$ATLAS_SKILLS/{folder}/scripts/{script}" "{shown}"{extra}'
+    # No `--pages all`: the reader reads a short PDF whole by itself, and on a
+    # 67-page scanned one "all" meant minutes of OCR. Its header gives the
+    # page count, so the model can search or read a range next.
+    return f'python "$ATLAS_SKILLS/{folder}/scripts/{script}" "{shown}"'
 
 
 def read_manifest(manifest: Path) -> dict[str, Any]:

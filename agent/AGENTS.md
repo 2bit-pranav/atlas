@@ -11,7 +11,9 @@ agent/core/
   model.py           AtlasLlamaCppModel: thinking switch, streaming, timings
   resilience.py      LocalModelRetry, ToolFailureRecovery (Strands hooks)
   documents.py       create_document / edit_document: Markdown -> docx, pdf, xlsx
+  maths.py           calculate / dates: exact arithmetic and date counting from one expression
   policy.py          ToolPolicy: every check before a tool runs, in one order
+  page_tools.py      page_read / page_find for the browser extension, via client calls
   approvals.py       the Approver type and what counts as an install
   skill_requirements.py what a skill needs installed; installing it
   chats.py           ChatStore: the chat tree and display transcripts (SQLite)
@@ -22,7 +24,15 @@ agent/core/
   mcp_manager.py     MCP connection pool, per-tool switches, registry search
   memory_manager.py  long-term memory: off, and why
   shell_env.py       WindowsLocalEnvironment: the shell and file paths on Windows
-agent/cli/           atlas start | stop | settings
+agent/cli/
+  main.py            atlas start | stop | status | logs | settings
+  launcher.py        starts, health-checks, supervises, restarts, stops; emits events, prints nothing
+  screen.py          the start screen (Rich Live, inline)
+  views.py           --dev (filtered logs, pinned status line) and plain lines (piped, --raw)
+  log_filters.py     per-service parsing and drop / collapse / rewrite rules
+  processes.py       spawning, log capture to .data/logs, killing process trees
+  launched.py        launched.json, ports, stopping what Atlas started
+  launch.py          the command lines, built from settings
 ```
 
 ## One turn, end to end
@@ -142,16 +152,35 @@ Images: the pdf and docx readers save a document's images into a hidden
 `create_document` embeds such lines in docx and pdf, so a rewrite keeps its
 figures. Images that cannot be found are left out and named in the result.
 
+## Arithmetic and dates (`maths.py`)
+
+`calculate("3940 + 824.82 + 1895.5")` and `dates('days_between("2 Oct 2026",
+"15 Nov 2026")')` each take **one string**, so the model never picks an
+operation or counts arguments: it writes the sum it would have written in its
+answer, and code works it out. Parsed with `ast` and evaluated from an
+allow-list (numbers, quoted dates, `+ - * / // **`, a few named functions);
+nothing is executed. Numbers are `Decimal`, so money is exact. The docstrings
+carry examples, which a 2B model copies. Nothing yet forces their use.
+
+Atlas's own tools (these two and the document tools) are switched one by one
+in `tools.atlas` (Settings > Agent > Built-in tools); `ToolManager.atlas_tools()`
+resolves them. An older `tools.documents` switch still loads.
+
 ## Tool policy (`policy.py`)
 
 Every check made before a tool runs is one `ToolPolicy` hook with ordered
 steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 
-1. **normalise**: MCP arguments get Windows paths (`/c/Users/x` -> `C:/Users/x`).
+1. **normalise**: paths in the form each tool takes. MCP arguments get Windows
+   paths (`/c/Users/x` -> `C:/Users/x`) and relative paths placed by `locate`;
+   `read`/`write`/`edit` get `/c/...` for a pasted `C:\...`; unquoted `C:\...` in
+   a shell command becomes `C:/...` (bash eats the backslashes).
 2. **access**: a path outside the scope asks the user (kind `access`).
 3. **install**: a `shell` command that installs asks (kind `install`).
-4. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
-5. **documents**: `read`/`write`/`edit` on a binary document is redirected.
+4. **page taint**: once web-page content is in the turn (the extension's page
+   tools), shell commands and writes outside the workspace ask (kind `page`).
+5. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
+6. **documents**: `read`/`write`/`edit` on a binary document is redirected.
 
 Recovery after a tool runs stays in `resilience.py`.
 
@@ -163,7 +192,11 @@ and, read-only, the skills folder and Python install so scripts can be read.
 What is checked:
 
 - `read`, `write`, `edit`, `create_document`, `edit_document`: an absolute
-  `path` argument (relative paths are the workspace's).
+  `path` argument. A relative path is placed by `shell_env.locate`: the
+  workspace first, then each allowed folder (an existing file wins; a new
+  one goes where its folder exists). The filesystem MCP server, the skill
+  scripts (`$ATLAS_FOLDERS`) and the `read` hint follow the same rule, so
+  `Demo/Invoices/x.pdf` means one file to every tool.
 - `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
   quoted or bare). `/tmp` and other POSIX paths are the shell's own.
 - MCP tools: any string argument that is a drive path.
@@ -196,11 +229,16 @@ That click is the approval; the model never has to.
 
 ## Windows (`shell_env.py`)
 
-- Every shell command starts in the **chat's workspace**, and `$ATLAS_SKILLS`
-  points at the skills folder. An attached file is named by its name alone
+- Every shell command starts in the **chat's workspace**, `$ATLAS_SKILLS`
+  points at the skills folder and `$ATLAS_FOLDERS` lists the allowed folders. An attached file is named by its name alone
   (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
   `python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>"`. The attachment
   list gives each pdf/docx/xlsx's exact command.
+- **Stop ends a running command.** Strands stops a turn only at its safe
+  points, and a running shell command is not one. The environment watches the
+  agent's cancel signal (set on it in `build_agent`) and, on Stop or timeout,
+  kills the command's whole process tree (`taskkill /T`: killing `sh.exe`
+  alone left the Python script it ran going).
 - Commands run through Git Bash when it exists (`cmd.exe` as a fallback); the
   venv's `Scripts` is first on PATH, so a bare `python` is the project's.
 - The model is shown every path as `/c/Users/...` (`model_path`). That one form
@@ -226,6 +264,14 @@ That click is the approval; the model never has to.
   stored as the server's standard `tool_filters.rejected` and applied when the
   turn's tool list is built, so switching needs no reconnect. Every tool schema
   costs prompt tokens on every request; the manager estimates them.
+- **MCP lifecycle.** Servers start side by side. A start is bounded by
+  `mcp.startup_timeout` and cancellable (`_start_bounded`): Strands' own
+  timeout cannot stop a server that never answers `initialize` (its `stop()`
+  waits forever and the process lives on), so Atlas cancels the client's
+  background tasks itself, which ends the server's process tree. Refresh, a
+  settings change and shutdown all cancel a start in progress and wait for it
+  before anything new starts: one copy of a server at a time, because two
+  copies fight over the same things (uv's cache lock, a port).
 - **Where tools come from.** Each MCP tool's description starts with
   `[MCP: <server>]`, and the prompt lists tools grouped by source (built in,
   skills, each MCP server). Without that, asked to use an MCP tool, the model

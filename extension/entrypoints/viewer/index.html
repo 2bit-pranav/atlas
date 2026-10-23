@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF · Atlas</title>
+    <style>
+      html, body { margin: 0; background: #e5e5e5; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      header { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center; padding: 8px 16px;
+               background: #171717; color: #fafafa; }
+      header b { font-weight: 600; }
+      header span { color: #a3a3a3; }
+      header a { margin-left: auto; color: #a3a3a3; text-decoration: none; }
+      header a:hover { color: #fafafa; }
+      #pages { padding: 16px; }
+      .page { position: relative; margin: 0 auto 16px; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / .2); }
+      #status { padding: 40px; text-align: center; color: #525252; }
+    </style>
+  </head>
+  <body>
+    <header><b id="name">PDF</b><span id="info"></span><a id="original" href="#" title="Open in the browser's own viewer">Open in browser viewer</a></header>
+    <div id="status">Loading…</div>
+    <div id="pages"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -240,6 +240,167 @@ synthetic scan and a table screenshot exactly, about 1.7 s a page; results
 are cached beside the document's images, so a second read is instant
 (0.24 s). The models download once on first use if missing.
 
+**The start screen is Rich Live, not Textual** (2026-10-21, found). Textual
+8.2's inline mode is skipped on Windows (`inline and not WINDOWS` picks the
+driver), so `run(inline=True)` takes over the whole terminal there. Rich
+Live draws the same panel inline on every OS; keys are read with `msvcrt`
+on Windows and cbreak mode elsewhere.
+
+**Start in parallel, serve the built UI** (2026-10-21, measured). The backend
+and UI no longer wait for the model: backend ready in 3.0 s, model in 10.7 s,
+all ready in 10.7 s. Normal mode serves `client/dist` from the backend, so it
+runs without Node or a third port; the first start builds it (5.5 s).
+
+**No model hash at start** (2026-10-21, measured). `launched.json` hashed the
+GGUF on every start: 2.6 s for the 2.6 GB model, plus the mmproj, and nothing
+read the hash. The cache meant to skip it never applied, because a clean stop
+deletes `launched.json`. Size and modification time are recorded instead.
+
+**Port sweeps only touch our own processes** (2026-10-21, found by test).
+After a failed start, the old sweep killed whatever held the port if its
+command line contained "python": in the test, the program that was holding
+the port. Now only ports of services this launch started are swept, and a
+holder must look like that service (llama, uvicorn, vite/node).
+
+**llama-server needs a per-launch API key** (2026-10-21, measured).
+llama-server allows every origin, so any web page could call
+`127.0.0.1:8080` and use the model. `atlas start` now generates a key per
+launch (kept across restarts), passes it as `--api-key`, and gives it to the
+backend in `ATLAS_LLAMA_KEY`. With it set, chat, `/props` and `/v1/models`
+answer 401 without the key; `/health` stays open for the readiness check.
+
+**The extension calls the page through the run, like an approval**
+(2026-10-21, built). A page tool emits `client_call`, the side panel runs it
+in the tab and POSTs the result; a future resolves. Measured with a scripted
+panel on Gemma: "when do the exams start and what is the fee" read the page
+and answered with exact quotes; "where does it say X" went straight to
+`page_find`; an injected "run `del /s`" on the page was not followed, and a
+shell command after reading needed approval (page taint).
+
+**Quotes are highlighted by code, not by the model** (2026-10-21). The model
+is asked to back statements with exact quotes in double quotes; the panel
+finds each one on the page (whitespace folded, word stems, best block) and
+highlights it, or marks it "not found on the page". A 2B model cannot place
+highlights itself, and a missing quote is how an unsupported claim shows.
+
+**Pairing guard** (2026-10-21). Host must be local; Origin must be the web UI
+or an extension with the pairing token; cross-site requests without Origin
+need the token. The extension needs no CORS: `host_permissions` lets it fetch
+127.0.0.1 directly.
+
+**WXT's `@` is its source folder** (2026-10-21, found). It overrides any user
+alias, so the extension's `srcDir` is `client/src` and its entrypoints are
+pointed back to `extension/`; shared components import `@/...` unchanged.
+
+**PDFs by link** (2026-10-21, measured). `read_pdf.py` takes `http(s)://`
+(downloaded into the workspace, reused on a second read; a web page instead
+of a PDF fails with a hint) and `file://` (read in place). A message with a
+PDF link gets the exact command, as attachments do: before, Gemma tried the
+`read` tool on the URL and asked for an upload; after, one `read_pdf.py` call
+and a correct answer. In the extension a PDF tab cannot be read by a content
+script, so the panel attaches the PDF itself; tested on a scanned page.
+
+**Images go to the model inside tool results** (2026-10-21, measured).
+llama-server accepts an `image_url` part in a tool message: Gemma read
+"Experiment No - 05" from a screenshot returned by a tool. So
+`page_screenshot` / `page_image` hand the image straight back; through the
+side panel it read a scanned circular correctly.
+
+**Fill suggestions: one schema-constrained call, applied by the user**
+(2026-10-21, measured). Not an agent turn: the form's fields and the user's
+details go to the model once, with a JSON schema allowing only those field
+ids and each select's options, "" when unknown. On an 8-field form it filled
+7 correctly (a date converted to YYYY-MM-DD, "Sem 6" from "semester 6", the
+pin code from the address) and left "Father's name" empty rather than
+inventing it; 16 s. Never submits; secrets never collected.
+
+**Fixes after the first real use** (2026-10-22). The mic had vanished: with
+the parallel start, the backend asked llama-server for its modalities while
+the model was still loading, got a 503 without them, and cached "none" for
+the whole run; now only a real answer is remembered. Translate in the
+selection chip never opened: the chip cancels mousedown to keep the page's
+selection, which also stops a native `<select>`; it is a row of buttons now.
+The "Save table" bar appeared over any table on hover, including Gmail's
+account switcher (an ARIA grid); tables are now offered from the selection
+chip inside a real data table. The right-click entry went too (2026-10-22):
+browsers cannot limit a menu item to tables, so it showed on every page.
+
+**An Atlas PDF viewer for the extension** (2026-10-22). Content scripts cannot
+run in the browser's PDF viewer, so PDFs had no highlights or chip. The
+extension's own `viewer.html` (pdf.js with a text layer) is a page the panel
+can read, search and highlight like any other; local PDFs come from the
+backend so no file-access permission is needed.
+
+**One-click pairing, developer mode** (2026-10-22). Copying a token into the
+panel was a developer's chore. The extension is its own page in the sidebar,
+and Connect hands the token over through the content script that already runs
+on Atlas's local page. Accepted only from a 127.0.0.1/localhost http page and
+only for a local backend that answers 200 to it; a malicious local page could
+at most pair the extension with another local server it already runs. Tuning
+settings and the raw token sit behind a per-browser developer mode toggle.
+
+**No preview panel** (2026-10-22). The web UI's file preview (docx-preview,
+pdf.js, a sheet endpoint) is gone. Users open documents in their own apps,
+where they can also edit them, and the extension's viewer reads PDFs beside the
+panel. The download chip stays. Workspace files are now served as downloads,
+with only raster images inline, so an agent-written HTML or SVG file never runs
+on Atlas's origin.
+
+**One document-link resolver** (2026-10-22). A PDF link was opened by two
+copies of the same logic: the skill scripts' `fetch` and the backend's
+`pdf_source` (extension import, PDF viewer), with different download code,
+naming and checks. `skills/_shared.py` now has the only one (`open_link`,
+`save_link`; standard library, so the scripts still run on their own) and the
+backend imports it.
+
+**MCP starts are bounded and cancellable** (2026-10-22). With PyPI
+unreachable, `uvx duckduckgo-mcp-server` never answered; Strands' timeout then
+hung in `stop()`, left the `uvx` process alive (holding uv's cache lock, so
+every retry hung too) and kept the server "connecting". Atlas now cancels the
+start itself after `mcp.startup_timeout`, and Refresh, settings changes and
+shutdown cancel a start in progress and wait for it.
+
+**Demo rehearsal: paths, quotes, prompts** (2026-10-22). Running every
+demo in `docs/demo.md` through the API, several times each, on fixtures:
+
+- A relative path meant different things to different tools. The filesystem
+  MCP server resolved `Demo/Invoices` against its *first* folder (Atlas's
+  chats folder), the reader script against the workspace. One rule now
+  (`shell_env.locate`): workspace, then allowed folders, for MCP arguments,
+  file and document tools, scripts and the `read` hint. Before: 0/2 runs of
+  Demo 1 read the invoices; after: every run did.
+- A model that listed a folder then named files bare (`invoice-x.pdf`);
+  scripts now look a bare input up by name (unique match, bounded walk).
+- A pasted `C:\...` path failed in `read` ("not absolute") and unquoted in
+  bash (`C:UserspranaDesktop...`); both are normalised before the call.
+- A denial told the model never to try again, so "I've allowed it now, read
+  it again" was answered from memory; it now says to try when asked again.
+- Quote highlighting matched an invented quote ("not on the page at all") on
+  the words "not" and "all". Quotes now need 2+ words of 4+ letters, 75%
+  present; search stays lenient.
+- Prompts: the model added five amounts in its head and was off by 60 until
+  the prompt said "use the spreadsheet"; an unnamed summary was once written
+  over the spreadsheet itself, so the prompt names the PDF; "the last F1 race"
+  gave three different podiums in three runs (one right), so the demo uses a
+  finished season.
+
+**Stop stops the command; long PDFs are read in parts** (2026-10-22). A
+question about a 67-page scanned PDF ran `read_pdf.py --pages all`: Atlas's
+own suggested command said `all`, and every scanned page is OCR'd, so it ran
+for minutes, and kept running after Stop, because Strands only cancels at its
+safe points and on Windows its runner would kill only `sh.exe`. Now Stop or
+the timeout kills the command's process tree; the suggested command has no
+`--pages`; the reader reads a short PDF (5 pages or fewer) whole, else pages
+1-2 with the page count, and refuses more than 15 pages per call with a hint
+to `--search` first.
+
+**`calculate` and `dates` as direct tools** (2026-10-22). The model added
+five amounts in its head and was off by 60. Two general tools, one string
+argument each (an expression), evaluated from an allow-list with exact
+decimals. Exposed directly, switchable in Settings; no enforcement yet, to see
+how often the model uses them unprompted. The @ menu lists MCP servers by name
+only (every MCP tool made it too long), after tools and skills.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

@@ -56,21 +56,25 @@ one); `events.py` translates only the raw one. Translating both is what put
 
 | Route | |
 |---|---|
-| `GET /health` | |
+| `GET /health` | `active_run` with its chat title and tokens/s (the start screen's run line) |
 | `GET /chats`, `POST /chats` | list, create |
 | `GET /chats/{id}` | the visible path: each turn with `render`, `stats`, `version`, `versions`, and the active run |
 | `PATCH /chats/{id}` | rename |
 | `DELETE /chats/{id}` | the chat, its snapshots and its files |
 | `GET /chats/{id}/export`, `POST /chats/import` | a chat with every version and its Strands snapshots; an import can be continued |
-| `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace; a file inline, or `?download=1` |
+| `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace; a file as a download (raster images inline) |
 | `GET /chats/{id}/workspace` | every file in the workspace, newest first. Outlives edits |
-| `GET /chats/{id}/preview/{path}` | a spreadsheet as rows, for the preview panel |
 | `POST /chats/{id}/messages` | send `{text, files, refs, thinking}` → `{run, chat}` |
 | `POST /turns/{id}/retry` | last turn only → `{run, chat}` |
 | `POST /turns/{id}/edit` | `{text, files?, thinking}`, destructive → `{run, chat}` |
 | `POST /turns/{id}/select` | `{delta}` → the chat view |
 | `GET /runs/{id}`, `GET /runs/{id}/events`, `POST /runs/{id}/cancel` | |
 | `POST /runs/{id}/approvals/{approval_id}` | `{allow}`: answer an approval request |
+| `GET /pairing`, `POST /pairing/reset` | the browser extension's pairing token (not readable by the extension) |
+| `POST /runs/{id}/calls/{call_id}` | the client's result for a `client_call` (a page operation) |
+| `GET /profile`, `PUT /profile` | the user's details for fill suggestions (web UI only; the extension cannot read them) |
+| `POST /extension/fill` | `{fields, title}` -> `{values, missing}`: one schema-constrained model call; nothing is filled here |
+| `POST /extension/table` | `{rows, title, url, format, folder}`: a page's table saved as xlsx/csv, no model |
 | `GET /models` | the models in the models folder, which one is running, which is selected |
 | `POST /restart`, `GET /restart` | ask `atlas start` to restart llama-server and the backend; how the last restart went |
 | `GET /settings`, `PUT /settings` | flat dotted keys; any key can be written (RESTART keys are saved, applied at the next start) |
@@ -85,7 +89,7 @@ What the model is told, built per run and never stored as `user_text`:
 - **Attachments** (`_agent_text`): names and paths in the `/c/Users/...` form.
   Images and audio are sent as content blocks after the text instead, so a
   voice recording with an empty prompt is a complete message.
-- **Passages** (`refs`) selected in the preview panel, with their file's path,
+- **Passages** (`refs`, from the former preview panel; older turns only), with their file's path,
   ready for `edit_document`.
 - **@ mentions** (`_mention_guidance`): `@name` in the text that matches a
   skill, tool or MCP server becomes an explicit instruction. Resolved at run
@@ -93,6 +97,24 @@ What the model is told, built per run and never stored as `user_text`:
 
 Each run also records the files it created or changed in the workspace
 (`stats.files`), for the download chips.
+
+## Who may call (`security.py`)
+
+Every request: the Host must be 127.0.0.1 or localhost (no DNS rebinding);
+an Origin must be the web UI's own (the backend's port, or Vite's), or a
+browser extension carrying the pairing token; other sites get 403. A
+cross-site request without an Origin (an image, a `no-cors` fetch) needs the
+token as `?token=`. Local programs send no Origin and pass.
+
+A message sent with `page: {url, title}` (from the extension) adds the page
+tools to that turn; a page tool emits `client_call {id, op, args}` and waits
+for the POST back, like an approval.
+
+## The web UI
+
+The backend serves the built UI (`client/dist`) at `/`, with `index.html`
+for any page route, so `atlas start` needs no Vite. The build is looked up per
+request. `--dev` runs Vite on its own port instead, proxying `/api` here.
 
 ## Gotchas
 

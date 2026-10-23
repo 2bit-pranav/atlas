@@ -125,19 +125,172 @@ def require(*names: str) -> tuple[Any, ...]:
 
 
 def resolve(path: str) -> Path:
-    """An absolute path as is; a relative one is tried in each chat folder under
-    ./data/chats, else returned unchanged (relative to the cwd)."""
+    """An input file's path. An absolute path as is. A relative one is looked
+    for where the command runs (the chat's workspace), then in each allowed
+    folder (`$ATLAS_FOLDERS`, the same rule as Atlas's file tools), then in
+    each chat folder under ./data/chats. A bare name found nowhere is looked
+    up by name in the allowed folders (`find_by_name`); else returned
+    unchanged."""
+    import os
+
     path = unquote(path)
     candidate = Path(path)
-    if candidate.is_absolute():
+    if candidate.is_absolute() or candidate.exists():
         return candidate
+    folders = [Path(f) for f in os.environ.get("ATLAS_FOLDERS", "").split(os.pathsep) if f]
+    for folder in folders:
+        if (folder / path).exists():
+            return folder / path
     here = Path.cwd() / "data" / "chats"
     if here.is_dir():
         for chat in here.iterdir():
             target = chat / path
             if target.exists():
                 return target
+    if candidate.parent == Path(".") and (found := find_by_name(candidate.name, folders)) is not None:
+        return found
     return candidate
+
+
+#: Folders `find_by_name` never walks: tools' and programs' own trees.
+_SKIP_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", "site-packages", "AppData"}
+
+
+def find_by_name(name: str, folders: list[Path], depth: int = 4, budget: int = 20000) -> Path | None:
+    """The one file called `name` within `depth` levels of the allowed folders.
+
+    After listing `Demo/Invoices`, a small model often names a file by its bare
+    name (`invoice-x.pdf`), which exists nowhere relative to anything. Only a
+    *unique* match is returned, so two files of the same name are never
+    guessed between; the walk is bounded, and for inputs only (never where to
+    write).
+    """
+    import os
+
+    matches: list[Path] = []
+    seen = 0
+    for root in folders:
+        base = len(Path(root).parts)
+        for dirpath, dirnames, filenames in os.walk(root):
+            seen += len(filenames) + len(dirnames)
+            if seen > budget:
+                return None
+            if len(Path(dirpath).parts) - base >= depth:
+                dirnames[:] = []
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+            if name in filenames:
+                matches.append(Path(dirpath) / name)
+                if len(matches) > 1:
+                    return None
+    return matches[0] if matches else None
+
+
+def is_link(value: str) -> bool:
+    return unquote(value).lower().startswith(("http://", "https://", "file://"))
+
+
+#: A document larger than this is refused, local or downloaded.
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
+
+#: The one place a document link is opened. The skill scripts (`fetch`) and
+#: the backend (the extension's PDF import and PDF viewer) all come through
+#: here, so `file://` and `http(s)://` are checked the same way everywhere.
+
+
+class LinkError(ValueError):
+    """A document link that cannot be opened; the message is one line."""
+
+
+def open_link(link: str, magic: bytes, kind: str) -> tuple[str, Path | None, bytes | None]:
+    """A document link, checked: (file name, local path or None, downloaded bytes or None).
+
+    `file://` is read where it is; `http(s)://` is downloaded. Either way the
+    document must start with `magic` (`b"%PDF"`) and be at most 100 MB, so a
+    link can never be used to read some other file off the disk. A link that
+    returns a web page instead (a login page, an error) is refused rather than
+    read as a broken document.
+    """
+    import re
+    import urllib.parse
+    import urllib.request
+
+    parsed = urllib.parse.urlparse(link)
+    if parsed.scheme == "file":
+        source = Path(urllib.request.url2pathname(parsed.netloc + parsed.path))
+        if not source.is_file():
+            raise LinkError(f"no such file: {source}")
+        if source.stat().st_size > MAX_DOWNLOAD_BYTES:
+            raise LinkError(f"{source.name} is larger than {MAX_DOWNLOAD_BYTES >> 20} MB")
+        with source.open("rb") as fh:
+            if not fh.read(len(magic)).startswith(magic):
+                raise LinkError(f"{source.name} is not a {kind}")
+        return source.name, source, None
+    if parsed.scheme not in ("http", "https"):
+        raise LinkError(f"cannot open a {parsed.scheme or 'plain'} link")
+
+    request = urllib.request.Request(link, headers={"User-Agent": "Mozilla/5.0 (Atlas)", "Accept": "*/*"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = response.read(MAX_DOWNLOAD_BYTES + 1)
+            final = response.geturl()
+            disposition = response.headers.get("Content-Disposition", "")
+    except Exception as exc:  # noqa: BLE001 - one line, not a traceback
+        raise LinkError(f"could not download {link}: {exc}") from None
+    if len(data) > MAX_DOWNLOAD_BYTES:
+        raise LinkError(f"{link} is larger than {MAX_DOWNLOAD_BYTES >> 20} MB")
+    if not data.startswith(magic):
+        raise LinkError(f"{link} returned a web page, not a {kind} (it may need a login)")
+    m = re.search(r"""filename\*?=(?:UTF-8'')?"?([^";]+)""", disposition)
+    name = urllib.parse.unquote(m.group(1) if m else Path(urllib.parse.urlparse(final).path).name)
+    return name or "download", None, data
+
+
+def save_link(link: str, suffix: str, magic: bytes, kind: str, folder: Path,
+              copy_local: bool = False) -> tuple[Path, str]:
+    """A document link as a file: (path, what happened).
+
+    A web document is saved in `folder` under its own name, so later steps
+    (merge, convert, a second read) can name it; the same link again reuses
+    the copy. A local one is used where it is, or copied into `folder` with
+    `copy_local` (an attachment, which the agent's workspace should hold).
+    """
+    import json
+    import re
+    import shutil
+
+    index = folder / ".atlas-downloads.json"
+    try:
+        known = json.loads(index.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        known = {}
+    if (name := known.get(link)) and (folder / name).is_file():
+        return folder / name, f"downloaded earlier as {name}"
+
+    name, source, data = open_link(link, magic, kind)
+    if source is not None and not copy_local:
+        return source, "local file"
+    stem = re.sub(r"[^\w.-]+", "-", Path(name).stem).strip("-.")[:80] or "download"
+    target, n = folder / f"{stem}{suffix}", 2
+    while target.exists():
+        target, n = folder / f"{stem}-{n}{suffix}", n + 1
+    if source is not None:
+        shutil.copyfile(source, target)
+        return target, f"copied to {target.name}"
+    target.write_bytes(data or b"")
+    known[link] = target.name
+    index.write_text(json.dumps(known, indent=1), encoding="utf-8")
+    return target, f"downloaded to {target.name}"
+
+
+def fetch(link: str, suffix: str, magic: bytes) -> tuple[Path, str]:
+    """`save_link` for the scripts: into the workspace (the current folder), failing in one line."""
+    kind = f"{suffix.lstrip('.').upper()} file"
+    try:
+        return save_link(unquote(link), suffix, magic, kind, Path.cwd())
+    except LinkError as exc:
+        hint = ("\nhint: ask the user to open it in the browser and ask from the Atlas side panel, "
+                "or to download it and attach it") if "web page" in str(exc) else ""
+        raise SystemExit(f"ERROR: {exc}{hint}") from None
 
 
 def add_common_arguments(parser: Any) -> Any:
@@ -252,7 +405,29 @@ def output_path(name: str) -> Path:
     return path
 
 
+def default_output(src: Path, suffix: str) -> Path:
+    """Where a conversion goes when no output is named: beside the input when
+    that is in the workspace (where the model then looks for it), else in the
+    workspace, so the user gets it as a download."""
+    target = src.with_suffix(suffix)
+    try:
+        target.resolve().relative_to(Path.cwd().resolve())
+        return target
+    except ValueError:
+        return Path.cwd() / target.name
+
+
+def shown(path: Path) -> str:
+    """A path as the model should repeat it: relative to the workspace when it
+    is in it (`Demo/x.docx`, not a bare `x.docx` that reads as "beside the
+    input"), else in full; forward slashes either way."""
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
 def created(names: Path | str, **details: Any) -> str:
     """The lines every writing script ends with, so the model tells the user."""
-    names = names.name if isinstance(names, Path) else names
+    names = shown(names) if isinstance(names, Path) else names
     return header(created=names, **details) + "\nThe user sees it as a download in the chat."

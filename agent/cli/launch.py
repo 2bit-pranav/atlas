@@ -1,15 +1,7 @@
-﻿"""
-Command-line argument builders for Atlas managed processes.
-
-Builds invocation arguments for:
-  - llama-server (derived from `settings.json` model and llamacpp configurations)
-  - FastAPI backend (server.main:app)
-  - Vite frontend (npm run dev)
-"""
+﻿"""The command lines of the processes Atlas starts, built from settings."""
 
 from __future__ import annotations
 
-import logging
 import os
 import shutil
 import sys
@@ -17,83 +9,61 @@ import sys
 from agent.core import llama
 from agent.core.settings import Settings
 
-logger = logging.getLogger(__name__)
 
-
-def build_llamacpp_args(settings: Settings) -> list[str]:
-    """Full argv for llama-server derived from restart-tier settings."""
+def build_llamacpp_args(settings: Settings, api_key: str | None = None) -> list[str]:
+    """llama-server with the model chosen in Settings. Raises llama.ModelError."""
     model = settings.model
     args: list[str] = [settings.llamacpp.binary]
-    
-    # adapt to llama-server vs llama serve 
-    if settings.llamacpp.subcommand:
+    if settings.llamacpp.subcommand:  # `llama serve` rather than `llama-server`
         args.append(settings.llamacpp.subcommand)
 
-    # The model chosen in Settings, found in the models folder; its mmproj
-    # (image and audio input) is picked up from the same folder. Raises
-    # ModelError when the name is not there.
     chosen = llama.current(settings)
     args += ["-m", str(chosen.gguf), "--alias", chosen.name]
     if chosen.mmproj is not None:
         args += ["--mmproj", str(chosen.mmproj)]
 
-    args += ["--no-ui"] # skip webui permanently
-    args += ["-c", str(model.context_size)]
-
     gpu_layers = model.gpu_layers
-    args += ["-ngl", str(gpu_layers) if isinstance(gpu_layers, int) else gpu_layers]
-    args += ["-b", str(model.batch_size), "-ub", str(model.ubatch_size)]
-
+    args += [
+        "--no-ui",
+        "-c", str(model.context_size),
+        "-ngl", str(gpu_layers),
+        "-b", str(model.batch_size), "-ub", str(model.ubatch_size),
+    ]
     if model.threads:
         args += ["-t", str(model.threads)]
-
+    # Always pass the port: llama.cpp's own default is due to change.
     args += ["--host", "127.0.0.1", "--port", str(settings.ports.llama)]
-    args += ["-np", str(model.parallel_slots)]
-    args += ["-fa", "on" if model.flash_attention else "off"]
-
+    args += ["-np", str(model.parallel_slots), "-fa", "on" if model.flash_attention else "off"]
     if model.jinja:
         args.append("--jinja")
-
     args += ["--reasoning", model.reasoning]
+    if api_key:
+        args += ["--api-key", api_key]
     args += list(settings.llamacpp.extra_args)
     return args
 
 
 def build_backend_args(settings: Settings) -> list[str]:
-    """Argv for the FastAPI backend process."""
-    return [
-        sys.executable,
-        "-m",
-        "uvicorn",
-        "server.main:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(settings.ports.backend),
-    ]
+    """The FastAPI backend. Never `--reload` (see server/main.py)."""
+    return [sys.executable, "-m", "uvicorn", "server.main:app",
+            "--host", "127.0.0.1", "--port", str(settings.ports.backend)]
 
 
-def build_frontend_args(settings: Settings) -> list[str]:
-    """Argv for the Vite frontend development server."""
-    npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
-    if not npm:
-        raise FileNotFoundError("npm was not found on PATH")
-    return [
-        npm,
-        "run",
-        "dev",
-        "--",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(settings.ports.client),
-    ]
+def npm() -> str | None:
+    return shutil.which("npm.cmd" if os.name == "nt" else "npm")
 
 
-# Backward-compatible alias
-build_client_args = build_frontend_args
+def build_vite_args(settings: Settings) -> list[str]:
+    """The Vite dev server with hot reload, for `atlas start --dev`."""
+    exe = npm()
+    if not exe:
+        raise FileNotFoundError("npm is not on PATH; `--dev` needs Node.js")
+    return [exe, "run", "dev", "--", "--host", "127.0.0.1", "--port", str(settings.ports.client)]
 
 
 def describe_args(args: list[str]) -> str:
-    """Format an argv list for logging display."""
-    return " ".join(args)
+    shown = ["***" if i and args[i - 1] == "--api-key" else a for i, a in enumerate(args)]
+    return " ".join(f'"{a}"' if " " in a else a for a in shown)
+
+
+__all__ = ["build_backend_args", "build_llamacpp_args", "build_vite_args", "describe_args", "npm"]

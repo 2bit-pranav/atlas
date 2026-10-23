@@ -37,8 +37,14 @@ python "$ATLAS_SKILLS/pdf/scripts/pdf_to_docx.py" "<file>"
 python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>" --pages 1-3
 ```
 
-`--pages` takes `1-3`, `1,4,7`, or `all`. The default is the first two pages,
-which is usually enough to tell what a document is.
+A link works as the file: `"https://site/notice.pdf"` is downloaded into the
+workspace (the header says under which name, for later steps), and
+`"file:///C:/Users/me/report.pdf"` is read where it is.
+
+`--pages` takes `1-3`, `1,4,7`, or `all`. Without it, a document of up to
+5 pages is read whole and a longer one shows its first two pages; the header
+gives the page count. At most 15 pages are read per call: in a long document,
+find the pages with `--search "<word>"` first.
 
 ## Images
 
