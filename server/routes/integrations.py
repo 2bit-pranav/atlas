@@ -19,7 +19,12 @@ from agent.integrations.mcp.pool import McpError
 from agent.integrations.mcp.registry import search_registry
 from agent.integrations.skills import requirements as skill_requirements
 from agent.integrations.skills.catalog import SkillError, SkillManager
-from agent.integrations.skills.installer import delete_skill, install_zip, preview_or_install
+from agent.integrations.skills.installer import (
+    MAX_ARCHIVE_BYTES,
+    delete_skill,
+    install_zip,
+    preview_or_install,
+)
 
 
 class InstallSkill(BaseModel):
@@ -76,7 +81,11 @@ def register(app: FastAPI, state: Any) -> None:
         file = form.get("file")
         if file is None or isinstance(file, str):
             raise HTTPException(422, "no file part")
-        data = await file.read()
+        # Read at most the cap (+1 byte to tell "at" from "over"): a large upload
+        # was once read into memory whole. Starlette spools the body to disk.
+        data = await file.read(MAX_ARCHIVE_BYTES + 1)
+        if len(data) > MAX_ARCHIVE_BYTES:
+            raise HTTPException(413, f"the zip is larger than {MAX_ARCHIVE_BYTES >> 20} MB")
         try:
             result = await asyncio.to_thread(install_zip, skill_dir(), data,
                                              file.filename or "skill.zip",

@@ -53,6 +53,10 @@ _SKILL_NAME = re.compile(r"^[\w.-]+$")
 
 #: A downloaded repository larger than this is refused rather than unpacked.
 MAX_ARCHIVE_BYTES = 80 * 1024 * 1024
+#: What an archive may unpack to, checked before anything is written: a small
+#: download can expand to gigabytes (a decompression bomb).
+MAX_EXTRACTED_BYTES = 200 * 1024 * 1024
+MAX_FILES = 5000
 
 
 @dataclass
@@ -130,14 +134,23 @@ def _download(source: Source) -> bytes:
     return buf.getvalue()
 
 
+def _check_size(sizes: list[int], label: str) -> None:
+    if len(sizes) > MAX_FILES:
+        raise SkillError(f"{label} holds more than {MAX_FILES} files")
+    if sum(sizes) > MAX_EXTRACTED_BYTES:
+        raise SkillError(f"{label} unpacks to more than {MAX_EXTRACTED_BYTES >> 20} MB")
+
+
 def _safe_extract_tar(data: bytes, dest: Path) -> None:
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+        _check_size([m.size for m in tar.getmembers()], "the repository")
         tar.extractall(dest, filter="data")  # refuses absolute paths, links out, devices
 
 
 def _safe_extract_zip(data: bytes, dest: Path) -> None:
     root = dest.resolve()
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        _check_size([m.file_size for m in archive.infolist()], "the zip")
         for member in archive.infolist():
             target = (dest / member.filename).resolve()
             if root != target and root not in target.parents:
@@ -177,7 +190,12 @@ def preview_or_install(skills_dir: Path, text: str, *, choose: list[str] | None 
         tops = [p for p in tmpdir.iterdir() if p.is_dir()]
         root = tops[0] if len(tops) == 1 else tmpdir
         if source.path:
-            root = root / source.path
+            inside = root.resolve()
+            root = (root / source.path).resolve()
+            # `..` in the URL's folder once pointed the installer at any local
+            # folder with a SKILL.md, which it copied into the skills.
+            if root != inside and inside not in root.parents:
+                raise SkillError(f"{source.label} points outside the repository")
             if not root.is_dir():
                 raise SkillError(f"{source.label} has no folder {source.path!r}")
         found = _candidates(root)
