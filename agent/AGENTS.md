@@ -38,6 +38,7 @@ agent/
   extension/    form_fill.py     fill suggestions from the user's details
                 table_export.py  a web page's table as xlsx or csv, no model
   common/       ids.py           sortable ids
+                redact.py        credentials in free text (install output), hidden before the UI
 agent/cli/
   main.py            argument parsing and the entry point (`atlas`)
   commands.py        atlas start | stop | status | logs | settings
