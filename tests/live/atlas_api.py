@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -62,6 +63,9 @@ class Atlas:
     def ask(self, chat: str, text: str, *, approve: Approver | None = None,
             thinking: bool = True, label: str = "") -> Turn:
         r = self.c.post(f"/chats/{chat}/messages", json={"text": text, "files": [], "thinking": thinking})
+        if r.status_code == 409:
+            # A chat whose last turn failed is retried or edited, never continued.
+            return Turn(label=label or text[:50], status="refused", error=r.json().get("detail"))
         r.raise_for_status()
         return self._follow(r.json()["run"], approve, label or text[:50])
 

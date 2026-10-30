@@ -25,9 +25,10 @@ import json
 import re
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -42,7 +43,7 @@ class Case:
     name: str
     prompt: str
     uploads: list[str] = field(default_factory=list)
-    checks: Callable[["Run"], dict[str, bool]] | None = None
+    checks: Callable[[Run], dict[str, bool]] | None = None
 
 
 @dataclass
@@ -245,7 +246,7 @@ def make_fixtures() -> None:
     for month, values in data.items():
         ws = wb.create_sheet(month)
         ws.append(["region", "revenue"])
-        for region, v in zip(("North", "South", "West"), values):
+        for region, v in zip(("North", "South", "West"), values, strict=False):
             ws.append([region, v])
     wb.save(str(target))
 
@@ -277,7 +278,10 @@ def run_case(client: httpx.Client, case: Case, thinking: bool, data_dir: Path) -
                 break
     turn = client.get(f"/chats/{cid}").json()["turns"][-1]
     run = Run(case.name, thinking, cid, turn, data_dir / "chats" / cid)
-    checks = case.checks(run) if case.checks else {}
+    # A turn whose work looks right but that ended failed (say, its snapshot
+    # could not be saved) cannot be continued: it is not a pass.
+    checks = {"turn completed": run.turn["status"] == "completed",
+              **(case.checks(run) if case.checks else {})}
     stats = turn["stats"] or {}
     summary = {
         "case": case.name, "thinking": thinking, "chat": cid, "status": turn["status"],

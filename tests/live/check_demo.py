@@ -21,8 +21,9 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -151,7 +152,14 @@ def main() -> int:
                 fx = build(fixture_root)
                 a.put_settings({"access.folders": [str(fx.desktop)]})
                 print(f"-- {name} #{trial}", flush=True)
-                result = SCENARIOS[name](a, fx, log)
+                completed: list[bool] = []
+
+                def log_and_check(turn: Turn, completed: list[bool] = completed) -> None:
+                    completed.append(turn.status == "completed")
+                    log(turn)
+
+                result = {"every turn completed": True, **SCENARIOS[name](a, fx, log_and_check)}
+                result["every turn completed"] = all(completed)
                 summary.append((name, trial, result))
     finally:
         a.put_settings({"access.folders": original})
