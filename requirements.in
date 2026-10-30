@@ -3,6 +3,7 @@
 
 # --- harness / runtime ---
 strands-agents==1.58.0
+strands-harness==0.3.1   # create_harness: the agent loop, built-in tools, skills
 pydantic>=2.13
 httpx>=0.28
 python-multipart>=0.0.32
