@@ -3,7 +3,7 @@
 The same fold runs in two places: here, so a finished turn can be stored as
 `render_json` and reopened without replaying a snapshot, and in the client's
 store, so the live view and the reloaded view are built by the same rules. If
-one changes, change the other (`client/src/lib/transcript.ts`).
+one changes, change the other (`client/src/features/chat/transcript.ts`).
 
 Parts:
 

@@ -76,7 +76,7 @@ error, not a silent no-op). Every key is in `TIERS`:
 
 A new knob goes into `settings.py` and `TIERS` first, then is read by exactly
 one manager. The UI shows unknown keys under Storage → Other automatically; to
-give one a label and a control, add it to `client/src/lib/settingsSchema.ts`.
+give one a label and a control, add it to `client/src/features/settings/schema.ts`.
 
 ## The chat tree (`store/chats.py`)
 

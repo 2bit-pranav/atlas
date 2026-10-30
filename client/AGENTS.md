@@ -17,22 +17,27 @@ are the app's own pages.
 
 ```
 src/
-  App.tsx                    routes, sidebar, keyboard shortcuts, delete dialog
-  lib/store.ts               the single source of truth (see below)
-  lib/api.ts                 one function per backend route
-  lib/types.ts               the API contract
-  lib/transcript.ts          fold run events into parts (mirrors server/transcript.py)
-  lib/prefs.ts               display preferences, per browser (theme, Enter sends, ...)
-  lib/settingsSchema.ts      how settings.json is grouped on the Settings page
-  lib/shortcuts.ts           the shortcut table, read by the handler and the Shortcuts page
-  components/Sidebar.tsx
-  lib/audio.ts               record the microphone; re-encode as 16 kHz mono WAV
-  components/chat/           ChatScreen, Messages, Composer, MentionMenu, ContextGauge, Markdown, ToolBlock
-  components/ui/kit.tsx      Button, Switch, Notice, PageShell, ...
-  pages/                     SettingsPage, SkillsPage, McpPage
+  main.tsx                   entry: the router, the tooltip provider, prefs loaded first
+  app/                       App.tsx (routes, sidebar, keyboard shortcuts), ChatRoute.tsx,
+                             DeleteChatDialog.tsx, Sidebar.tsx
+  api/client.ts              one function per backend route; configureApi for the extension
+  api/types.ts               the API contract
+  state/store.ts             the single source of truth (see below)
+  state/prefs.ts             display preferences, per browser (theme, Enter sends, ...)
+  state/slots.ts             slots the extension fills (AnswerExtras)
+  features/chat/             ChatScreen, TurnRow, UserMessage, AssistantMessage, ApprovalCard,
+                             Reasoning, StatsBar, MessageActions, Markdown, ToolBlock, ContextGauge;
+                             transcript.ts (fold run events into parts; mirrors server/transcript.py)
+  features/composer/         Composer, FileChip, MentionMenu; audio.ts (record the microphone,
+                             re-encode as 16 kHz mono WAV)
+  features/settings/         SettingsPage, FieldRow, layout, sections/ (General, SkillsAndMcp,
+                             Conversations, Shortcuts); schema.ts (how settings.json is grouped)
+  features/skills/, mcp/, extension-page/   the Skills, MCP and Browser extension pages
+  components/ui/             one component per file: Button, Switch, Notice, Empty, PageShell, Kbd, tip
+  lib/                       cn.ts, format.ts, download.ts, time.ts, shortcuts.ts (the shortcut table)
 ```
 
-## The store (`lib/store.ts`)
+## The store (`state/store.ts`)
 
 Why the UI is fast, and the rules that keep it fast:
 
@@ -93,8 +98,8 @@ other restart setting, and a notice shows on every page while it runs.
 Shared with the browser extension: `api.configureApi({base, token})` (the
 extension's backend and pairing token), `atlas.page` and `atlas.onClientCall`
 (the attached tab, and running `client_call` events there), and the
-`AnswerExtras` slot under answers (`lib/slots.ts`). The web UI sets none of
-them. The Browser extension page (`pages/ExtensionPage.tsx`, `/extension`) finds
+`AnswerExtras` slot under answers (`state/slots.ts`). The web UI sets none of
+them. The Browser extension page (`features/extension-page/ExtensionPage.tsx`, `/extension`) finds
 the extension and connects it with `postMessage` (`atlas:hello`, `atlas:pair`;
 the content script answers `atlas:here`), and holds "Your details".
 
@@ -117,8 +122,10 @@ for the missing ones.
 
 ## The composer
 
-- **`@`** opens a menu of this chat's files (picking one attaches it), skills,
-  tools and connected MCP servers (inserted as `@name`).
+- **`@`** opens a menu of this chat's files, then tools, skills and connected MCP
+  servers (by name, not each MCP tool). Picking one inserts `@name` as text;
+  the backend turns each known name into an instruction for the model (a
+  file's path and how to read it, which tool or skill to use).
 - **Voice**: the mic appears when the message box is empty and llama-server
   reports audio input. The recording is attached as a WAV, not transcribed.
 - **Scrolling**: a new run brings its question to the top and the answer grows
@@ -134,5 +141,5 @@ browser over DevTools with real waiting instead.
 Add the key to `agent/config/settings.py` (and `TIERS`). It appears under
 Storage → Other with a generic control straight away. To place it in a section
 with a label, help text and a proper control, add a `Field` to
-`lib/settingsSchema.ts`. RESTART-tier keys get the "restart" badge
+`features/settings/schema.ts`. RESTART-tier keys get the "restart" badge
 automatically.

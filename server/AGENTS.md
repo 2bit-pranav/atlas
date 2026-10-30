@@ -76,6 +76,8 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `GET /chats/{id}/export`, `POST /chats/import` | a chat with every version and its Strands snapshots; an import can be continued |
 | `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace; a file as a download (raster images inline) |
 | `GET /chats/{id}/workspace` | every file in the workspace, newest first. Outlives edits |
+| `POST /chats/{id}/files/import` | `{url}`: a PDF by its link (`file://` copied, `http(s)://` downloaded) into the workspace, as an attachment |
+| `DELETE /chats/{id}/files/{path}` | remove an upload before it is sent |
 | `POST /chats/{id}/messages` | send `{text, files, refs, thinking}` → `{run, chat}` |
 | `POST /turns/{id}/retry` | last turn only → `{run, chat}` |
 | `POST /turns/{id}/edit` | `{text, files?, thinking}`, destructive → `{run, chat}` |
@@ -86,6 +88,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `POST /runs/{id}/calls/{call_id}` | the client's result for a `client_call` (a page operation) |
 | `GET /profile`, `PUT /profile` | the user's details for fill suggestions (web UI only; the extension cannot read them) |
 | `POST /extension/fill` | `{fields, title}` -> `{values, missing}`: one schema-constrained model call; nothing is filled here |
+| `GET /extension/pdf?url=` | a PDF's bytes for the extension's viewer: a `file://` one, or a web one it could not fetch; PDFs only, 100 MB at most |
 | `POST /extension/table` | `{rows, title, url, format, folder}`: a page's table saved as xlsx/csv, no model |
 | `GET /models` | the models in the models folder, which one is running, which is selected |
 | `POST /restart`, `GET /restart` | ask `atlas start` to restart llama-server and the backend; how the last restart went |
