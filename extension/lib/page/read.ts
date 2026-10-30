@@ -88,12 +88,25 @@ function state(el: Element): string {
     return ` = "${el.selectedOptions[0]?.text.trim() ?? ""}" options: ${shown}`
   }
   if (el instanceof HTMLInputElement) {
-    if (el.type === "password") return el.value ? " (filled)" : " (empty)"  // never the value
     if (el.type === "checkbox" || el.type === "radio") return el.checked ? " (checked)" : ""
-    return el.value ? ` = "${el.value.slice(0, 60)}"` : " (empty)"
+    return typedState(el)
   }
-  if (el instanceof HTMLTextAreaElement) return el.value ? ` = "${el.value.slice(0, 60)}"` : " (empty)"
+  if (el instanceof HTMLTextAreaElement) return typedState(el)
   return ""
+}
+
+/** Autofill kinds whose value is never shown, even one the page put there. */
+const SECRET = /^(?:.*\s)?(?:one-time-code|cc-|current-password|new-password)/
+
+/**
+ * B29: a text field's state for the model. What the user typed (an OTP, a card
+ * number) is never sent; the list only says the field is filled. A value the
+ * page itself put there (its default) is shown, so a prefilled form reads right.
+ */
+export function typedState(el: { value: string; defaultValue: string; autocomplete: string; type: string }): string {
+  if (!el.value) return " (empty)"
+  if (el.type === "password" || SECRET.test(el.autocomplete) || el.value !== el.defaultValue) return " (filled)"
+  return ` = "${el.value.slice(0, 60)}"`
 }
 
 const INTERACTIVE = "a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], " +

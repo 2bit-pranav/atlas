@@ -541,3 +541,16 @@ of the window. Hence the per-tool switches and the budget meter.
 
 **The MCP registry is slow** (2026-10-18, measured). About 28 seconds for two
 results at times. Searches are cached for ten minutes.
+
+**Pairing is pinned to one address** (2026-10-30, B28). Pairing accepted any
+local backend that answered 200, so a page on another local port (a dev server
+running untrusted packages) could pair the extension with its own server and
+receive what it reads. The extension now pairs only with the address in its own
+settings (default `http://127.0.0.1:8000`); a different port is set in the
+panel's Settings, which no page can reach.
+
+**The element list never carries typed values** (2026-10-30, B29). It sent the
+first 60 characters of every non-password field: OTPs and card numbers went to
+the model and the transcript. A field the user typed into is now only
+"(filled)"; a value the page itself set (its default) is still shown, and
+one-time-code, card and password fields never are.

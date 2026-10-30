@@ -18,6 +18,7 @@ Two kinds, kept apart on purpose.
 | `test_runs.py` | runs: one at a time, approvals and their timeout, client calls, cancel, stream replay |
 | `test_server_runs.py` | the backend's run lifecycle: however a run ends, its slot is freed |
 | `client/src/**/*.test.ts` | the web UI store (vitest): who answers the extension's page calls |
+| `extension/lib/**/*.test.ts` | the extension (vitest): pairing only with its own Atlas, typed field values never listed |
 
 A test for a known, not yet fixed bug is marked `xfail(strict=True)` with the
 bug's id from `docs/restructure-plan.md`. The fix removes the marker; strict

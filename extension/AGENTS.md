@@ -16,7 +16,7 @@ entrypoints/
 lib/
   page/                the page layer, built in code from the live DOM (the model never sees HTML):
                        read.ts (readable Markdown via Readability and Turndown; the element list,
-                       password values never read), tables.ts (tables, rows with merged cells
+                       never what the user typed: a typed field is only "filled"), tables.ts (tables, rows with merged cells
                        expanded), images.ts, highlight.ts (find and highlight with the CSS Custom
                        Highlight API, the page's DOM unchanged)
   fill/fill.ts         fill suggestions: fields out, preview over them, fill on Apply, never submit
@@ -38,8 +38,10 @@ npm run dev          # Edge with the extension loaded and hot reload
 `extension/.output/chrome-mv3`. Then Connect, from the panel or from Atlas's
 Browser extension page: the page posts `atlas:pair` with the token, the
 content script (only on a local http page, only from that page's own window)
-relays it to the background worker, which keeps it only if the backend at that
-local address accepts it. The page learns whether it is connected, never more.
+relays it to the background worker, which keeps it only if that address is the
+one the extension is set to (default `http://127.0.0.1:8000`) and the backend
+there accepts it. A page cannot change the address: another port is set in the
+panel's Settings. The page learns whether it is connected, never more.
 The token and address can still be typed under the panel's Advanced settings.
 
 ## Sharing the web UI
@@ -105,4 +107,4 @@ offers "Open that page" or "Use this tab", never silently reading a different
 page. The last chat comes back when the panel reopens on the same page. All
 chats, these included, are also in the web UI.
 
-Nothing runs on sites in the never-read list; password values are never read.
+Nothing runs on sites in the never-read list; what the user typed into a field is never read.

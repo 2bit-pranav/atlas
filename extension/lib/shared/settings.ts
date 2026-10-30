@@ -45,6 +45,20 @@ export function localHttp(url: string | undefined): boolean {
   }
 }
 
+/**
+ * B28: whether `base` is the Atlas the extension is set to (same scheme, host
+ * and port). A page may pair only with that one: any local port would let a
+ * page on another port point the extension, and what it reads, at its own server.
+ * Another address is set in the extension's own Settings, which no page reaches.
+ */
+export function samePlace(configured: string, base: string): boolean {
+  try {
+    return new URL(configured).origin === new URL(base).origin
+  } catch {
+    return false
+  }
+}
+
 /** True when `url` is on the never-read list, or not a web page at all. */
 export function blocked(url: string | undefined, neverRead: string[]): string | null {
   if (!url) return "no page"

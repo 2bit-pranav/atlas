@@ -69,7 +69,8 @@ CHECKS = {
            # restructure, two are setState-in-effect in the Skills and MCP pages).
            ("client oxlint", lambda: _npx("client", "oxlint")),
            ("client vitest", lambda: _npx("client", "vitest", "run")),
-           ("extension tsc", lambda: _npx("extension", "tsc", "--noEmit"))],
+           ("extension tsc", lambda: _npx("extension", "tsc", "--noEmit")),
+           ("extension vitest", lambda: _npx("extension", "vitest", "run"))],
 }
 
 
@@ -80,7 +81,7 @@ def main() -> int:
         for name, check in CHECKS[group]:
             t0 = time.time()
             ok, detail = check()
-            print(f"{'PASS' if ok else 'FAIL'}  {name:14} {time.time() - t0:5.1f}s  {detail}", flush=True)
+            print(f"{'PASS' if ok else 'FAIL'}  {name:16} {time.time() - t0:5.1f}s  {detail}", flush=True)
             if not ok:
                 failed.append(name)
     print("\nall checks passed" if not failed else f"\nfailed: {', '.join(failed)}")
