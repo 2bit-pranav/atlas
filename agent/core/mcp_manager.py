@@ -328,6 +328,23 @@ class McpManager:
                         return server.mode(original) == "ask"
         return False
 
+    def is_untrusted(self, agent_name: str) -> bool:
+        """Whether this MCP tool's results are outside content that taints the chat.
+
+        Every server is, except one Atlas points only at the allowed folders
+        (`{atlas:folders}` in its args: it lists the user's own files) and one
+        marked `"atlas": {"trusted": true}` in mcp.json. A tool that is not an
+        MCP tool is not this method's to judge.
+        """
+        with self._lock:
+            for server in self._servers.values():
+                if any(tool.tool_name == agent_name for tool in server.tools):
+                    config = server.config
+                    if (config.get("atlas") or {}).get("trusted") is True:
+                        return False
+                    return FOLDERS not in (config.get("args") or [])
+        return False
+
     def _disconnect(self, server: _Server) -> None:
         """Stop a server; one still starting is cancelled and waited for."""
         server.cancel.set()

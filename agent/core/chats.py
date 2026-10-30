@@ -130,8 +130,10 @@ class ChatStore:
             # Where a chat started (`web` or `extension`) and, from the
             # extension, the page it was about.
             have = {r["name"] for r in self._conn.execute("PRAGMA table_info(chats)")}
+            # `tainted`: outside content (a web page, a fetch) has entered the
+            # chat, so risky tools ask for the rest of it (policy.py, taint).
             for column in ("source TEXT NOT NULL DEFAULT 'web'", "page_url TEXT NOT NULL DEFAULT ''",
-                           "page_title TEXT NOT NULL DEFAULT ''"):
+                           "page_title TEXT NOT NULL DEFAULT ''", "tainted INTEGER NOT NULL DEFAULT 0"):
                 if column.split()[0] not in have:
                     self._conn.execute(f"ALTER TABLE chats ADD COLUMN {column}")
             self._conn.commit()
@@ -173,6 +175,14 @@ class ChatStore:
     def set_title(self, chat_id: str, title: str, *, only_if_empty: bool = False) -> None:
         sql = "UPDATE chats SET title=? WHERE id=?" + (" AND title=''" if only_if_empty else "")
         self._write((sql, (title, chat_id)))
+
+    def mark_tainted(self, chat_id: str) -> None:
+        """Outside content entered this chat; it stays in the history, so the mark stays."""
+        self._write(("UPDATE chats SET tainted=1 WHERE id=?", (chat_id,)))
+
+    def is_tainted(self, chat_id: str) -> bool:
+        row = self._row("SELECT tainted FROM chats WHERE id=?", (chat_id,))
+        return bool(row and row["tainted"])
 
     def touch(self, chat_id: str) -> None:
         self._write(("UPDATE chats SET updated_at=? WHERE id=?", (_now(), chat_id)))

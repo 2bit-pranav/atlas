@@ -253,6 +253,8 @@ class Atlas:
         except RunConflict as exc:
             raise HTTPException(409, str(exc)) from exc
         run.page = page.model_dump() if page else None
+        # Outside content read in an earlier turn is still in the history.
+        run.tainted = self.store.is_tainted(turn["chat_id"])
         run.task = asyncio.create_task(self.execute(run, turn, thinking=thinking, retry=retry))
         return run
 
@@ -261,11 +263,15 @@ class Atlas:
         if not run.page:
             return []
 
-        def read() -> None:
-            run.tainted = True
-
         workspace = self.chat_dir(run.chat_id)
-        return page_tools(run.client_call, workspace, lambda p: model_path(str(p)), on_read=read)
+        return page_tools(run.client_call, workspace, lambda p: model_path(str(p)),
+                          on_read=lambda: self.taint(run))
+
+    def taint(self, run: Run) -> None:
+        """Outside content entered this run: ask before risky tools, now and in
+        every later turn of the chat (the content stays in its history)."""
+        run.tainted = True
+        self.store.mark_tainted(run.chat_id)
 
     async def execute(
         self, run: Run, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None,
@@ -312,6 +318,8 @@ class Atlas:
                     kind, detail, settings.approvals.timeout),
                 sensitive=self.mcp.is_sensitive,
                 tainted=lambda: run.tainted,
+                untrusted=self.mcp.is_untrusted,
+                on_taint=lambda: self.taint(run),
             )
             run.agent = agent
             if run.cancel.is_set():

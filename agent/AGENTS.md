@@ -177,8 +177,13 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    a shell command becomes `C:/...` (bash eats the backslashes).
 2. **access**: a path outside the scope asks the user (kind `access`).
 3. **install**: a `shell` command that installs asks (kind `install`).
-4. **page taint**: once web-page content is in the turn (the extension's page
-   tools), shell commands and writes outside the workspace ask (kind `page`).
+4. **page taint**: once outside content is in the **chat** (the extension's page
+   tools, `web_fetch`, an MCP tool from an untrusted server), shell commands and
+   writes outside the workspace ask (kind `page`), in that turn and every later
+   one: the content stays in the history. Stored on the chat (`chats.tainted`);
+   `TaintTracker` marks it after such a tool returns. An MCP server is trusted
+   when Atlas points it only at the allowed folders (`{atlas:folders}`) or it is
+   marked `"atlas": {"trusted": true}` in mcp.json.
 5. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
 6. **documents**: `read`/`write`/`edit` on a binary document is redirected.
 

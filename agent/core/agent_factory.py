@@ -23,7 +23,7 @@ from agent.core.shell_env import WindowsLocalEnvironment, default_environment, m
 from agent.core.model import AtlasLlamaCppModel
 from agent.core.documents import document_tools
 from agent.core.maths import maths_tools
-from agent.core.policy import Approver, Scope, ToolPolicy
+from agent.core.policy import Approver, Scope, TaintTracker, ToolPolicy
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
 from agent.core.settings import Settings
@@ -230,6 +230,8 @@ def build_agent(
     approver: Approver | None = None,
     sensitive: Callable[[str], bool] | None = None,
     tainted: Callable[[], bool] | None = None,
+    untrusted: Callable[[str], bool] | None = None,
+    on_taint: Callable[[], None] | None = None,
     sandbox: Any = None,
 ) -> Any:
     """Build one Strands `Agent` for one turn.
@@ -244,7 +246,9 @@ def build_agent(
             sensitive MCP tools). Without one, those calls are refused with an
             explanation.
         sensitive: whether an MCP tool, by its agent-facing name, must ask first.
-        tainted: whether web-page content has entered the turn (page tools).
+        tainted: whether outside content (a web page, a fetch) has entered the chat.
+        untrusted: whether an MCP tool, by its agent-facing name, returns outside content.
+        on_taint: called when a tool brings outside content in (`TaintTracker`).
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -301,7 +305,8 @@ def build_agent(
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           reader=lambda p: reader_command(settings, p, _shown(
                               p, workspace_dir, _scope(settings, workspace_dir).folders))),
-               ToolFailureRecovery(settings.resilience, notify=observer)],
+               ToolFailureRecovery(settings.resilience, notify=observer),
+               *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )
 
     if isinstance(agent.sandbox, WindowsLocalEnvironment):
