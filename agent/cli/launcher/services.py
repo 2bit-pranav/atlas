@@ -1,5 +1,6 @@
 """The command lines of the processes Atlas starts, built from settings."""
 
+
 from __future__ import annotations
 
 import os

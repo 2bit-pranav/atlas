@@ -1,4 +1,4 @@
-"""B7: stopping a service ends everything it started (agent/cli/processes.py).
+"""B7: stopping a service ends everything it started (agent/cli/procs.py).
 
 Before: on Windows the graceful stop killed the child only, so the tree kill
 that followed found it gone and returned; and the job object let grandchildren
@@ -14,7 +14,7 @@ from pathlib import Path
 import psutil
 import pytest
 
-from agent.cli.processes import IS_WINDOWS, ProcessGroup
+from agent.cli.procs import IS_WINDOWS, ProcessGroup
 
 pytestmark = pytest.mark.skipif(not IS_WINDOWS, reason="the Windows process tree and job object")
 

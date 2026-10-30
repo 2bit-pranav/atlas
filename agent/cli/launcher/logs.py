@@ -18,6 +18,7 @@ Errors and tracebacks are never dropped or shortened. The log files always
 hold everything, unfiltered.
 """
 
+
 from __future__ import annotations
 
 import re
@@ -26,6 +27,8 @@ from dataclasses import dataclass, field
 
 #: How long a collapsed group waits for more lines before it is shown.
 COLLAPSE_SECONDS = 3.0
+
+
 #: Polled by the start screen and the web UI every few seconds: never shown when they succeed.
 QUIET_PATHS = {"/api/health", "/api/restart"}
 
@@ -43,11 +46,21 @@ class Line:
 # ------------------------------------------------------------------- parsing --
 
 _LLAMA = re.compile(r"^\d+\.\d+\.\d+\.\d+\s+([IWEDT])\s+(.*)$")
+
+
 #: llama's module column (`srv  `, `cmn  `) and function column (`load_model: `).
 _LLAMA_PREFIX = re.compile(r"^(?:[a-z]{2,4}\s{2,})?\s*\w{1,16}:\s+")
+
+
 _UVICORN = re.compile(r"^(INFO|WARNING|ERROR|CRITICAL|DEBUG):\s+(.*)$")
+
+
 _PYLOG = re.compile(r"^(INFO|WARNING|ERROR|CRITICAL|DEBUG) ([\w.]+): (.*)$")
+
+
 _VITE = re.compile(r"^\d{1,2}:\d{2}:\d{2}\s*(?:[ap]m)?\s*\[vite\]\s*(?:\(\w+\)\s*)?", re.I)
+
+
 _LEVEL = {"INFO": "", "DEBUG": "", "WARNING": "W", "ERROR": "E", "CRITICAL": "E", "I": "", "D": "",
           "T": "", "W": "W", "E": "E"}
 
@@ -80,15 +93,29 @@ _LLAMA_DROP = re.compile("|".join([
     r"common_params_print_info", r"The UI is disabled", r"--ui/--no-ui",
     r"no API key is set", r"default port", r"^https?://\S+$",
 ]), re.I)
+
+
 _LLAMA_CTX = re.compile(r"n_slots = (\d+), n_ctx_slot = (\d+)")
+
+
 _ACCESS = re.compile(r'^[\d.:]+ - "(\w+) (\S+) HTTP/[\d.]+" (\d{3})')
+
+
 _BACKEND_DROP = re.compile(
     r"^(Started server process|Waiting for application startup|Application startup complete|"
     r"Uvicorn running on|Shutting down|Waiting for application shutdown|Application shutdown complete|"
     r"Finished server process)")
+
+
 _VITE_DROP = re.compile(r"^(VITE v|➜|press h|>|$)")
+
+
 _HMR = re.compile(r"^hmr update (.*)$")
+
+
 _TB_START = re.compile(r"^Traceback \(most recent call last\)")
+
+
 _TB_END = re.compile(r"^[\w.]+(Error|Exception|Exit|Interrupt)\b")
 
 
@@ -183,4 +210,4 @@ class LogFilter:
         return [Line(service, "", text)]
 
 
-__all__ = ["COLLAPSE_SECONDS", "Line", "LogFilter", "parse"]
+__all__ = ["COLLAPSE_SECONDS", "Line", "LogFilter", "QUIET_PATHS", "parse"]

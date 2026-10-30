@@ -1,6 +1,6 @@
 """Starting, watching and stopping Atlas's processes. Prints nothing.
 
-The launcher emits `Event`s; a view (`views.py`, `screen.py`) shows them.
+The launcher emits `Event`s; a view (`agent/cli/views/`) shows them.
 Three services, started at once and health-checked concurrently, because
 neither the backend nor the web UI needs the model to be loaded:
 
@@ -14,6 +14,7 @@ restart requests from the web UI (Settings > Restart now), which arrive as a
 `restart.request` file next to `launched.json`. Every line every process
 prints is kept, unfiltered, in `.data/logs/<service>.log` (five starts back).
 """
+
 
 from __future__ import annotations
 
@@ -32,16 +33,28 @@ from typing import IO, Any
 import httpx
 
 from agent.cli import launched as rec
-from agent.cli.launch import build_backend_args, build_llamacpp_args, build_vite_args, npm
-from agent.cli.log_filters import parse
-from agent.cli.processes import ProcessGroup, SpawnFailed
+from agent.cli.launcher.logs import parse
+from agent.cli.launcher.services import (
+    build_backend_args,
+    build_llamacpp_args,
+    build_vite_args,
+    npm,
+)
+from agent.cli.ports import http_ok, port_owner, stop_by_port
+from agent.cli.procs import ProcessGroup, SpawnFailed
 from agent.config import paths
 from agent.config.settings import Settings, SettingsError, load_settings
 from agent.model import server as llama
 
 SERVICES = ("llama", "backend", "web")
+
+
 LOG_KEEP = 5
+
+
 BACKEND_TIMEOUT = 60.0
+
+
 VITE_TIMEOUT = 60.0
 
 
@@ -139,7 +152,7 @@ class Launcher:
             return str(path)
 
     def _port_free(self, service: str, port: int, key: str) -> bool:
-        owner = rec.port_owner(port)
+        owner = port_owner(port)
         if owner is None:
             return True
         pid, name = owner
@@ -152,7 +165,7 @@ class Launcher:
         while time.monotonic() < deadline and not self._stopping.is_set():
             if proc.poll() is not None:
                 return False
-            if rec.http_ok(url):
+            if http_ok(url):
                 return True
             time.sleep(0.25)
         return False
@@ -449,11 +462,11 @@ class Launcher:
         # tree kill missed). The client port is only ours with --dev.
         s = self.settings
         ports = {"backend": s.ports.backend, "llama": s.ports.llama, "web": s.ports.client}
-        rec.stop_by_port({k: v for k, v in ports.items() if k in self.group.spawned})
+        stop_by_port({k: v for k, v in ports.items() if k in self.group.spawned})
         for path in (self.launched_path, self.request_file, self.status_file):
             path.unlink(missing_ok=True)
         for log in self._logs.values():
             log.close()
 
 
-__all__ = ["Event", "Launcher", "Options", "SERVICES"]
+__all__ = ["BACKEND_TIMEOUT", "Event", "LOG_KEEP", "Launcher", "Options", "SERVICES", "VITE_TIMEOUT"]

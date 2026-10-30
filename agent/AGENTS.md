@@ -39,14 +39,16 @@ agent/
                 table_export.py  a web page's table as xlsx or csv, no model
   common/       ids.py           sortable ids
 agent/cli/
-  main.py            atlas start | stop | status | logs | settings
-  launcher.py        starts, health-checks, supervises, restarts, stops; emits events, prints nothing
-  screen.py          the start screen (Rich Live, inline)
-  views.py           --dev (filtered logs, pinned status line) and plain lines (piped, --raw)
-  log_filters.py     per-service parsing and drop / collapse / rewrite rules
-  processes.py       spawning, log capture to .data/logs, killing process trees
-  launched.py        launched.json, ports, stopping what Atlas started
-  launch.py          the command lines, built from settings
+  main.py            argument parsing and the entry point (`atlas`)
+  commands.py        atlas start | stop | status | logs | settings
+  launcher/          supervisor.py (Launcher: starts, health-checks, supervises, restarts, stops;
+                     emits events, prints nothing), services.py (each service's command line),
+                     logs.py (per-service parsing; drop / collapse / rewrite rules)
+  procs.py           spawning, log capture to .data/logs, killing process trees, the job object
+  ports.py           who holds a port; stopping only what Atlas started there
+  launched.py        launched.json: what was started, and with which settings
+  views/             screen.py (the start screen, Rich Live) and keys.py, dev.py (--dev),
+                     plain.py (piped, --raw), base.py (shared)
 ```
 
 ## One turn, end to end
