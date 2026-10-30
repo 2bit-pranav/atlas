@@ -19,7 +19,7 @@ from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 from agent.integrations.mcp.pool import FOLDERS, McpManager, _Server
 from agent.safety.policy import TaintTracker
 from agent.store.chats import ChatStore
-from server.app import Atlas
+from server.state import Atlas
 
 ROOT = Path(__file__).resolve().parents[1]
 

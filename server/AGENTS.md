@@ -4,13 +4,25 @@ FastAPI. It owns runs (one at a time, outliving the browser), the event
 stream, and the routes. Everything else is imported from `agent/`.
 
 ```
-app.py         Atlas state, chats/turns/runs/settings routes, the run body
-extensions.py  skills and MCP routes
-runs.py        Run and RunManager: event buffer, cancel, replay
-events.py      Strands stream events -> flat API events
-transcript.py  fold events into a turn's display parts (mirrored in the client)
-main.py        ASGI entry: `uvicorn server.main:app` (never with --reload)
+app.py            create_app: middleware, lifespan, and each area's routes registered
+state.py          Atlas: settings, chat store, runs, MCP; the run body (build, stream, record)
+schemas.py        request bodies (Pydantic)
+views.py          what the API returns for a turn and a run
+routes/           one module per area, each with register(api, state, ...):
+                  chats, files, turns, runs, settings (+ models, restart), health,
+                  extension (pairing, profile, fill, pdf, table), integrations (skills, MCP),
+                  spa (the built web UI)
+services/         prompt.py (attachments, @ mentions, PDF links, media for the model),
+                  workspace.py (what a run created or changed), settings_service.py
+runs.py           Run and RunManager: event buffer, cancel, replay
+events.py         Strands stream events -> flat API events
+transcript.py     fold events into a turn's display parts (mirrored in the client)
+security.py       the request guard: Host, Origin, the pairing token
+main.py           ASGI entry: `uvicorn server.main:app` (never with --reload)
 ```
+
+The routes are closures over the state, moved verbatim out of `create_app`;
+turning them into FastAPI dependencies (`Depends(state)`) is a later refactor.
 
 ## Runs
 

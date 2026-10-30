@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from server.app import Atlas
+from server.state import Atlas
 
 ROOT = Path(__file__).resolve().parents[1]
 
