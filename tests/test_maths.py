@@ -36,7 +36,9 @@ def refused(expression: str, functions=NUMBER_FUNCTIONS) -> str:
     ("round(13798.14 / 5, 2)", "2759.63"),
     ("max(3940, 824.82, 3892.82)", "3940"),
     ("average(1, 2, 4)", "2.3333333333"),
-    ("percent(495, 2750)", "18"),
+    ("percent(18, 2750)", "495"),             # 18% of 2750: what a model means by it
+    ("2750 + percent(18, 2750)", "3245"),
+    ("as_percent(495, 2750)", "18"),
     ("-(2 - 5) ** 2", "-9"),
 ])
 def test_arithmetic(expression: str, expected: str) -> None:

@@ -55,8 +55,17 @@ def _average(*args: Any) -> Decimal:
     return sum(values, Decimal(0)) / len(values)
 
 
-def _percent(part: Any, whole: Any) -> Decimal:
-    """What percent `part` is of `whole`."""
+def _percent(rate: Any, amount: Any) -> Decimal:
+    """`rate` percent of `amount`: percent(18, 2750) is 495.
+
+    The reading a model reaches for. When this meant "what percent 18 is of
+    2750", the model wrote percent(18, 2750) for 18% GST and got 0.65.
+    """
+    return _number(rate) * _number(amount) / 100
+
+
+def _as_percent(part: Any, whole: Any) -> Decimal:
+    """What percent `part` is of `whole`: as_percent(495, 2750) is 18."""
     return _number(part) * 100 / _number(whole)
 
 
@@ -69,6 +78,7 @@ NUMBER_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "abs": lambda v: abs(_number(v)),
     "sqrt": lambda v: _number(v).sqrt(),
     "percent": _percent,
+    "as_percent": _as_percent,
 }
 
 

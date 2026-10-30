@@ -31,11 +31,14 @@ def calculate(expression: str) -> dict[str, Any]:
     exactly as they appear in the source:
       calculate("3940 + 824.82 + 1895.5 + 3245 + 3892.82")    -> 13798.14
       calculate("sum([3940, 824.82, 1895.5])")                  -> 6660.32
-      calculate("2750 * 18 / 100")       (18% GST on 2,750)     -> 495
+      calculate("percent(18, 2750)")     (18% GST on 2,750)     -> 495
+      calculate("2750 + percent(18, 2750)")  (total with GST)   -> 3245
+      calculate("as_percent(495, 2750)") (495 is what % of 2750) -> 18
       calculate("round(13798.14 / 5, 2)")                      -> 2759.63
       calculate("max(3940, 824.82, 3892.82)")                   -> 3940
     Operators: + - * / // ** and brackets. Functions: sum, min, max, average,
-    round(x, places), abs, sqrt, percent(part, whole). "18% of 2750" and
+    round(x, places), abs, sqrt, percent(rate, amount), as_percent(part, whole).
+    "18% of 2750" and
     "1,250.50" are understood too. Quote the result in your answer as given.
     """
     return _result(expression, NUMBER_FUNCTIONS)
