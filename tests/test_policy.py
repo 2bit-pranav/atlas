@@ -253,3 +253,39 @@ def test_trailing_dotdot_in_shell_is_not_stripped(tmp_path) -> None:
     asked = _Asked("denied")
     event = _run(_policy(tmp_path, approver=asked), _event("shell", {"command": f"ls {allowed}/a.txt,"}))
     assert asked.calls == [] and event.cancel_tool is False
+
+
+# ------------------------------------------------------- B9: exact grants --
+
+
+def test_a_read_grant_does_not_allow_writes(tmp_path) -> None:
+    """B9: approving a read granted the folder for writes too."""
+    asked = _Asked("allowed")
+    policy = _policy(tmp_path, approver=asked)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    assert _run(policy, _event("read", {"path": (outside / "a.txt").as_posix()})).cancel_tool is False
+    assert asked.calls[-1][1]["access"] == "read"
+    _run(policy, _event("write", {"path": (outside / "b.txt").as_posix(), "content": "x"}))
+    assert [k for k, _ in asked.calls] == ["access", "access"]      # the write asked again
+    assert asked.calls[-1][1]["access"] == "write"
+    # A write grant covers reads in that folder.
+    _run(policy, _event("read", {"path": (outside / "c.txt").as_posix()}))
+    assert len(asked.calls) == 2
+
+
+def test_a_file_at_a_drive_root_or_home_grants_only_itself(tmp_path, monkeypatch) -> None:
+    """B9: a read of C:/x.txt granted all of C:/."""
+    home = tmp_path / "home"
+    (home / "docs").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    asked = _Asked("allowed")
+    policy = _policy(tmp_path, approver=asked)
+    first = (home / "a.txt").as_posix()
+    _run(policy, _event("read", {"path": first}))
+    assert Path(asked.calls[-1][1]["folder"]) == Path(first).resolve()   # the file, not the home folder
+    _run(policy, _event("read", {"path": (home / "b.txt").as_posix()}))
+    assert len(asked.calls) == 2                                      # a sibling asks again
+    root = Path(tmp_path.anchor)
+    _run(policy, _event("read", {"path": (root / "x.txt").as_posix()}))
+    assert Path(asked.calls[-1][1]["folder"]) == (root / "x.txt").resolve()

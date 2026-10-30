@@ -54,7 +54,7 @@ Server-sent events, each `{"seq": n, "type": ...}`:
 | `tool_start` | `id`, `name`, `args` | a tool call |
 | `tool_args_delta` | `id`, `name`, `args` | arguments still arriving |
 | `tool_end` | `id`, `name`, `status`, `text` | the result |
-| `approval_request` | `id`, `kind` (`install`, `access`, `tool`), `command`, `folder?`, `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
+| `approval_request` | `id`, `kind` (`install`, `access`, `tool`, `page`), `command`, `folder?`, `access?` (`read`/`write`), `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
 | `approval_result` | `id`, `decision` (`allowed`, `denied`, `expired`) | the answer, or the timeout |
 | `stats` | `context_used`, `context_size`, `prompt_tokens`, `completion_tokens`, `tokens_per_second`, `prompt_per_second`, `model_calls`, `duration_ms` | at most 4/s while generating, and once at the end |
 | `usage` | `input`, `output`, `total` | per model call, from Strands |

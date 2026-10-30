@@ -69,7 +69,7 @@ class Transcript:
         elif kind == "approval_request":
             self.parts.append({"kind": "approval", "id": event.get("id"), "command": event.get("command", ""),
                                "request": event.get("kind", "install"), "folder": event.get("folder"),
-                               "status": "pending", "expires_at": event.get("expires_at")})
+                               "access": event.get("access"), "status": "pending", "expires_at": event.get("expires_at")})
         elif kind == "approval_result":
             for part in self.parts:
                 if part["kind"] == "approval" and part["id"] == event.get("id"):

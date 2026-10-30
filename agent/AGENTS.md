@@ -223,7 +223,9 @@ What is checked:
 - MCP tools: any string argument that is a drive path.
 
 Outside the scope the user gets an Allow / Deny card naming the folder. Allow
-holds for that folder for the rest of the turn. With `access.ask_outside` off
+holds for that folder for the rest of the turn, for what was asked: a read
+grant does not allow writes, and at a drive root or the home folder only the
+exact path is granted (never all of `C:/`). With `access.ask_outside` off
 it is refused, and the model is told the user can add the folder in Settings.
 
 MCP servers get the same folders through their arguments: `{atlas:folders}` in

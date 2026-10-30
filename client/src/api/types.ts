@@ -52,6 +52,8 @@ export type Part =
       /** What is asked: an install, a folder outside the allowed ones, or an MCP tool marked "ask". */
       request?: "install" | "access" | "tool" | "page"
       folder?: string | null
+      /** For a folder request: what Allow grants, reading only or also changing. */
+      access?: "read" | "write" | null
       command: string
       status: "pending" | "allowed" | "denied" | "expired"
       expires_at: number
@@ -133,7 +135,7 @@ export type RunEvent = { seq: number } & (
   | { type: "tool_start"; id: string; name: string; args: unknown }
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
   | { type: "tool_end"; id: string; name: string; status: string; text: string }
-  | { type: "approval_request"; id: string; kind: "install" | "access" | "tool" | "page"; command: string; folder?: string;
+  | { type: "approval_request"; id: string; kind: "install" | "access" | "tool" | "page"; command: string; folder?: string; access?: "read" | "write";
       timeout: number; expires_at: number }
   | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
   /** The backend asks the client to do something (the extension: a page operation). */

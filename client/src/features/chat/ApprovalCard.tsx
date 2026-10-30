@@ -61,7 +61,8 @@ export function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "appr
           </button>
           <span className="text-[11px] text-muted-foreground">
             {part.request === "access" && part.folder
-              ? <>Allows {part.folder} for the rest of this answer. To allow it always, add it under Settings &gt; Access.</>
+              ? <>Allows {part.access === "write" ? "changing" : "reading"} {part.folder} for the rest of this
+                  answer. To allow it always, add it under Settings &gt; Access.</>
               : "Runs on this computer with your permissions."}
           </span>
         </div>

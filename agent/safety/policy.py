@@ -78,7 +78,9 @@ class ToolPolicy(HookProvider):
         self.sensitive = sensitive or (lambda name: False)
         self.reader = reader
         #: Folders the user allowed during this turn: not asked again.
-        self._granted: list[Path] = []
+        #: What the user allowed this turn: (folder or file, write?). A read grant
+        #: is not a write grant (B9).
+        self._granted: list[tuple[Path, bool]] = []
         self.steps: list[Callable[[BeforeToolCallEvent], Awaitable[Decision | None]]] = [
             self._normalise, self._floor, self._access, self._install, self._taint, self._sensitive, self._documents,
         ]
@@ -153,23 +155,26 @@ class ToolPolicy(HookProvider):
     async def _access(self, event: BeforeToolCallEvent) -> Decision | None:
         name, args = event.tool_use.get("name", ""), event.tool_use.get("input") or {}
         for path, write in _paths_of(name, args, event.selected_tool, self.scope):
+            target = _absolute(path)
             if self.scope.allows(path, write=write) or any(
-                    g == _absolute(path) or g in _absolute(path).parents for g in self._granted):
+                    (g == target or g in target.parents) and (granted_write or not write)
+                    for g, granted_write in self._granted):
                 continue
-            folder = _absolute(path) if _absolute(path).is_dir() else _absolute(path).parent
+            folder = _grant_scope(target)
             if not self.ask_outside or self.approver is None:
                 return Decision(refuse=(
                     f"{path} is outside the folders Atlas may use. Tell the user; they can add "
                     f"{folder} under Settings > Access."))
             decision = await self.approver("access", {
-                "tool": name, "path": str(_absolute(path)), "folder": str(folder),
-                "command": f"{name} {'writes' if write else 'reads'} {_absolute(path)}"})
+                "tool": name, "path": str(target), "folder": str(folder),
+                "access": "write" if write else "read",
+                "command": f"{name} {'writes' if write else 'reads'} {target}"})
             if decision != "allowed":
                 return Decision(refuse=(
                     f"The user did not allow access to {folder} this time, so this call was not run. "
                     "Do not try to reach it another way; continue without it or tell the user what "
                     "you need. If the user asks again later, try again: they may have allowed it."))
-            self._granted.append(folder)
+            self._granted.append((folder, write))
         return None
 
     async def _taint(self, event: BeforeToolCallEvent) -> Decision | None:
@@ -262,6 +267,15 @@ class ToolPolicy(HookProvider):
         what = "edit_document" if name == "edit" else "create_document"
         return Decision(refuse=(f"{Path(path).name} is a binary {ext} file; writing text into it would "
                                 f"corrupt it. Use the `{what}` tool instead."))
+
+
+def _grant_scope(target: Path) -> Path:
+    """What an Allow covers: the target's folder, but only the target itself when
+    that folder is a drive root or the home folder (reading C:/x.txt must not
+    grant all of C:/)."""
+    folder = target if target.is_dir() else target.parent
+    broad = {Path(target.anchor), _absolute(Path.home())}
+    return target if folder in broad else folder
 
 
 class TaintTracker(HookProvider):
