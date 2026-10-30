@@ -13,7 +13,7 @@ import re
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-REDACTED = "••••••"
+from agent.common.redact import REDACTED
 
 #: An argument or query parameter whose name says it holds a secret.
 _SECRET_NAME = re.compile(r"(api[-_]?key|token|secret|password|passwd|auth|credential|bearer)", re.I)

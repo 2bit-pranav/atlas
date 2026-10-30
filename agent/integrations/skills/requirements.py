@@ -26,6 +26,8 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+from agent.common.redact import redact_text
+
 _FENCE = re.compile(r"```[^\n]*\n(.*?)```", re.S)
 
 
@@ -150,13 +152,14 @@ def install(folder: Path, requirements: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _run(argv: list[str], cwd: Path | None, logs: list[str]) -> bool:
-    logs.append("$ " + " ".join(argv[0:1] + argv[1:]))
+    # Redacted: pip and npm echo index URLs from the user's own config, credentials included.
+    logs.append(redact_text("$ " + " ".join(argv)))
     try:
         proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=900)
     except (OSError, subprocess.SubprocessError) as exc:
         logs.append(f"failed to start: {exc}")
         return False
-    logs.append((proc.stdout + proc.stderr).strip()[-3000:])
+    logs.append(redact_text((proc.stdout + proc.stderr).strip())[-3000:])
     return proc.returncode == 0
 
 
