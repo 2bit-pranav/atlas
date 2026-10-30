@@ -1,4 +1,4 @@
-﻿"""The command lines of the processes Atlas starts, built from settings."""
+"""The command lines of the processes Atlas starts, built from settings."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import os
 import shutil
 import sys
 
-from agent.core import llama
-from agent.core.settings import Settings
+from agent.config.settings import Settings
+from agent.model import server as llama
 
 
 def build_llamacpp_args(settings: Settings, api_key: str | None = None) -> list[str]:

@@ -131,7 +131,7 @@ browser over DevTools with real waiting instead.
 
 ## Adding a setting to the UI
 
-Add the key to `agent/core/settings.py` (and `TIERS`). It appears under
+Add the key to `agent/config/settings.py` (and `TIERS`). It appears under
 Storage → Other with a generic control straight away. To place it in a section
 with a label, help text and a proper control, add a `Field` to
 `lib/settingsSchema.ts`. RESTART-tier keys get the "restart" badge

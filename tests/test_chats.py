@@ -1,11 +1,11 @@
-"""Offline tests for the chat tree (agent/core/chats.py): send, retry, edit,
+"""Offline tests for the chat tree (agent/store/chats.py): send, retry, edit,
 version switching and crash recovery."""
 
 from __future__ import annotations
 
 import pytest
 
-from agent.core.chats import ChatStore, TreeError
+from agent.store.chats import ChatStore, TreeError
 
 
 @pytest.fixture

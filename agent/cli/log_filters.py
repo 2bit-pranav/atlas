@@ -165,7 +165,7 @@ class LogFilter:
             return []
         if _BACKEND_DROP.match(text):
             return []
-        # Atlas's own lines arrive as `agent.core.x: message`; the logger name is noise here.
+        # Atlas's own lines arrive as `agent.safety.policy: message`; the logger name is noise here.
         return [Line("backend", level, re.sub(r"^(?:agent|server)[\w.]*: ", "", text))]
 
     def _vite(self, service: str, level: str, text: str) -> list[Line]:

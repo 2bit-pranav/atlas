@@ -1,4 +1,4 @@
-﻿"""`launched.json`, ports, and stopping what Atlas started.
+"""`launched.json`, ports, and stopping what Atlas started.
 
 `launched.json` records the running launch: each process with its start time
 (so a reused PID is never mistaken for ours), the URLs, and the restart-tier
@@ -24,8 +24,8 @@ from typing import Any
 import httpx
 
 from agent.cli.processes import kill_pid_tree
-from agent.core.ids import new_ulid
-from agent.core.settings import changed_restart_keys, restart_tier_values
+from agent.common.ids import new_ulid
+from agent.config.settings import changed_restart_keys, restart_tier_values
 
 IS_WINDOWS = sys.platform == "win32"
 #: What each service's process looks like; a port holder that does not match

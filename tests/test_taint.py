@@ -16,9 +16,9 @@ import pytest
 from mcp import types as mcp_types
 from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
-from agent.core.chats import ChatStore
-from agent.core.mcp_manager import FOLDERS, McpManager, _Server
-from agent.core.policy import TaintTracker
+from agent.integrations.mcp.pool import FOLDERS, McpManager, _Server
+from agent.safety.policy import TaintTracker
+from agent.store.chats import ChatStore
 from server.app import Atlas
 
 ROOT = Path(__file__).resolve().parents[1]

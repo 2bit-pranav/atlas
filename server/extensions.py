@@ -13,15 +13,13 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from agent.core import paths, skill_requirements
-from agent.core.mcp_manager import McpError, search_registry
-from agent.core.settings import write_settings
-from agent.core.skill_installer import (
-    delete_skill,
-    install_zip,
-    preview_or_install,
-)
-from agent.core.skill_manager import SkillError, SkillManager
+from agent.config import paths
+from agent.config.settings import write_settings
+from agent.integrations.mcp.pool import McpError
+from agent.integrations.mcp.registry import search_registry
+from agent.integrations.skills import requirements as skill_requirements
+from agent.integrations.skills.catalog import SkillError, SkillManager
+from agent.integrations.skills.installer import delete_skill, install_zip, preview_or_install
 
 
 class InstallSkill(BaseModel):

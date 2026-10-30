@@ -12,8 +12,10 @@ from types import SimpleNamespace
 from mcp import types as mcp_types
 from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
-from agent.core import skill_requirements
-from agent.core.policy import Scope, ToolPolicy, _shell_paths
+from agent.integrations.skills import requirements as skill_requirements
+from agent.safety.call_paths import _shell_paths
+from agent.safety.policy import ToolPolicy
+from agent.safety.scope import Scope
 
 
 def _mcp(name: str) -> MCPAgentTool:
@@ -232,7 +234,7 @@ def test_relative_paths_inside_scope_still_run_without_asking(tmp_path) -> None:
 
 
 def test_locate_never_leaves_the_folder_it_searches(tmp_path) -> None:
-    from agent.core.shell_env import locate
+    from agent.safety.placement import locate
 
     (tmp_path / "ws").mkdir()
     (tmp_path / "secret.txt").write_text("x")

@@ -1,4 +1,4 @@
-"""Offline tests for `calculate` and `dates` (agent/core/maths.py)."""
+"""Offline tests for `calculate` and `dates` (agent/tools/maths/)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,8 @@ import datetime as dt
 
 import pytest
 
-from agent.core.maths import DATE_FUNCTIONS, NUMBER_FUNCTIONS, _result
+from agent.tools.maths.dates import DATE_FUNCTIONS
+from agent.tools.maths.evaluator import NUMBER_FUNCTIONS, _result
 
 
 def calc(expression: str) -> str:

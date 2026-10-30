@@ -35,21 +35,8 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from agent.core import form_fill, llama, paths
-from agent.core.agent_factory import RetryPlan, build_agent, clock_note, retry_hint
-from agent.core.chats import (
-    CANCELLED,
-    COMPLETED,
-    FAILED,
-    RUNNING,
-    ChatStore,
-    TreeError,
-)
-from agent.core.mcp_manager import McpManager
-from agent.core.memory_manager import MemoryManager
-from agent.core.page_tools import page_note, page_tools, write_table
-from agent.core.session_manager import SessionManager
-from agent.core.settings import (
+from agent.config import paths
+from agent.config.settings import (
     TIERS,
     Settings,
     SettingsError,
@@ -61,9 +48,22 @@ from agent.core.settings import (
     set_path,
     write_settings,
 )
-from agent.core.shell_env import model_path
-from agent.core.skill_manager import SkillManager, reader_command
-from agent.core.tool_manager import ToolManager
+from agent.extension import form_fill
+from agent.extension.table_export import write_table
+from agent.integrations.mcp.pool import McpManager
+from agent.integrations.skills.catalog import SkillManager
+from agent.integrations.skills.readers import reader_command
+from agent.model import server as llama
+from agent.model.sampling import RetryPlan
+from agent.platform.winpaths import model_path
+from agent.prompt.notes import clock_note, retry_hint
+from agent.prompt.page import page_note
+from agent.runtime.factory import build_agent
+from agent.runtime.memory import MemoryManager
+from agent.store.chats import CANCELLED, COMPLETED, FAILED, RUNNING, ChatStore, TreeError
+from agent.store.snapshots import SessionManager
+from agent.tools.manager import ToolManager
+from agent.tools.page import page_tools
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
 from server.security import EXTENSION_SCHEMES, Pairing, guard, trusted_origins

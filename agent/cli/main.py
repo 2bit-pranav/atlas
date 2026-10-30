@@ -1,4 +1,4 @@
-﻿"""The `atlas` command.
+"""The `atlas` command.
 
     atlas start [--dev] [--raw] [--no-llama] [--no-backend] [--no-client]
     atlas stop
@@ -24,8 +24,9 @@ from agent.cli import launched as rec
 from agent.cli.launch import build_llamacpp_args, describe_args
 from agent.cli.launcher import SERVICES, Launcher, Options
 from agent.cli.processes import kill_pid_tree
-from agent.core import llama, paths
-from agent.core.settings import Settings, SettingsError, load_settings
+from agent.config import paths
+from agent.config.settings import Settings, SettingsError, load_settings
+from agent.model import server as llama
 
 
 def _find_root() -> Path:
