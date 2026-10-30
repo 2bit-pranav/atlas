@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +15,11 @@ from agent.config import paths
 from server.schemas import (
     ImportFile,
 )
-from server.services.workspace import _scan
+from server.services.workspace import _scan, safe_name, unique_path
 from skills._shared import LinkError, save_link  # the one document-link resolver
+
+#: The largest file one upload may hold.
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 
 def register(api: Any, state: Any) -> None:
@@ -30,17 +32,29 @@ def register(api: Any, state: Any) -> None:
         upload_file = form.get("file")
         if upload_file is None or isinstance(upload_file, str):
             raise HTTPException(422, "no file part")
-        name = Path(upload_file.filename or "upload.bin").name
-        target = state.chat_dir(chat_id) / name
+        folder = state.chat_dir(chat_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        target = unique_path(folder, safe_name(upload_file.filename or ""))
+        name = target.name
 
         # Nothing is parsed at upload: the file is saved and the model reads it
         # on demand through a skill. Copying is still blocking I/O, so it runs
         # off the event loop and cannot freeze an active run's stream.
-        def _save() -> None:
+        def _save() -> bool:
+            written = 0
             with target.open("wb") as fh:
-                shutil.copyfileobj(upload_file.file, fh)
+                while chunk := upload_file.file.read(1 << 20):
+                    written += len(chunk)
+                    if written > MAX_UPLOAD_BYTES:
+                        break
+                    fh.write(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                target.unlink(missing_ok=True)
+                return False
+            return True
 
-        await asyncio.to_thread(_save)
+        if not await asyncio.to_thread(_save):
+            raise HTTPException(413, f"the file is larger than {MAX_UPLOAD_BYTES >> 20} MB")
         return {"name": name, "path": str(target), "size": target.stat().st_size,
                 "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
 
