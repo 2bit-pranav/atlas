@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client"
 import * as Tooltip from "@radix-ui/react-tooltip"
 
 import "@/index.css"
-import "@/lib/prefs"
+import "@/state/prefs"
 import { Panel } from "./Panel"
 
 createRoot(document.getElementById("root")!).render(
