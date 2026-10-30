@@ -271,33 +271,36 @@ class Atlas:
         self, run: Run, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None,
     ) -> None:
         """The run body. One task per run; the frontend is not involved."""
-        settings = self.settings
-        files = json.loads(turn["files_json"] or "[]")
-        # A passage selected in the preview names its file relative to the
-        # workspace; the model is given the full path, ready for edit_document.
-        workspace = self.chat_dir(run.chat_id)
-        refs = [{**r, "path": r.get("path") or str(workspace / str(r.get("file", "")))}
-                for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
-        media = [f for f in files if _media_kind(f) and Path(str(f.get("path", ""))).is_file()]
-        text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs,
-                           reader=lambda p, shown: reader_command(settings, p, shown),
-                           workspace=workspace)
-        if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
-            text = f"{text}\n\n{guidance}".strip()
-        if links := _link_guidance(turn["user_text"], settings):
-            text = f"{text}\n\n{links}".strip()
-        if run.page:
-            text = f"{text}\n\n{page_note(run.page)}".strip()
-        # Only the model sees this; the chat shows the user's own text.
-        text = f"{text}\n\n{clock_note()}".strip()
-        hint = retry_hint(settings, retry) if retry else ""
-        sm = SessionManager(settings, run.chat_id)
-        # Recorded per turn, so each version shows the model that wrote it.
-        run.transcript.stats["model"] = settings.model.name
-        #: What the workspace held before the run, so the files this turn
-        #: created or changed can be offered as downloads afterwards.
-        run.workspace_before = _scan(self.chat_dir(run.chat_id))
+        # Everything that can fail is inside the `try`, preparing the prompt
+        # included: an exception before it once left the run holding the only
+        # slot, and every later message got 409 until a restart.
         try:
+            settings = self.settings
+            files = json.loads(turn["files_json"] or "[]")
+            # A passage selected in the preview names its file relative to the
+            # workspace; the model is given the full path, ready for edit_document.
+            workspace = self.chat_dir(run.chat_id)
+            refs = [{**r, "path": r.get("path") or str(workspace / str(r.get("file", "")))}
+                    for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
+            media = [f for f in files if _media_kind(f) and Path(str(f.get("path", ""))).is_file()]
+            text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs,
+                               reader=lambda p, shown: reader_command(settings, p, shown),
+                               workspace=workspace)
+            if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
+                text = f"{text}\n\n{guidance}".strip()
+            if links := _link_guidance(turn["user_text"], settings):
+                text = f"{text}\n\n{links}".strip()
+            if run.page:
+                text = f"{text}\n\n{page_note(run.page)}".strip()
+            # Only the model sees this; the chat shows the user's own text.
+            text = f"{text}\n\n{clock_note()}".strip()
+            hint = retry_hint(settings, retry) if retry else ""
+            sm = SessionManager(settings, run.chat_id)
+            # Recorded per turn, so each version shows the model that wrote it.
+            run.transcript.stats["model"] = settings.model.name
+            #: What the workspace held before the run, so the files this turn
+            #: created or changed can be offered as downloads afterwards.
+            run.workspace_before = _scan(self.chat_dir(run.chat_id))
             manager = sm.manager()
             # Building restores a snapshot from disk: blocking work that would
             # stall every open SSE stream if it ran on the event loop.
