@@ -20,7 +20,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import IO, Callable
+from typing import IO, Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +52,22 @@ def kill_pid_tree(pid: int, timeout: float = 2.0) -> None:
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=5)
 
 
+def _descendants(pid: int) -> list[Any]:
+    """Every process `pid` started, directly or not, as psutil handles."""
+    try:
+        import psutil
+
+        return psutil.Process(pid).children(recursive=True)
+    except Exception:  # noqa: BLE001 - already gone, or not ours to see
+        return []
+
+
 # --------------------------------------------------------------- Windows Job --
 
 if IS_WINDOWS:
     from ctypes import wintypes
 
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
-    JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK = 0x00001000
     JobObjectExtendedLimitInformation = 9
     PROCESS_TERMINATE = 0x0001
     PROCESS_SET_QUOTA = 0x0100
@@ -103,8 +112,9 @@ class _WindowsJob:
         if not handle:
             return
         info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-        info.BasicLimitInformation.LimitFlags = (
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
+        # No SILENT_BREAKAWAY_OK: with it, whatever a child started (MCP
+        # servers, Vite's node) was not in the job, and outlived every stop.
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if kernel32.SetInformationJobObject(handle, JobObjectExtendedLimitInformation,
                                             ctypes.byref(info), ctypes.sizeof(info)):
             self._handle = handle
@@ -213,6 +223,9 @@ class ProcessGroup:
             return
         proc = entry[0]
         if proc.poll() is None:
+            # Taken first: on Windows the graceful stop ends the child at once,
+            # after which its descendants can no longer be found from it.
+            tree = _descendants(proc.pid)
             self._signal(proc, force=False)
             deadline = time.monotonic() + grace
             while proc.poll() is None and time.monotonic() < deadline:
@@ -220,6 +233,9 @@ class ProcessGroup:
             self._signal(proc, force=True)
             with contextlib.suppress(subprocess.TimeoutExpired):
                 proc.wait(timeout=2)
+            for child in tree:
+                with contextlib.suppress(Exception):
+                    child.kill()
 
     def close(self) -> None:
         for service in reversed(list(self._children)):
