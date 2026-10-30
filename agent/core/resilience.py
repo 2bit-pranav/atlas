@@ -31,7 +31,8 @@ import asyncio
 import json
 import logging
 from collections import Counter
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 from strands.event_loop._retry import ModelRetryStrategy

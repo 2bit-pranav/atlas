@@ -8,8 +8,8 @@ policy (`policy.py`); this module only decides what counts as an install.
 from __future__ import annotations
 
 import re
-from typing import Any, Awaitable, Callable
-
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 #: `(kind, detail) -> "allowed" | "denied" | "expired"`
 Approver = Callable[[str, dict[str, Any]], Awaitable[str]]

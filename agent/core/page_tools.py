@@ -18,8 +18,9 @@ follows instructions it reads.
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from strands import tool
 

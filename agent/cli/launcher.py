@@ -24,16 +24,17 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any, Callable
+from typing import IO, Any
 
 import httpx
 
 from agent.cli import launched as rec
 from agent.cli.launch import build_backend_args, build_llamacpp_args, build_vite_args, npm
-from agent.cli.processes import ProcessGroup, SpawnFailed
 from agent.cli.log_filters import parse
+from agent.cli.processes import ProcessGroup, SpawnFailed
 from agent.core import llama, paths
 from agent.core.settings import Settings, SettingsError, load_settings
 

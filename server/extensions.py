@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from agent.core import paths
+from agent.core import paths, skill_requirements
 from agent.core.mcp_manager import McpError, search_registry
 from agent.core.settings import write_settings
 from agent.core.skill_installer import (
@@ -21,7 +21,6 @@ from agent.core.skill_installer import (
     install_zip,
     preview_or_install,
 )
-from agent.core import skill_requirements
 from agent.core.skill_manager import SkillError, SkillManager
 
 

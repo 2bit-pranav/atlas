@@ -76,7 +76,7 @@ def main() -> int:
         rows = sheet.iter_rows(values_only=True)
         header_row = next(rows, None)
         samples = []
-        for _, row in zip(range(args.rows), rows):
+        for _, row in zip(range(args.rows), rows, strict=False):
             samples.append([("" if v is None else v) for v in row])
         width = len(header_row) if header_row else 0
         print(f"--- sheet {name!r}: {sheet.max_row} rows x {width} cols ---")

@@ -168,8 +168,8 @@ def test_pasted_windows_path_works_in_file_tools(tmp_path) -> None:
 
 def test_unquoted_backslash_paths_in_shell_become_forward_slashes(tmp_path) -> None:
     policy = _policy(tmp_path, approver=_Asked())
-    event = _run(policy, _event("shell", {"command": "dir docs && echo 'C:\keep\this'"}))
-    assert event.tool_use["input"]["command"] == "dir docs && echo 'C:\keep\this'"
+    event = _run(policy, _event("shell", {"command": "dir docs && echo 'C:\\keep\this'"}))
+    assert event.tool_use["input"]["command"] == "dir docs && echo 'C:\\keep\this'"
     inside = str(tmp_path / "docs")
     event = _run(policy, _event("shell", {"command": f"dir {inside}"}))
     assert "\\" not in event.tool_use["input"]["command"]

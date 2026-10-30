@@ -16,8 +16,9 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any
 
 from server.transcript import Transcript, stats_from_timings
 
@@ -104,7 +105,7 @@ class Run:
                    "timeout": timeout, "expires_at": int((time.time() + timeout) * 1000)})
         try:
             decision = await asyncio.wait_for(future, timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             decision = "expired"
         finally:
             self.approvals.pop(approval_id, None)
@@ -132,7 +133,7 @@ class Run:
         self.emit({"type": "client_call", "id": call_id, "op": op, "args": args})
         try:
             return await asyncio.wait_for(future, timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {"error": "the browser did not answer; is the Atlas side panel still open on that page?"}
         finally:
             self.calls.pop(call_id, None)
@@ -248,7 +249,7 @@ class RunManager:
             run.waiters.append(waiter)
             try:
                 await asyncio.wait_for(waiter.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # a periodic wake, so a client never hangs indefinitely
             finally:
                 if waiter in run.waiters:

@@ -31,7 +31,8 @@ target-version = "py314"
 # pycodestyle errors, import order, pyupgrade and bugbear (likely bugs). Line
 # length is not enforced: the code wraps for meaning, not at a column.
 select = ["E", "F", "W", "I", "UP", "B"]
-ignore = ["E501"]
+# UP042 (str+Enum -> StrEnum) would change how settings tiers print.
+ignore = ["E501", "UP042"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

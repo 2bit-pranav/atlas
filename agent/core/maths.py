@@ -17,8 +17,9 @@ import ast
 import datetime as dt
 import operator
 import re
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation, localcontext
-from typing import Any, Callable
+from typing import Any
 
 from strands import tool
 

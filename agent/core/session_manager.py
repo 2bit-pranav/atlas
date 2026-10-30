@@ -25,8 +25,9 @@ anyway so LIVE settings apply.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from strands.session import SnapshotSessionManager
 from strands.session.snapshot_session_manager import _snapshot_key

@@ -47,6 +47,7 @@ from agent.core.chats import (
 )
 from agent.core.mcp_manager import McpManager
 from agent.core.memory_manager import MemoryManager
+from agent.core.page_tools import page_note, page_tools, write_table
 from agent.core.session_manager import SessionManager
 from agent.core.settings import (
     TIERS,
@@ -60,15 +61,14 @@ from agent.core.settings import (
     set_path,
     write_settings,
 )
-from agent.core.page_tools import page_note, page_tools, write_table
 from agent.core.shell_env import model_path
 from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
-from server.security import EXTENSION_SCHEMES, Pairing, guard, trusted_origins
-from skills._shared import LinkError, open_link, save_link  # the one document-link resolver
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
+from server.security import EXTENSION_SCHEMES, Pairing, guard, trusted_origins
 from server.transcript import answer_of
+from skills._shared import LinkError, open_link, save_link  # the one document-link resolver
 
 logger = logging.getLogger(__name__)
 

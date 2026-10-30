@@ -25,7 +25,6 @@ from typing import Any
 from agent.core import paths
 from agent.core.settings import Settings
 
-
 #: Set by `atlas start` for the backend: the per-launch key llama-server was
 #: started with (`--api-key`). Without it any web page could use the model
 #: through 127.0.0.1, since llama-server allows every origin.

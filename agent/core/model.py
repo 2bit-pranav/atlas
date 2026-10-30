@@ -22,8 +22,10 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable
+from typing import Any
 
+import httpx
 from strands.models.llamacpp import (
     ContextWindowOverflowException,
     LlamaCppModel,
@@ -35,7 +37,6 @@ from strands.types.streaming import StreamEvent
 from strands.types.tools import ToolChoice, ToolSpec
 
 from agent.core.llama import auth_headers
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class AtlasLlamaCppModel(LlamaCppModel):
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[StreamEvent, None]:
+    ) -> AsyncGenerator[StreamEvent]:
         """Stream conversation with llama.cpp, capturing reasoning_content."""
         warn_on_tool_choice_not_supported(tool_choice)
         start_time = time.perf_counter()
@@ -165,7 +166,7 @@ class AtlasLlamaCppModel(LlamaCppModel):
 
     async def _stream_body(
         self, response: httpx.Response, start_time: float
-    ) -> AsyncGenerator[StreamEvent, None]:
+    ) -> AsyncGenerator[StreamEvent]:
         """Turn llama-server's SSE lines into Strands stream events, as they arrive."""
         yield self._format_chunk({"chunk_type": "message_start"})
         yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})

@@ -18,7 +18,8 @@ Two things about the shapes, both learned the hard way:
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
 # What `translate` emits (the full event list is in server/AGENTS.md):
 #

@@ -62,7 +62,7 @@ def _lines(boxes: list[Any], texts: list[str]) -> str:
     with spaces, so a table row stays one row instead of one cell per line.
     """
     items = []
-    for box, text in zip(boxes, texts):
+    for box, text in zip(boxes, texts, strict=False):
         ys = [p[1] for p in box]
         xs = [p[0] for p in box]
         items.append(((min(ys) + max(ys)) / 2, max(ys) - min(ys), min(xs), text))

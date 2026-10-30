@@ -27,9 +27,10 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from markdown_it import MarkdownIt
 from strands import tool
@@ -353,8 +354,17 @@ def _write_pdf(blocks: list[Block], path: Path, title: str | None) -> dict[str, 
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import (HRFlowable, ListFlowable, ListItem, Paragraph,
-                                    Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle)
+    from reportlab.platypus import (
+        HRFlowable,
+        ListFlowable,
+        ListItem,
+        Paragraph,
+        Preformatted,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
 
     f = _pdf_fonts()
     base = getSampleStyleSheet()

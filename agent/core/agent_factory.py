@@ -10,23 +10,24 @@ from __future__ import annotations
 
 import logging
 import random
-from datetime import datetime
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from strands_harness import build_system_prompt, create_harness
 
 from agent.core import paths
-from agent.core.memory_manager import MemoryManager
-from agent.core.shell_env import WindowsLocalEnvironment, default_environment, model_path
-from agent.core.model import AtlasLlamaCppModel
 from agent.core.documents import document_tools
 from agent.core.maths import maths_tools
+from agent.core.memory_manager import MemoryManager
+from agent.core.model import AtlasLlamaCppModel
 from agent.core.policy import Approver, Scope, TaintTracker, ToolPolicy
 from agent.core.resilience import LocalModelRetry, ToolFailureRecovery
 from agent.core.session_manager import SessionManager
 from agent.core.settings import Settings
+from agent.core.shell_env import WindowsLocalEnvironment, default_environment, model_path
 from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
 

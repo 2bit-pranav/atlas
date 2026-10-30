@@ -33,15 +33,16 @@ import subprocess
 import sys
 import tempfile
 import threading
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from strands.sandbox.base import ExecutionResult, StreamChunk
 from strands.sandbox.errors import SandboxTimeoutError
-from strands.sandbox.posix_shell import build_shell_env_prefix
 from strands.sandbox.not_a_sandbox_local_environment import (
     NotASandboxLocalEnvironment,
 )
+from strands.sandbox.posix_shell import build_shell_env_prefix
 
 #: The only language `execute_code` runs. It runs with `sys.executable`, the
 #: backend's own interpreter, which has the venv's packages.
@@ -117,7 +118,7 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult]:
         cwd = cwd or (str(self.cwd) if self.cwd else None)
         env = self._env(env)
         try:
@@ -137,7 +138,7 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
                 stderr=f"Shell execution failed [{type(exc).__name__}: {exc}] (loop={loop_name}, cwd={cwd or os.getcwd()})",
                 exit_code=1,
             )
-    
+
     async def _posix(
         self,
         command: str,
@@ -145,7 +146,7 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         timeout: float | None,
         cwd: str | None,
         env: dict[str, str] | None,
-    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult]:
         """`sh -c` in the workspace, as Strands runs it, but stoppable.
 
         Strands' own runner kills the process only when the task consuming it
@@ -174,7 +175,7 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
                 _kill_tree(process)
                 try:
                     await asyncio.wait_for(asyncio.shield(work), 10)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     work.cancel()
                 break
         stdout, stderr = (_decode(b) for b in work.result()) if work.done() and not work.cancelled() else ("", "")
@@ -191,7 +192,7 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         timeout: float | None,
         cwd: str | None,
         env: dict[str, str] | None,
-    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult]:
         """The fallback: `cmd /c <one-shot batch file>`.
 
         A batch file rather than the command in `argv`. As an argument, Python
@@ -291,7 +292,7 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult]:
         yield await self.execute_code(
             code, language, timeout=timeout, cwd=cwd, env=env, **kwargs
         )

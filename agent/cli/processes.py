@@ -19,8 +19,9 @@ import sys
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import IO, Any, Callable
+from typing import IO, Any
 
 logger = logging.getLogger(__name__)
 

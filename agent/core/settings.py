@@ -183,7 +183,7 @@ class MemorySettings(StrictModel):
     enabled: bool = False
 
     @model_validator(mode="after")
-    def _must_stay_off(self) -> "MemorySettings":
+    def _must_stay_off(self) -> MemorySettings:
         if self.enabled:
             raise ValueError(
                 "memory.enabled=true is not supported yet: the file memory store "
@@ -300,7 +300,7 @@ class ContextSettings(StrictModel):
     generation_reserve: int = Field(default=8000, gt=0)
 
     @model_validator(mode="after")
-    def _ordered(self) -> "ContextSettings":
+    def _ordered(self) -> ContextSettings:
         if self.prune_target_ratio >= self.prune_trigger_ratio:
             raise ValueError(
                 "context.prune_target_ratio must be below context.prune_trigger_ratio "
