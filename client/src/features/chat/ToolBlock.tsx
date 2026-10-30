@@ -7,8 +7,8 @@
 import { memo, useState } from "react"
 import { CheckCircle2, ChevronDown, Loader2, Wrench, XCircle } from "lucide-react"
 
-import type { Part } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import type { Part } from "@/api/types"
+import { cn } from "@/lib/cn"
 
 type ToolPart = Extract<Part, { kind: "tool" }>
 

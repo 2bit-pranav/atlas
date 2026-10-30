@@ -10,10 +10,14 @@
 import { useEffect, useRef, useState } from "react"
 import { AlertTriangle, Download, FolderOpen, Loader2, Package, Trash2, Upload } from "lucide-react"
 
-import * as api from "@/lib/api"
-import type { Skill, SkillInstallResult } from "@/lib/types"
-import { PageShell, Switch, Button, Notice, Empty } from "@/components/ui/kit"
-import { cn } from "@/lib/utils"
+import * as api from "@/api/client"
+import type { Skill, SkillInstallResult } from "@/api/types"
+import { PageShell } from "@/components/ui/PageShell"
+import { Switch } from "@/components/ui/Switch"
+import { Button } from "@/components/ui/Button"
+import { Notice } from "@/components/ui/Notice"
+import { Empty } from "@/components/ui/Empty"
+import { cn } from "@/lib/cn"
 
 export function SkillsPage() {
   const [skills, setSkills] = useState<Skill[] | null>(null)

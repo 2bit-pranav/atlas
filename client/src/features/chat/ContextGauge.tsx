@@ -11,8 +11,8 @@
 import { useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
-import { currentStats, useAtlas } from "@/lib/store"
-import { cn } from "@/lib/utils"
+import { currentStats, useAtlas } from "@/state/store"
+import { cn } from "@/lib/cn"
 
 const compact = (n: number) =>
   n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n)

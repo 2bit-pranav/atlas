@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/api", () => ({ answerCall: vi.fn(() => Promise.resolve()) }))
+vi.mock("@/api/client", () => ({ answerCall: vi.fn(() => Promise.resolve()) }))
 
-import * as api from "@/lib/api"
-import { atlas } from "@/lib/store"
+import * as api from "@/api/client"
+import { atlas } from "@/state/store"
 
 const run = { id: "run-1", chat_id: "chat-1", turn_id: "turn-1" }
 const event = { id: "call-1", op: "read", args: { view: "text" } }

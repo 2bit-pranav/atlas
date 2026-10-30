@@ -1,27 +1,17 @@
-/**
- * The shell: sidebar, routes, keyboard shortcuts, the delete dialog.
- *
- * Routes mirror llama.cpp's: the chat at `/` and `/c/:id`, and full pages for
- * Settings, Skills and MCP instead of modals. All chat state lives in
- * `lib/store`; this file only decides what is on screen.
- */
-
 import { useCallback, useEffect, useState } from "react"
-import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom"
-import * as Dialog from "@radix-ui/react-dialog"
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { AlertTriangle, Loader2, PanelLeftOpen, X } from "lucide-react"
-
-import { atlas, useAtlas } from "@/lib/store"
+import { atlas, useAtlas } from "@/state/store"
 import { matchShortcut } from "@/lib/shortcuts"
 import { downloadJson, exportName } from "@/lib/download"
-import type { ChatSummary } from "@/lib/types"
-import { Sidebar } from "@/components/Sidebar"
-import { ChatScreen } from "@/components/chat/ChatScreen"
-import { Button } from "@/components/ui/kit"
-import { SettingsPage } from "@/pages/SettingsPage"
-import { SkillsPage } from "@/pages/SkillsPage"
-import { McpPage } from "@/pages/McpPage"
-import { ExtensionPage } from "@/pages/ExtensionPage"
+import type { ChatSummary } from "@/api/types"
+import { Sidebar } from "@/app/Sidebar"
+import { SettingsPage } from "@/features/settings/SettingsPage"
+import { SkillsPage } from "@/features/skills/SkillsPage"
+import { McpPage } from "@/features/mcp/McpPage"
+import { ExtensionPage } from "@/features/extension-page/ExtensionPage"
+import { ChatRoute } from "@/app/ChatRoute"
+import { DeleteDialog } from "@/app/DeleteChatDialog"
 
 const SIDEBAR_KEY = "atlas-sidebar-open"
 
@@ -178,50 +168,5 @@ export function App() {
         if (location.pathname === `/c/${chat.id}`) navigate("/")
       }} />
     </div>
-  )
-}
-
-/** Keeps the URL and the open chat in step, in both directions. */
-function ChatRoute() {
-  const { chatId } = useParams()
-  const navigate = useNavigate()
-  const openId = useAtlas((s) => s.chat?.id ?? null)
-
-  useEffect(() => {
-    if (chatId) void atlas.openChat(chatId)
-    else if (atlas.state.chat) atlas.newChat()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId])
-
-  // A first message creates the chat: move the URL to it.
-  useEffect(() => {
-    if (!chatId && openId) navigate(`/c/${openId}`, { replace: true })
-  }, [chatId, openId, navigate])
-
-  return <ChatScreen />
-}
-
-function DeleteDialog({ chat, onClose, onConfirm }: {
-  chat: ChatSummary | null
-  onClose: () => void
-  onConfirm: (chat: ChatSummary) => void
-}) {
-  return (
-    <Dialog.Root open={chat !== null} onOpenChange={(open) => !open && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-5 shadow-lg">
-          <Dialog.Title className="text-base font-semibold">Delete conversation</Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-muted-foreground">
-            "{chat?.title || "New chat"}" will be deleted, with every version, its model history and its uploaded files.
-            This cannot be undone.
-          </Dialog.Description>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button variant="destructive" onClick={() => chat && onConfirm(chat)} autoFocus>Delete</Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
   )
 }

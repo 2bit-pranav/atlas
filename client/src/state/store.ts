@@ -24,9 +24,9 @@
 
 import { useSyncExternalStore } from "react"
 
-import * as api from "@/lib/api"
-import { emptyLive, fold, type LiveTurn } from "@/lib/transcript"
-import { ApiError } from "@/lib/types"
+import * as api from "@/api/client"
+import { emptyLive, fold, type LiveTurn } from "@/features/chat/transcript"
+import { ApiError } from "@/api/types"
 import type {
   ChatFile,
   ChatSummary,
@@ -36,7 +36,7 @@ import type {
   SettingsView,
   StartedRun,
   TurnStats,
-} from "@/lib/types"
+} from "@/api/types"
 
 export interface Staged extends ChatFile {
   /** Local id while uploading; replaced by the server path when done. */

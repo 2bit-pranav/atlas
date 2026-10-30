@@ -10,7 +10,7 @@
  * per token is what made a long answer stutter.
  */
 
-import type { Part, RunEvent, TurnStats } from "@/lib/types"
+import type { Part, RunEvent, TurnStats } from "@/api/types"
 
 export interface LiveTurn {
   parts: Part[]

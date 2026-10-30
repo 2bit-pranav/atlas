@@ -11,11 +11,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { ArrowDown, Upload } from "lucide-react"
 
-import { atlas, useAtlas } from "@/lib/store"
-import { usePrefs } from "@/lib/prefs"
-import { TurnRow } from "@/components/chat/Messages"
-import { Composer } from "@/components/chat/Composer"
-import { cn } from "@/lib/utils"
+import { atlas, useAtlas } from "@/state/store"
+import { usePrefs } from "@/state/prefs"
+import { TurnRow } from "@/features/chat/TurnRow"
+import { Composer } from "@/features/composer/Composer"
+import { cn } from "@/lib/cn"
 
 export function ChatScreen() {
   const chat = useAtlas((s) => s.chat)

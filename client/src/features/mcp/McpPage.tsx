@@ -12,11 +12,15 @@ import {
   ChevronDown, Cloud, HardDrive, Loader2, Plug, Plus, RefreshCw, Search, Trash2,
 } from "lucide-react"
 
-import * as api from "@/lib/api"
-import type { McpServer, RegistryOption, RegistryServer, ToolMode } from "@/lib/types"
-import { useAtlas } from "@/lib/store"
-import { Button, Empty, Notice, PageShell, Switch } from "@/components/ui/kit"
-import { cn } from "@/lib/utils"
+import * as api from "@/api/client"
+import type { McpServer, RegistryOption, RegistryServer, ToolMode } from "@/api/types"
+import { useAtlas } from "@/state/store"
+import { Button } from "@/components/ui/Button"
+import { Empty } from "@/components/ui/Empty"
+import { Notice } from "@/components/ui/Notice"
+import { PageShell } from "@/components/ui/PageShell"
+import { Switch } from "@/components/ui/Switch"
+import { cn } from "@/lib/cn"
 
 export function McpPage() {
   const [servers, setServers] = useState<McpServer[] | null>(null)

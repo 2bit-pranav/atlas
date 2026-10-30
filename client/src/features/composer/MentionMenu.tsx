@@ -14,10 +14,10 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { FileText, Plug, Sparkles, Wrench } from "lucide-react"
 
-import * as api from "@/lib/api"
-import { useAtlas } from "@/lib/store"
-import type { ChatFile, WorkspaceFile } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import * as api from "@/api/client"
+import { useAtlas } from "@/state/store"
+import type { ChatFile, WorkspaceFile } from "@/api/types"
+import { cn } from "@/lib/cn"
 
 export type Mention =
   | { kind: "file"; name: string; file: ChatFile }

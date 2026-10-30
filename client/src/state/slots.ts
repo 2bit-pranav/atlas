@@ -7,7 +7,7 @@
  */
 import { createContext, type ReactNode } from "react"
 
-import type { Turn } from "@/lib/types"
+import type { Turn } from "@/api/types"
 
 /** Rendered under an answer: `(turn, answer text) => node`. */
 export const AnswerExtras = createContext<((turn: Turn, answer: string) => ReactNode) | null>(null)

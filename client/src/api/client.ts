@@ -19,7 +19,7 @@ import {
   type Skill,
   type SkillInstallResult,
   type StartedRun,
-} from "@/lib/types"
+} from "@/api/types"
 
 /**
  * Where the backend is, and the pairing token. The web UI is served by the

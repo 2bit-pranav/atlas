@@ -1,25 +1,16 @@
-/**
- * The message box, after llama.cpp's `ChatForm`.
- *
- * One component for both jobs: the composer at the bottom of the chat, and the
- * inline editor that replaces a user message in place. In edit mode it keeps
- * its own text and files; in main mode the staged files live in the store,
- * because uploads have to outlive a re-render and belong to a chat.
- */
-
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react"
 import * as Dropdown from "@radix-ui/react-dropdown-menu"
 import { ArrowUp, Check, File as FileIcon, Lightbulb, LightbulbOff, Loader2, Mic, Plus, Square, X } from "lucide-react"
-
-import * as api from "@/lib/api"
-import { atlas, useAtlas } from "@/lib/store"
-import { usePrefs } from "@/lib/prefs"
-import type { ChatFile } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import * as api from "@/api/client"
+import { atlas, useAtlas } from "@/state/store"
+import { usePrefs } from "@/state/prefs"
+import type { ChatFile } from "@/api/types"
+import { cn } from "@/lib/cn"
 import { Tip } from "@/components/ui/tip"
-import { ContextGauge } from "@/components/chat/ContextGauge"
-import { filterMentions, MentionMenu, useMentionables, type Mention } from "@/components/chat/MentionMenu"
-import { Recorder } from "@/lib/audio"
+import { ContextGauge } from "@/features/chat/ContextGauge"
+import { filterMentions, MentionMenu, useMentionables, type Mention } from "@/features/composer/MentionMenu"
+import { Recorder } from "@/features/composer/audio"
+import { FileChip } from "@/features/composer/FileChip"
 
 /** Pasting more than this many characters attaches the text as a file instead. */
 const PASTE_AS_FILE = 2500
@@ -330,29 +321,3 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
     </form>
   )
 })
-
-function FileChip({ file, uploading, onRemove }: { file: ChatFile; uploading: boolean; onRemove: () => void }) {
-  const ext = file.name.includes(".") ? file.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"
-  return (
-    <div className="group relative flex shrink-0 items-center gap-3 rounded-lg border bg-muted p-2.5 pr-7">
-      <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
-        {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : ext}
-      </span>
-      <span className="min-w-0">
-        <span className="block max-w-32 truncate text-sm font-medium">{file.name}</span>
-        <span className="block text-xs text-muted-foreground">{formatBytes(file.size)}</span>
-      </span>
-      <button type="button" onClick={onRemove} aria-label={`Remove ${file.name}`}
-              className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground opacity-100 hover:bg-background hover:text-foreground md:opacity-0 md:group-hover:opacity-100">
-        <X className="h-3 w-3" />
-      </button>
-    </div>
-  )
-}
-
-export function formatBytes(n: number) {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
-

@@ -4,8 +4,8 @@ import { BrowserRouter } from "react-router-dom"
 import * as Tooltip from "@radix-ui/react-tooltip"
 
 import "./index.css"
-import "./lib/prefs"
-import { App } from "./App"
+import "@/state/prefs"
+import { App } from "@/app/App"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

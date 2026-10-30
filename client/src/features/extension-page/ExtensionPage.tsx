@@ -13,10 +13,12 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { CheckCircle2, Circle, Loader2, PanelRight } from "lucide-react"
 
-import * as api from "@/lib/api"
-import { usePrefs } from "@/lib/prefs"
-import { Button, Notice, PageShell } from "@/components/ui/kit"
-import { cn } from "@/lib/utils"
+import * as api from "@/api/client"
+import { usePrefs } from "@/state/prefs"
+import { Button } from "@/components/ui/Button"
+import { Notice } from "@/components/ui/Notice"
+import { PageShell } from "@/components/ui/PageShell"
+import { cn } from "@/lib/cn"
 
 type State = "checking" | "missing" | "unpaired" | "connected"
 type Answer = { connected?: boolean; error?: string; version?: string }

@@ -12,11 +12,11 @@ import {
   Settings, Sparkles, SquarePen, Trash2, X,
 } from "lucide-react"
 
-import { atlas, useAtlas } from "@/lib/store"
+import { atlas, useAtlas } from "@/state/store"
 import { shortcutKeys, type ShortcutAction } from "@/lib/shortcuts"
 import { downloadJson, exportName } from "@/lib/download"
-import type { ChatSummary } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import type { ChatSummary } from "@/api/types"
+import { cn } from "@/lib/cn"
 import { Tip } from "@/components/ui/tip"
 
 interface Props {
