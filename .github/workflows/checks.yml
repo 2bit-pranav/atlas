@@ -1,0 +1,51 @@
+# Every offline check on every push: the same `python tests/check.py` that runs
+# locally. Windows, because Atlas is Windows-first (Git Bash paths, taskkill,
+# job objects). No model, no secrets, no network beyond installing packages.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            extension/package-lock.json
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Python dependencies
+        run: |
+          uv venv --seed .venv
+          uv pip install --python .venv/Scripts/python.exe \
+            -r requirements.lock.txt -r requirements-dev.in \
+            -r skills/pdf/requirements.txt -r skills/docx/requirements.txt -r skills/xlsx/requirements.txt
+          uv pip install --python .venv/Scripts/python.exe -e . --no-deps
+
+      - name: Node dependencies
+        run: |
+          npm ci --prefix client
+          npm ci --prefix extension
+
+      - name: Checks
+        run: .venv/Scripts/python.exe tests/check.py

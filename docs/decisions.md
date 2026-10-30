@@ -401,6 +401,15 @@ decimals. Exposed directly, switchable in Settings; no enforcement yet, to see
 how often the model uses them unprompted. The @ menu lists MCP servers by name
 only (every MCP tool made it too long), after tools and skills.
 
+**Tests are in the repository, with CI** (2026-10-30, reverses the entry
+below). A restructure needs something to check against, so the offline tests
+(policy, maths, chat tree, runs) are committed and `tests/check.py` runs every
+check (ruff, pyright as a ratchet at 73 errors, pytest, tsc, oxlint) locally
+and in GitHub Actions on Windows. The real-model checks (`tests/bench.py`,
+`tests/live/`) are committed too but run by hand: they need the GPU. No fake
+llama-server: behaviour is judged on the real model, and the policy-level bugs
+are tested by calling the policy directly.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 

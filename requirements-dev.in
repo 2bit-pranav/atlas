@@ -1,0 +1,5 @@
+# Development checks only; never needed to run Atlas. `python tests/check.py` runs them.
+-c requirements.lock.txt
+ruff==0.17.3
+pyright==1.1.414
+pytest>=8.0

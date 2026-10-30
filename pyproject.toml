@@ -25,3 +25,17 @@ include = ["agent*", "server*"]
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+
+[tool.ruff.lint]
+# Explicit, so a ruff upgrade never changes what fails. Pyflakes and
+# pycodestyle errors, import order, pyupgrade and bugbear (likely bugs). Line
+# length is not enforced: the code wraps for meaning, not at a column.
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Offline tests only: `tests/live/` and `tests/bench.py` need the real model
+# and are run by hand (see tests/README.md).
+norecursedirs = ["live"]
+cache_dir = ".cache/pytest"
