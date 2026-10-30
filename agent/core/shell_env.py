@@ -573,18 +573,30 @@ def locate(path: str, workspace: Path, folders: list[Path]) -> Path | None:
     applies it: it lists `Demo/Invoices` from an allowed folder, so the
     reader script, the file and document tools and the `read` hint must find
     the same `Demo/Invoices/x.pdf`, not look in the chat's workspace only.
+
+    A candidate that leaves its folder (`../settings.json`) is never returned:
+    a relative path only ever names something inside the folder it is found in.
     """
     if not path or path.startswith("/") or os.path.isabs(path):
         return None
     roots = [Path(workspace), *map(Path, folders)]
-    for root in roots:
-        if (root / path).exists():
-            return root / path
+    inside = [(root, root / path) for root in roots if _within(root / path, root)]
+    for _, candidate in inside:
+        if candidate.exists():
+            return candidate
     if Path(path).parent != Path("."):
-        for root in roots:
-            if (root / path).parent.is_dir():
-                return root / path
+        for _, candidate in inside:
+            if candidate.parent.is_dir():
+                return candidate
     return None
+
+
+def _within(path: Path, root: Path) -> bool:
+    """`path` is `root` or below it once `..` is resolved."""
+    try:
+        return Path(os.path.abspath(path)).is_relative_to(os.path.abspath(root))
+    except (OSError, ValueError):
+        return False
 
 
 def default_environment(cwd: Path | None = None, skills: Path | None = None,

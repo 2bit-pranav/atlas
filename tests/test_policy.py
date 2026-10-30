@@ -203,3 +203,38 @@ def test_installs_still_ask_as_installs_when_tainted(tmp_path) -> None:
     policy = _policy(tmp_path, approver=asked, tainted=lambda: True)
     assert _run(policy, _event("shell", {"command": "pip install rich"})).cancel_tool is False
     assert [k for k, _ in asked.calls] == ["install"]
+
+
+# ---------------------------------------------------------- B1: escapes --
+
+
+def test_relative_escape_from_the_workspace_asks(tmp_path) -> None:
+    """B1: `../` in a relative path was never access-checked."""
+    (tmp_path / "settings.json").write_text("{}")
+    for name, args in (("create_document", {"path": "../settings.json.md", "content": "x"}),
+                       ("edit_document", {"path": "../settings.json", "find": "a", "replace": "b"}),
+                       ("write", {"path": "../../x.txt", "content": "x"}),
+                       ("read", {"path": "../settings.json"})):
+        asked = _Asked("denied")
+        event = _run(_policy(tmp_path, approver=asked), _event(name, args))
+        assert asked.calls and asked.calls[0][0] == "access", name
+        assert "did not allow" in event.cancel_tool, name
+
+
+def test_relative_paths_inside_scope_still_run_without_asking(tmp_path) -> None:
+    (tmp_path / "docs" / "Reports").mkdir(parents=True)
+    asked = _Asked("denied")
+    policy = _policy(tmp_path, approver=asked)
+    for args in ({"path": "notes/x.txt", "content": "x"},                 # the workspace
+                 {"path": "Reports/October.xlsx", "content": "| a |"}):   # an allowed folder
+        assert _run(policy, _event("create_document", dict(args))).cancel_tool is False
+    assert asked.calls == []
+
+
+def test_locate_never_leaves_the_folder_it_searches(tmp_path) -> None:
+    from agent.core.shell_env import locate
+
+    (tmp_path / "ws").mkdir()
+    (tmp_path / "secret.txt").write_text("x")
+    assert locate("../secret.txt", tmp_path / "ws", []) is None
+    assert locate("sub/../../secret.txt", tmp_path / "ws", []) is None

@@ -69,6 +69,14 @@ class Scope:
     #: their scripts.
     readable: list[Path] = field(default_factory=list)
 
+    def place(self, raw: str) -> Path:
+        """Where a file tool's `path` argument lands: an absolute path as given,
+        a relative one where the tools put it (`shell_env.locate`, else the
+        workspace). The access check runs on this, so `../` cannot slip past."""
+        if raw.startswith("/") or Path(raw).is_absolute():
+            return Path(windows_path(raw))
+        return locate(raw, self.workspace, self.folders) or self.workspace / raw
+
     def allows(self, path: Path, *, write: bool) -> bool:
         roots = [self.workspace, *self.folders] + ([] if write else self.readable)
         target = _absolute(path)
@@ -176,7 +184,7 @@ class ToolPolicy(HookProvider):
 
     async def _access(self, event: BeforeToolCallEvent) -> Decision | None:
         name, args = event.tool_use.get("name", ""), event.tool_use.get("input") or {}
-        for path, write in _paths_of(name, args, event.selected_tool):
+        for path, write in _paths_of(name, args, event.selected_tool, self.scope):
             if self.scope.allows(path, write=write) or any(
                     g == _absolute(path) or g in _absolute(path).parents for g in self._granted):
                 continue
@@ -214,10 +222,7 @@ class ToolPolicy(HookProvider):
             raw = str(args.get("path", ""))
             if not raw:
                 return None
-            if raw.startswith("/") or Path(raw).is_absolute():
-                path = Path(windows_path(raw))
-            else:  # placed like every relative path (shell_env.locate); else the workspace
-                path = locate(raw, self.scope.workspace, self.scope.folders) or self.scope.workspace / raw
+            path = self.scope.place(raw)
             if _absolute(path).is_relative_to(_absolute(self.scope.workspace)):
                 return None
             what = f"{name} {_absolute(path)}"
@@ -326,13 +331,12 @@ def _rewrite(value: Any) -> Any:
     return value
 
 
-def _paths_of(name: str, args: dict[str, Any], tool: Any) -> list[tuple[Path, bool]]:
-    """The paths a call touches, and whether it writes. Relative paths are the workspace's."""
+def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[tuple[Path, bool]]:
+    """The paths a call touches, and whether it writes. Relative paths too: they
+    are placed as the tool will place them (`Scope.place`), so `../x` is checked."""
     out: list[tuple[Path, bool]] = []
     if name in FILE_TOOLS and isinstance(args.get("path"), str) and args["path"]:
-        raw = args["path"]
-        if raw.startswith("/") or Path(raw).is_absolute():
-            out.append((Path(windows_path(raw)), name != "read"))
+        out.append((scope.place(args["path"]), name != "read"))
     elif name == "shell":
         for raw in _shell_paths(str(args.get("command", ""))):
             out.append((Path(windows_path(raw.rstrip(".,)"))), False))
