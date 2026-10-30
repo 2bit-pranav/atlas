@@ -3,9 +3,9 @@
  * the Atlas PDF viewer.
  */
 
-import { box, button, toast } from "./overlay"
-import * as page from "./page"
-import type { ExtensionSettings } from "./settings"
+import { box, button, toast } from "@ext/ui/overlay"
+import { tableRows, tableTitle } from "@ext/page/tables"
+import type { ExtensionSettings } from "@ext/shared/settings"
 
 // ------------------------------------------------------------ selection chip --
 
@@ -83,7 +83,7 @@ function dataTable(el: Element): Element | null {
   if (!table || table.querySelector("table")) return null
   if (table.matches("[role=presentation], [role=none]")) return null
   if (table.closest("[role=menu], [role=menubar], [role=listbox], [role=dialog], nav")) return null
-  const rows = page.tableRows(table)
+  const rows = tableRows(table)
   const width = rows[0]?.length ?? 0
   if (rows.length < 2 || width < 2) return null
   if (!table.querySelector("th") && rows.length < 3) return null
@@ -95,10 +95,10 @@ function dataTable(el: Element): Element | null {
 
 async function saveTable(table: Element, format: "xlsx" | "csv", done?: () => void) {
   done?.()
-  const rows = page.tableRows(table)
+  const rows = tableRows(table)
   toast(`Saving ${rows.length} rows…`, false, 1500)
   const reply = await browser.runtime.sendMessage({
-    type: "atlas:saveTable", rows, title: page.tableTitle(table), url: location.href, format,
+    type: "atlas:saveTable", rows, title: tableTitle(table), url: location.href, format,
   }) as { path?: string; error?: string }
   if (reply?.error) toast(`Could not save the table: ${reply.error}`, true, 7000)
   else toast(`Saved ${rows.length} rows to ${reply.path}`, false, 7000)

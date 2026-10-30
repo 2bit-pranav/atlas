@@ -12,7 +12,7 @@
  *   checked against that Atlas before it is kept.
  */
 
-import { loadSettings, localHttp, saveSettings, type PendingAsk } from "@ext/settings"
+import { loadSettings, localHttp, saveSettings, type PendingAsk } from "@ext/shared/settings"
 
 export default defineBackground(() => {
   void browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })

@@ -6,18 +6,24 @@ extension only adds what needs the browser. Design: `docs/extension.md`.
 
 ```
 entrypoints/
-  sidepanel/Panel.tsx  pairing, the tab a chat is attached to, quote sources, chip questions, settings
-  content.ts           page operations (the chip and table menu come from lib/chip.ts)
+  sidepanel/           Panel.tsx (which view; the tab a chat is attached to), components/ (PageChip,
+                       HistoryView, QuoteSources, SettingsView, Centered), actions/ (pageCall,
+                       suggestFill, pdf), hooks/usePendingAsks.ts (chip and context-menu questions),
+                       status.ts, url.ts
+  content.ts           page operations in the tab (the chip comes from lib/ui/chip.ts)
   viewer/              the Atlas PDF viewer: pdf.js with a text layer, read / find / highlight
-  background.ts        opens the panel; context menu; posts tables to the backend
+  background.ts        opens the panel; context menu; pairing; posts tables to the backend
 lib/
-  page.ts              the page layer: readable Markdown, element list, tables, images, find, highlight
-  fill.ts              fill suggestions: fields out, preview over them, fill on Apply, never submit
-  images.ts            screenshots of the tab and images from the page, for the model
-  chip.ts              the selection chip (Explain, Simplify, Define, Translate, Save table)
-  overlay.ts           what is drawn on the page (shadow root, plain DOM)
-  tab.ts               calling the content script (injects it into tabs opened before install)
-  settings.ts          the extension's settings (storage.local)
+  page/                the page layer, built in code from the live DOM (the model never sees HTML):
+                       read.ts (readable Markdown via Readability and Turndown; the element list,
+                       password values never read), tables.ts (tables, rows with merged cells
+                       expanded), images.ts, highlight.ts (find and highlight with the CSS Custom
+                       Highlight API, the page's DOM unchanged)
+  fill/fill.ts         fill suggestions: fields out, preview over them, fill on Apply, never submit
+  ui/                  chip.ts (Explain, Simplify, Define, Translate, Save table), overlay.ts (drawn
+                       on the page in a shadow root)
+  shared/              settings.ts (storage.local), tab.ts (calling the content script or the PDF
+                       viewer), capture.ts (screenshots and page images for the model)
 ```
 
 ## Build and load
@@ -72,7 +78,7 @@ Two ways in:
   `/api/chats/{id}/files/import`), and the pdf skill reads it, OCR included.
 
 **Tables** are offered only on request: select text inside a real data table
-and the chip adds xlsx / csv. "Real" is strict (`dataTable` in `chip.ts`): the
+and the chip adds xlsx / csv. "Real" is strict (`dataTable` in `lib/ui/chip.ts`): the
 innermost `<table>`, not presentation, not in a menu, dialog or nav; a header
 or 3+ rows; 2+ columns most rows agree on; short cells. There is no
 right-click entry: a browser cannot show a menu item only over tables, so it

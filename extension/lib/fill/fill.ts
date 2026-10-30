@@ -7,8 +7,8 @@
  * are never collected and never filled.
  */
 
-import { box, button, shadow, toast } from "./overlay"
-import { fieldName, visible } from "./page"
+import { box, button, shadow, toast } from "@ext/ui/overlay"
+import { fieldName, visible } from "@ext/page/read"
 
 export interface Field {
   id: string
