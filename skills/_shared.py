@@ -427,7 +427,7 @@ def shown(path: Path) -> str:
         return path.resolve().as_posix()
 
 
-def created(names: Path | str, **details: Any) -> str:
+def created(names: Path | str, /, **details: Any) -> str:
     """The lines every writing script ends with, so the model tells the user."""
     names = shown(names) if isinstance(names, Path) else names
     return header(created=names, **details) + "\nThe user sees it as a download in the chat."
