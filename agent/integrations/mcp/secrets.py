@@ -42,10 +42,12 @@ def restore(edited: dict[str, Any], stored: dict[str, Any]) -> dict[str, Any]:
     out = dict(edited)
     for key in ("env", "headers"):
         if isinstance(edited.get(key), dict):
-            kept = stored.get(key) if isinstance(stored.get(key), dict) else {}
+            kept_value = stored.get(key)
+            kept: dict[str, Any] = kept_value if isinstance(kept_value, dict) else {}
             out[key] = {k: (kept[k] if v == REDACTED and k in kept else v) for k, v in edited[key].items()}
     if isinstance(edited.get("args"), list):
-        old = stored.get("args") if isinstance(stored.get("args"), list) else []
+        old_value = stored.get("args")
+        old: list[Any] = old_value if isinstance(old_value, list) else []
         shown = _redact_args(old)
         out["args"] = [old[i] if i < len(old) and a == shown[i] and REDACTED in str(a) else a
                        for i, a in enumerate(edited["args"])]
