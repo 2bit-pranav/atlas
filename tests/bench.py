@@ -266,7 +266,9 @@ def run_case(client: httpx.Client, case: Case, thinking: bool, data_dir: Path) -
     o = client.post(f"/chats/{cid}/messages", json={"text": case.prompt, "files": files, "thinking": thinking})
     o.raise_for_status()
     timeline = []
-    with client.stream("GET", f"/runs/{o.json()['run']['id']}/events") as r:
+    approvals: list[str] = []
+    run_id = o.json()["run"]["id"]
+    with client.stream("GET", f"/runs/{run_id}/events") as r:
         for line in r.iter_lines():
             if not line.startswith("data: "):
                 continue
@@ -274,6 +276,12 @@ def run_case(client: httpx.Client, case: Case, thinking: bool, data_dir: Path) -
             if e["type"] in ("call_start", "tool_start", "tool_end", "model_retry", "resumed",
                              "approval_request", "done", "error"):
                 timeline.append((round(time.time() - started, 1), e["type"], e.get("name", e.get("message") or "")))
+            if e["type"] == "approval_request":
+                # The benchmark measures the model, not the user: every card is
+                # answered "allowed" (the planned Work tier), so scores stay
+                # comparable as the policy asks about more. Each is recorded.
+                approvals.append(f"{e.get('kind')}: {e.get('command')}")
+                client.post(f"/runs/{run_id}/approvals/{e['id']}", json={"allow": True})
             if e["type"] in ("done", "error"):
                 break
     turn = client.get(f"/chats/{cid}").json()["turns"][-1]
@@ -289,7 +297,7 @@ def run_case(client: httpx.Client, case: Case, thinking: bool, data_dir: Path) -
         "context": stats.get("context_used"), "tools": [t["name"] for t in run.tools()],
         "failed_tools": sum(1 for t in run.tools() if t["status"] == "error"),
         "checks": checks, "passed": all(checks.values()) if checks else None,
-        "answer": run.answer[:600], "timeline": timeline,
+        "answer": run.answer[:600], "timeline": timeline, "approvals": approvals,
     }
     return run, summary
 
@@ -335,7 +343,7 @@ def main() -> int:
             failed = [k for k, v in summary["checks"].items() if not v]
             print(f"{mark} {name:<11} thinking={'on ' if thinking else 'off'} {summary['seconds']:>6}s "
                   f"calls={summary['model_calls']} tools={len(summary['tools'])} "
-                  f"failed_tools={summary['failed_tools']}" + (f"  missing: {failed}" if failed else ""),
+                  f"failed_tools={summary['failed_tools']} approvals={len(summary['approvals'])}" + (f"  missing: {failed}" if failed else ""),
                   flush=True)
     (out / "summary.json").write_text(json.dumps({"settings": settings["values"], "results": results},
                                                  indent=1, default=str), encoding="utf-8")
