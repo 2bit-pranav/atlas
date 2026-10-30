@@ -45,6 +45,7 @@ from strands.tools.mcp import MCPClient
 
 from agent.config import paths
 from agent.config.settings import Settings
+from agent.integrations.mcp.secrets import redact, restore
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,9 @@ class _Server:
             })
         return {
             "name": self.name,
-            "config": self.config,
+            # Never the stored secrets: env, headers, key-like args and URL parameters
+            # are placeholders here and are put back by `upsert` (secrets.py).
+            "config": redact(self.config),
             "transport": "remote" if self.config.get("url") else "local",
             "status": self.status,
             "error": self.error,
@@ -402,6 +405,10 @@ class McpManager:
             raise McpError("a server needs either a `command` (local) or a `url` (remote)")
         servers = self.read_config()
         keep = servers.get(name, {})
+        try:
+            config = restore(config, keep)  # placeholders from describe() -> the stored secrets
+        except ValueError as exc:
+            raise McpError(str(exc)) from exc
         # Keep the user's tool modes across an edit of the launch command.
         for key in ("tool_filters", "atlas"):
             if key in keep and key not in config:
