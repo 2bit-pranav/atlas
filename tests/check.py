@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
 #: pyright errors (basic mode) when the check was introduced, 2026-10-30.
-PYRIGHT_BASELINE = 73
+PYRIGHT_BASELINE = 65
 
 
 def _run(cmd: list[str], cwd: Path = ROOT) -> subprocess.CompletedProcess:

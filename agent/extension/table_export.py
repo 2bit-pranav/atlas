@@ -18,6 +18,14 @@ def _cell(value: str) -> Any:
     return text
 
 
+def _csv_cell(value: str) -> str:
+    """B19: a spreadsheet opening a CSV runs a cell starting with = + - @ as a
+    formula; a leading ' keeps it text. Negative numbers are left alone."""
+    if value[:1] in ("=", "+", "-", "@", "\t", "\r") and not _NUMBER.fullmatch(value.strip()):
+        return "'" + value
+    return value
+
+
 def write_table(rows: list[list[str]], title: str, url: str, fmt: str, folder: str = "") -> Path:
     """Save a page's table as .xlsx or .csv; returns the file.
 
@@ -42,16 +50,21 @@ def write_table(rows: list[list[str]], title: str, url: str, fmt: str, folder: s
         n += 1
     if fmt == "csv":
         with path.open("w", newline="", encoding="utf-8-sig") as fh:
-            csv.writer(fh).writerows(rows)
+            csv.writer(fh).writerows([[_csv_cell(c) for c in row] for row in rows])
         return path
     from openpyxl import Workbook
     from openpyxl.styles import Font
 
     wb = Workbook()
-    ws = wb.active
+    wb.remove(wb.active)
+    ws = wb.create_sheet("Table")
     ws.title = (re.sub(r"[\[\]:*?/\\]", " ", title).strip() or "Table")[:31]
     for r, row in enumerate(rows):
         ws.append([_cell(c) if r else c for c in row])
+    for line in ws.iter_rows():
+        for cell in line:
+            if cell.data_type == "f":    # B19: page text starting with = stays text
+                cell.data_type = "s"
     for cell in ws[1]:
         cell.font = Font(bold=True)
     ws.freeze_panes = "A2"

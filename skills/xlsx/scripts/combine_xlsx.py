@@ -98,6 +98,13 @@ def main() -> int:
             for row in rows:
                 ws.append(row)
         detail = {"sheets": len(sheets), "names": ", ".join(wb.sheetnames)}
+    # Text starting with = (from a CSV, or a text cell) stays text: a formula
+    # would run when the user opens the file. Source formulas arrive as values.
+    for sheet in wb.worksheets:
+        for line in sheet.iter_rows():
+            for cell in line:
+                if cell.data_type == "f":
+                    cell.data_type = "s"
     wb.save(out)
     print(created(out, **detail))
     return 0
