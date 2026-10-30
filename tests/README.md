@@ -31,7 +31,7 @@ other Atlas first). Start an Atlas, then point them at it:
 .venv\Scripts\python tests\live\check_demo.py --url http://127.0.0.1:8000   # the demo tasks
 ```
 
-`check_demo.py` builds its own fixtures in `.data/live/fixtures/` and, for the
+`check_demo.py` builds its own fixtures in `%TEMP%tlas-live\` and, for the
 run, sets the target's `access.folders` to them (the old value is restored
 afterwards). Its trace goes to `.data/live/<timestamp>.log`. Run both at every
 checkpoint and compare: they are what "it still works" means.

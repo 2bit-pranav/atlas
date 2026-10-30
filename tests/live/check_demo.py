@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -136,7 +137,9 @@ def main() -> int:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     logfile = ROOT / ".data" / "live" / f"{stamp}.log"
     logfile.parent.mkdir(parents=True, exist_ok=True)
-    fixture_root = ROOT / ".data" / "live" / "fixtures"
+    # Outside Atlas's folder: Atlas's own files are on the policy's floor (the
+    # agent may not write there), and the path stays short for Windows.
+    fixture_root = Path(tempfile.gettempdir()) / "atlas-live"
 
     def log(turn: Turn) -> None:
         with logfile.open("a", encoding="utf-8") as fh:

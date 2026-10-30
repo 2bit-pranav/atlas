@@ -80,7 +80,7 @@ class ToolPolicy(HookProvider):
         #: Folders the user allowed during this turn: not asked again.
         self._granted: list[Path] = []
         self.steps: list[Callable[[BeforeToolCallEvent], Awaitable[Decision | None]]] = [
-            self._normalise, self._access, self._install, self._taint, self._sensitive, self._documents,
+            self._normalise, self._floor, self._access, self._install, self._taint, self._sensitive, self._documents,
         ]
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
@@ -139,6 +139,16 @@ class ToolPolicy(HookProvider):
             found = locate(value, self.scope.workspace, self.scope.folders)
             return str(found) if found is not None else value
         return value
+
+    async def _floor(self, event: BeforeToolCallEvent) -> Decision | None:
+        """Atlas's own files: refused outright, before anything could ask (protected.py)."""
+        if self.scope.protected is None:
+            return None
+        name, args = event.tool_use.get("name", ""), event.tool_use.get("input") or {}
+        for path, write in _paths_of(name, args, event.selected_tool, self.scope):
+            if reason := self.scope.protected.refuses(path, write=write):
+                return Decision(refuse=reason)
+        return None
 
     async def _access(self, event: BeforeToolCallEvent) -> Decision | None:
         name, args = event.tool_use.get("name", ""), event.tool_use.get("input") or {}

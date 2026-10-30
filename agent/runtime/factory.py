@@ -28,6 +28,7 @@ from agent.runtime.memory import MemoryManager
 from agent.runtime.restore import _restore
 from agent.safety.approvals import Approver
 from agent.safety.policy import TaintTracker, ToolPolicy
+from agent.safety.protected import Protected
 from agent.safety.scope import Scope
 from agent.store.snapshots import SessionManager
 from agent.tools.documents.tool import document_tools
@@ -180,6 +181,9 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
         workspace=workspace,
         folders=[Path(f).expanduser() for f in settings.access.folders if f.strip()],
         readable=[paths.skills_dir(settings), Path(sys.executable).resolve().parents[1]],
+        protected=Protected(root=paths.ROOT, data=paths.data_dir(settings),
+                            mcp_config=paths.mcp_config(settings), venv=Path(sys.prefix),
+                            skills=paths.skills_dir(settings)),
     )
 
 

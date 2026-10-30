@@ -7,6 +7,7 @@ from pathlib import Path
 
 from agent.platform.winpaths import windows_path
 from agent.safety.placement import locate
+from agent.safety.protected import Protected
 
 
 @dataclass
@@ -18,6 +19,8 @@ class Scope:
     #: Read-only additions: the skills folder and the Python install that runs
     #: their scripts.
     readable: list[Path] = field(default_factory=list)
+    #: Atlas's own files, refused whatever the folders allow (protected.py).
+    protected: Protected | None = None
 
     def place(self, raw: str) -> Path:
         """Where a file tool's `path` argument lands: an absolute path as given,
