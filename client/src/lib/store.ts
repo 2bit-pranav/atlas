@@ -257,10 +257,14 @@ class Store {
 
   private clientCall(run: RunRef, event: { id: string; op: string; args: Record<string, unknown> }) {
     const handler = this.onClientCall
+    // Only a window that can reach the page answers. A web UI tab open on the
+    // same chat used to answer first, with an error, and page_read failed even
+    // with the side panel open. If no window answers, the backend times out.
+    if (!handler) return
     const answer = async () => {
       let result: Record<string, unknown>
       try {
-        result = handler ? await handler(event.op, event.args ?? {}) : { error: "this window cannot reach a web page" }
+        result = await handler(event.op, event.args ?? {})
       } catch (error) {
         result = { error: error instanceof Error ? error.message : String(error) }
       }

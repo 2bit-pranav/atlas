@@ -68,6 +68,7 @@ CHECKS = {
            # Errors only for now: five warnings remain (three go with the client
            # restructure, two are setState-in-effect in the Skills and MCP pages).
            ("client oxlint", lambda: _npx("client", "oxlint")),
+           ("client vitest", lambda: _npx("client", "vitest", "run")),
            ("extension tsc", lambda: _npx("extension", "tsc", "--noEmit"))],
 }
 
