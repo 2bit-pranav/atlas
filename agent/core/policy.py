@@ -339,12 +339,19 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
         out.append((scope.place(args["path"]), name != "read"))
     elif name == "shell":
         for raw in _shell_paths(str(args.get("command", ""))):
-            out.append((Path(windows_path(raw.rstrip(".,)"))), False))
+            out.append((Path(windows_path(_trim(raw))), False))
     elif isinstance(tool, MCPAgentTool):
         for raw in _strings(args):
             if re.match(r"^(?:[A-Za-z]:[/\\]|/[A-Za-z]/)", raw):
                 out.append((Path(windows_path(drive_path(raw))), True))
     return out
+
+
+def _trim(raw: str) -> str:
+    """Punctuation after a path in prose or a command (`a.txt,` `(x.pdf)` `end.`),
+    never a path's own `..`: stripping it turned `allowed/..` into `allowed/`."""
+    raw = raw.rstrip(",)")
+    return raw[:-1] if raw.endswith(".") and not raw.endswith(("/.", "\\.", "..")) else raw
 
 
 def _strings(value: Any) -> list[str]:

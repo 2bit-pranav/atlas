@@ -205,7 +205,7 @@ def test_installs_still_ask_as_installs_when_tainted(tmp_path) -> None:
     assert [k for k, _ in asked.calls] == ["install"]
 
 
-# ---------------------------------------------------------- B1: escapes --
+# ------------------------------------------------------ B1, B2: escapes --
 
 
 def test_relative_escape_from_the_workspace_asks(tmp_path) -> None:
@@ -238,3 +238,16 @@ def test_locate_never_leaves_the_folder_it_searches(tmp_path) -> None:
     (tmp_path / "secret.txt").write_text("x")
     assert locate("../secret.txt", tmp_path / "ws", []) is None
     assert locate("sub/../../secret.txt", tmp_path / "ws", []) is None
+
+
+def test_trailing_dotdot_in_shell_is_not_stripped(tmp_path) -> None:
+    """B2: `rstrip(".,)")` turned `allowed/..` into `allowed/`, which passed."""
+    asked = _Asked("denied")
+    allowed = (tmp_path / "docs").as_posix()
+    event = _run(_policy(tmp_path, approver=asked), _event("shell", {"command": f"rm -rf {allowed}/.."}))
+    assert asked.calls and asked.calls[0][0] == "access"
+    assert event.cancel_tool
+    # Ordinary punctuation after a path is still trimmed.
+    asked = _Asked("denied")
+    event = _run(_policy(tmp_path, approver=asked), _event("shell", {"command": f"ls {allowed}/a.txt,"}))
+    assert asked.calls == [] and event.cancel_tool is False
