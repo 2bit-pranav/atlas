@@ -24,6 +24,7 @@ from __future__ import annotations
 import hmac
 import secrets
 from pathlib import Path
+from typing import Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -52,6 +53,17 @@ class Pairing:
         given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
         given = given or request.query_params.get("token", "")
         return bool(given) and hmac.compare_digest(given, self.token)
+
+
+def trusted_origins(ports: Any, *, dev: bool) -> set[str]:
+    """The web UI's own origins: the backend's port, and Vite's only in `--dev`.
+
+    Vite's port (5173 by default) is every Vite project's default. Trusting it
+    while the backend serves the UI itself gave any page on `localhost:5173`
+    the whole API, `POST /api/mcp` (an arbitrary command) included.
+    """
+    allowed = [ports.backend, *([ports.client] if dev else [])]
+    return {f"http://{host}:{port}" for host in ("127.0.0.1", "localhost") for port in allowed}
 
 
 def guard(pairing: Pairing, trusted_origins: set[str]):

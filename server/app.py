@@ -64,7 +64,7 @@ from agent.core.page_tools import page_note, page_tools, write_table
 from agent.core.shell_env import model_path
 from agent.core.skill_manager import SkillManager, reader_command
 from agent.core.tool_manager import ToolManager
-from server.security import EXTENSION_SCHEMES, Pairing, guard
+from server.security import EXTENSION_SCHEMES, Pairing, guard, trusted_origins
 from skills._shared import LinkError, open_link, save_link  # the one document-link resolver
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
@@ -405,7 +405,7 @@ def create_app(settings_path: str | Path | None = None) -> FastAPI:
     app.state.atlas = state
     pairing = Pairing(paths.data_dir(state.settings) / "pairing-token")
     ports = state.boot.ports
-    trusted = {f"http://{h}:{p}" for h in ("127.0.0.1", "localhost") for p in (ports.backend, ports.client)}
+    trusted = trusted_origins(ports, dev=bool(os.environ.get("ATLAS_DEV_UI")))
     app.middleware("http")(guard(pairing, trusted))
     api = APIRouter(prefix="/api")
 
