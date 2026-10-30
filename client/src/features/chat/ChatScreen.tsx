@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
-import { ArrowDown, Upload } from "lucide-react"
+import { ArrowDown, ShieldAlert, Upload } from "lucide-react"
 
 import { atlas, useAtlas } from "@/state/store"
 import { usePrefs } from "@/state/prefs"
@@ -132,6 +132,13 @@ export function ChatScreen() {
               <ArrowDown className="h-4 w-4" />
             </button>
           )}
+          {chat?.tainted ? (
+            <p className="mx-auto mb-1.5 flex max-w-3xl items-center gap-1.5 px-1 text-xs text-muted-foreground"
+               title="Text from outside (a web page, a fetched link, an untrusted MCP server) can carry instructions for the model. It stays in this chat's history, so this lasts for the whole chat.">
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              This chat has read outside content: commands, and changes outside its folder, ask you first.
+            </p>
+          ) : null}
           <Composer />
         </div>
       )}

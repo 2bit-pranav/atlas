@@ -30,6 +30,8 @@ export interface ChatSummary {
   source?: "web" | "extension"
   page_url?: string
   page_title?: string
+  /** Outside content (a web page, a fetch, an untrusted MCP server) has entered the chat. */
+  tainted?: number | boolean
 }
 
 export type Part =
@@ -138,6 +140,7 @@ export type RunEvent = { seq: number } & (
   | { type: "approval_request"; id: string; kind: "install" | "access" | "tool" | "page"; command: string; folder?: string; access?: "read" | "write";
       timeout: number; expires_at: number }
   | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
+  | { type: "tainted" }
   /** The backend asks the client to do something (the extension: a page operation). */
   | { type: "client_call"; id: string; op: string; args: Record<string, unknown> }
   | ({ type: "stats" } & TurnStats)

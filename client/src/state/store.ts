@@ -501,12 +501,16 @@ class Store {
     this.pending = []
     const live = this.state.live
     let finished: { error: string | null } | null = null
+    let tainted = false
     for (const event of events) {
       if (event.type === "done") finished = { error: null }
       else if (event.type === "error") finished = { error: event.message }
+      else if (event.type === "tainted") tainted = true
       else fold(live, event)
     }
-    this.set({ live: { ...live, parts: [...live.parts] } })
+    const chat = this.state.chat
+    this.set({ live: { ...live, parts: [...live.parts] },
+               ...(tainted && chat ? { chat: { ...chat, tainted: true } } : {}) })
     if (finished && this.state.run) void this.finish(this.state.run, finished.error)
   }
 

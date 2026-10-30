@@ -160,6 +160,8 @@ class Atlas:
     def taint(self, run: Run) -> None:
         """Outside content entered this run: ask before risky tools, now and in
         every later turn of the chat (the content stays in its history)."""
+        if not run.tainted:
+            run.emit({"type": "tainted"})   # the UI says so from now on
         run.tainted = True
         self.store.mark_tainted(run.chat_id)
 

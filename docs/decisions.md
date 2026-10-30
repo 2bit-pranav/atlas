@@ -554,3 +554,11 @@ first 60 characters of every non-password field: OTPs and card numbers went to
 the model and the transcript. A field the user typed into is now only
 "(filled)"; a value the page itself set (its default) is still shown, and
 one-time-code, card and password fields never are.
+
+**The chat says when it has read outside content** (2026-10-30, plan item 3).
+Once a web page, a fetched link or an untrusted MCP server's output is in a
+chat, commands and changes outside its folder ask first, for the rest of the
+chat. That used to be visible only as approval cards. A line above the composer
+now says so (web UI and side panel, one shared `ChatScreen`), from the moment
+the run emits `tainted` and after any reload (the chat row's `tainted`).
+Verified with a real `web_fetch` turn in headless Edge.

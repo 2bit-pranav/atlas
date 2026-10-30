@@ -111,3 +111,13 @@ def test_tainting_a_run_marks_its_chat(atlas) -> None:
     run = atlas.runs.start(chat, "t1")
     atlas.taint(run)
     assert run.tainted and atlas.store.is_tainted(chat)
+
+
+def test_tainting_tells_the_ui_once(atlas) -> None:
+    """The UI shows that the chat has read outside content, from the moment it does."""
+    chat = atlas.store.create_chat()["id"]
+    run = atlas.runs.start(chat, "t1")
+    atlas.taint(run)
+    atlas.taint(run)
+    assert [e["type"] for e in run.events].count("tainted") == 1
+    assert atlas.view(chat)["tainted"]

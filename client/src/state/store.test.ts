@@ -39,3 +39,14 @@ describe("client calls (the extension's page operations)", () => {
     expect(api.answerCall).toHaveBeenCalledWith("run-1", "call-1", { error: "tab closed" })
   })
 })
+
+describe("outside content in the chat", () => {
+  it("is shown from the moment the run reports it", async () => {
+    const { emptyLive } = await import("@/features/chat/transcript")
+    const internals = atlas as unknown as { pending: unknown[]; generation: number; flush: (g: number) => void }
+    atlas.set({ chat: { id: "chat-1", title: "", created_at: 0, updated_at: 0, turns: [], active_run: null }, live: emptyLive() })
+    internals.pending = [{ seq: 1, type: "tainted" }]
+    internals.flush(internals.generation)
+    expect(atlas.state.chat?.tainted).toBeTruthy()
+  })
+})
