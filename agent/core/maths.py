@@ -128,11 +128,17 @@ class _Evaluator:
         raise MathError(f"{type(node).__name__} is not allowed here")
 
 
+#: A number written with thousands separators: groups of three (13,798.14) or
+#: the Indian 2-2-3 (1,00,000). Only these lose their commas; any other comma
+#: separates arguments, so `max(10,20)` stays two numbers, not `max(1020)`.
+_GROUPED = re.compile(r"(?<![\d.])(?:\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})+,\d{3})(?:\.\d+)?(?!\d|,\d)")
+
+
 def _tidy(source: str) -> str:
     """The forms a model writes that Python reads differently."""
     s = source.strip().strip("`").strip()
     s = re.sub(r"(?:Rs\.?|INR|₹|\$|€|£)\s*", "", s)          # currency marks
-    s = re.sub(r"(?<=\d),(?=\d{2,3}\b)", "", s)               # 13,798.14 and 1,00,000
+    s = _GROUPED.sub(lambda m: m[0].replace(",", ""), s)      # 13,798.14 and 1,00,000
     s = s.replace("×", "*").replace("÷", "/").replace("^", "**")
     s = re.sub(r"(?<=[\d)])\s*[xX]\s*(?=[\d(])", "*", s)      # 2750 x 3
     s = re.sub(r"(\d(?:\.\d+)?)\s*%\s*of\b", r"\1/100*", s)   # 18% of 2750

@@ -90,3 +90,14 @@ def test_bad_dates_are_refused() -> None:
     assert "ten years" in refused('workdays("2000-01-01", "2030-01-01")', DATE_FUNCTIONS)
     assert "day of the week" in refused('workdays("1 Oct 2026", "2 Oct 2026", weekend=["Funday"])',
                                         DATE_FUNCTIONS)
+
+
+@pytest.mark.parametrize("expression, expected", [
+    ("max(10,20)", "20"),                    # B8: became max(1020)
+    ("sum([10,20,30])", "60"),
+    ("min(5,12)", "5"),
+    ("max(1,000, 2,500)", "2500"),           # grouped numbers inside a call still read as numbers
+    ("13,798.14 + 1,00,000", "113798.14"),
+])
+def test_commas_between_arguments_are_not_thousands(expression: str, expected: str) -> None:
+    assert calc(expression) == expected
