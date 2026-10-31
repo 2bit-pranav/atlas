@@ -140,6 +140,16 @@ export const SECTIONS: Section[] = [
         ],
       },
       {
+        title: "Limits",
+        fields: [
+          { key: "limits.max_model_calls", label: "Model calls per message", control: num(1, 500, 1),
+            help: "The run stops with a message past this; reply \"continue\" to go on." },
+          { key: "limits.max_minutes", label: "Minutes per message", control: num(1, 240, 1) },
+          { key: "limits.repeat_limit", label: "Same tool call allowed", control: num(1, 20, 1),
+            help: "The same tool with the same arguments, in one message. The next one is refused." },
+        ],
+      },
+      {
         title: "Retries",
         fields: [
           { key: "retry.show_previous", label: "Show earlier answers", control: toggle,

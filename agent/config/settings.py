@@ -250,6 +250,20 @@ class ResilienceSettings(StrictModel):
     nudge_after_failure: bool = True
 
 
+class LimitsSettings(StrictModel):
+    """
+    Cheap limits on every run (agent/safety/limits.py). A small model can loop;
+    these end it with a message instead of leaving it to the user's Stop.
+    """
+
+    #: Model calls in one run (one message, its tool calls and any resume).
+    max_model_calls: int = Field(default=40, ge=1, le=500)
+    #: Minutes from the first model call; past it no new tool call or model call starts.
+    max_minutes: int = Field(default=15, ge=1, le=240)
+    #: The same tool with the same arguments: this many run, the next is refused.
+    repeat_limit: int = Field(default=3, ge=1, le=20)
+
+
 class AccessSettings(StrictModel):
     """
     Which folders the agent may touch beyond its chat workspace (agent/safety/).
@@ -327,6 +341,7 @@ class Settings(StrictModel):
     memory: MemorySettings = Field(default_factory=MemorySettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
     resilience: ResilienceSettings = Field(default_factory=ResilienceSettings)
+    limits: LimitsSettings = Field(default_factory=LimitsSettings)
     approvals: ApprovalSettings = Field(default_factory=ApprovalSettings)
     access: AccessSettings = Field(default_factory=AccessSettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
@@ -394,6 +409,9 @@ TIERS: dict[str, Tier] = {
     "resilience.tool_crash_retries": Tier.LIVE,
     "resilience.tool_failure_limit": Tier.LIVE,
     "resilience.nudge_after_failure": Tier.LIVE,
+    "limits.max_model_calls": Tier.LIVE,
+    "limits.max_minutes": Tier.LIVE,
+    "limits.repeat_limit": Tier.LIVE,
     "approvals.timeout": Tier.LIVE,
     "access.folders": Tier.LIVE,
     "access.ask_outside": Tier.LIVE,
@@ -499,4 +517,4 @@ def load_settings(path: Path) -> Settings:
         raise SettingsError(f"{p} is not valid JSON: {exc}") from exc
 
 
-__all__ = ["AccessSettings", "ApprovalSettings", "AtlasToolSettings", "BuiltinToolSettings", "ContextSettings", "LlamaCppSettings", "McpSettings", "MemorySettings", "ModelSettings", "PathsSettings", "PortSettings", "ResilienceSettings", "RetrySettings", "SamplingSettings", "SessionSettings", "Settings", "SettingsError", "SkillSettings", "StrictModel", "TIERS", "Tier", "ToolsSettings", "changed_restart_keys", "flatten", "get_path", "load_settings", "parse_settings", "restart_tier_values", "set_path", "write_settings"]
+__all__ = ["AccessSettings", "ApprovalSettings", "AtlasToolSettings", "BuiltinToolSettings", "ContextSettings", "LimitsSettings", "LlamaCppSettings", "McpSettings", "MemorySettings", "ModelSettings", "PathsSettings", "PortSettings", "ResilienceSettings", "RetrySettings", "SamplingSettings", "SessionSettings", "Settings", "SettingsError", "SkillSettings", "StrictModel", "TIERS", "Tier", "ToolsSettings", "changed_restart_keys", "flatten", "get_path", "load_settings", "parse_settings", "restart_tier_values", "set_path", "write_settings"]

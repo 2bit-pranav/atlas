@@ -27,6 +27,7 @@ from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
 from agent.runtime.restore import _restore
 from agent.safety.approvals import Approver
+from agent.safety.limits import RunLimits
 from agent.safety.policy import TaintTracker, ToolPolicy
 from agent.safety.protected import Protected
 from agent.safety.scope import Scope
@@ -152,8 +153,10 @@ def build_agent(
         callback_handler=None,
         # Recovery is hooks, not prompt text: see agent/recovery/.
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
-        # Before a tool runs: one ordered policy (policy.py). After: recovery.
-        hooks=[ToolPolicy(_scope(settings, workspace_dir), approver=approver,
+        # Before a tool runs: the run's limits, then one ordered policy
+        # (policy.py), so a refused repeat never shows a card. After: recovery.
+        hooks=[RunLimits(settings.limits, notify=observer),
+               ToolPolicy(_scope(settings, workspace_dir), approver=approver,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           reader=lambda p: reader_command(settings, p, _shown(
                               p, workspace_dir, _scope(settings, workspace_dir).folders))),

@@ -562,3 +562,12 @@ chat. That used to be visible only as approval cards. A line above the composer
 now says so (web UI and side panel, one shared `ChatScreen`), from the moment
 the run emits `tainted` and after any reload (the chat row's `tainted`).
 Verified with a real `web_fetch` turn in headless Edge.
+
+**Every run has limits** (2026-10-31, plan item 6). 40 model calls and 15
+minutes per message, and the same tool call with the same arguments at most 3
+times (Settings > Recovery & context > Limits, live). Past a limit the next
+model call is cancelled with a message, which Strands makes the turn's answer:
+the turn completes, and "continue" goes on with the work in the history. A
+repeat past the limit is refused as a tool result, before the policy, so it
+never shows a card. Checked on the real model with a limit of 2: two
+`calculate` calls ran, then the stop message.

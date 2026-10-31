@@ -91,6 +91,10 @@ class Run:
                 self.transcript.fold(stats)
         elif kind in ("call_start", "model_retry", "resumed"):
             self.emit(event)
+        elif kind == "limit":
+            # Strands makes the stop message the turn's answer without streaming
+            # it; sent as answer text, the UI and the saved transcript show it.
+            self.emit({"type": "text_delta", "text": event["text"]})
 
     async def request_approval(self, kind: str, detail: dict[str, Any], timeout: float) -> str:
         """Ask the user, and wait. Returns "allowed", "denied" or "expired".

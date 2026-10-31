@@ -22,6 +22,7 @@ agent/
                 call_paths.py    which paths a call touches; the path rewrites before the checks
                 approvals.py     the Approver type
                 installs.py      what counts as an install command
+                limits.py        RunLimits: model calls, minutes and repeated calls per message
   recovery/     model_retry.py   LocalModelRetry: model calls that fail or come back empty
                 tool_recovery.py ToolFailureRecovery: crashed tools, non-zero exits, giving up
   platform/     windows_shell.py WindowsLocalEnvironment: the shell, stoppable commands
