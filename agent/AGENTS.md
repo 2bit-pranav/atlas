@@ -21,7 +21,8 @@ agent/
                 placement.py     locate(): the one rule for relative paths, never outside its folder
                 call_paths.py    which paths a call touches; the path rewrites before the checks
                 approvals.py     the Approver type
-                installs.py      what counts as an install command
+                shell.py         a shell command parsed (tree-sitter-bash): read, write, delete, install, other
+                installs.py      the install rules, applied by shell.py to each simple command
                 limits.py        RunLimits: model calls, minutes and repeated calls per message
   recovery/     model_retry.py   LocalModelRetry: model calls that fail or come back empty
                 tool_recovery.py ToolFailureRecovery: crashed tools, non-zero exits, giving up

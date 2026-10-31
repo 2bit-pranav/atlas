@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.safety.installs import is_install
+from agent.safety.shell import is_install
 
 
 @pytest.mark.parametrize("command", [

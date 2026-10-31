@@ -583,3 +583,14 @@ and `GET /api/pairing` (the token itself) with no token. Such fetches now need
 the token and get the same scope. Verified in headless Edge: the panel sends a
 message and follows its run with every request let in; without the token, with
 `?token=`, or for pairing and settings writes, it is refused.
+
+**Shell commands are parsed with tree-sitter-bash** (2026-10-31, plan item 4).
+Chosen over bashlex (GPL-3.0) and over extending our own splitter: less code
+of our own, a maintained grammar, MIT, and prebuilt abi3 wheels (tree-sitter
+itself was already in the lock through Docling). `agent/safety/shell.py`
+places each simple command, wherever it is nested, as read, write, delete,
+install or other, and a command takes its worst part's class. Read is the one
+class that must be proven: a program not on the list is `other`, readers that
+can write (`sed` with `w`/`e`, `uniq in out`, `date -s`) are not read, and a
+command that does not parse is `other`. Install detection runs on the same
+parse. Nothing decides on the classes yet; the tiers will.

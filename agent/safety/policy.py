@@ -40,9 +40,9 @@ from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 from agent.platform.winpaths import model_path
 from agent.safety.approvals import Approver
 from agent.safety.call_paths import _PATH_KEYS, _paths_of, _rewrite, _unbackslash
-from agent.safety.installs import is_install
 from agent.safety.placement import locate
 from agent.safety.scope import Scope, _absolute
+from agent.safety.shell import is_install
 from agent.tools.documents.base import GUARDED
 
 logger = logging.getLogger(__name__)
