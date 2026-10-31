@@ -2,7 +2,7 @@ import { useContext, useState } from "react"
 import { ChevronLeft, ChevronRight, Download, RefreshCw } from "lucide-react"
 import { atlas, useAtlas } from "@/state/store"
 import { usePrefs } from "@/state/prefs"
-import { fileUrl } from "@/api/client"
+import { FileLink } from "@/features/chat/FileLink"
 import type { ChangedFile, Part, Turn, TurnStats } from "@/api/types"
 import { answerText } from "@/features/chat/transcript"
 import { cn } from "@/lib/cn"
@@ -45,10 +45,10 @@ function ProducedFiles({ files, chatId }: { files: ChangedFile[]; chatId: string
               <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Created" : "Updated"} · {formatBytes(f.size)}</span>
             </span>
             <Tip label="Download">
-              <a href={fileUrl(chatId, f.name, true)}
-                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
+              <FileLink chatId={chatId} name={f.name} download
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
                 <Download className="h-3.5 w-3.5" />
-              </a>
+              </FileLink>
             </Tip>
           </div>
         )

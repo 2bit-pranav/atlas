@@ -1,6 +1,6 @@
 import { Pencil, Quote } from "lucide-react"
 import { atlas, useAtlas } from "@/state/store"
-import { fileUrl } from "@/api/client"
+import { FileImage, FileLink } from "@/features/chat/FileLink"
 import type { ChatFile, Ref, Turn } from "@/api/types"
 import { cn } from "@/lib/cn"
 import { Composer } from "@/features/composer/Composer"
@@ -103,19 +103,18 @@ function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
         const image = f.type.startsWith("image/")
         const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"
         return image ? (
-          <a key={f.path} href={fileUrl(chatId, f.name)} target="_blank" rel="noreferrer"
-             className="overflow-hidden rounded-lg bg-muted shadow-lg">
-            <img src={fileUrl(chatId, f.name)} alt={f.name} className="max-h-40" />
-          </a>
+          <FileLink key={f.path} chatId={chatId} name={f.name} className="overflow-hidden rounded-lg bg-muted shadow-lg">
+            <FileImage chatId={chatId} name={f.name} className="max-h-40" />
+          </FileLink>
         ) : (
-          <a key={f.path} href={fileUrl(chatId, f.name, true)} title="Download"
+          <FileLink key={f.path} chatId={chatId} name={f.name} download title="Download"
              className="flex items-center gap-3 rounded-lg border bg-muted p-2.5 text-left hover:bg-accent">
             <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">{ext}</span>
             <span className="min-w-0">
               <span className="block max-w-40 truncate text-sm font-medium">{f.name}</span>
               <span className="block text-xs text-muted-foreground">{formatBytes(f.size)}</span>
             </span>
-          </a>
+          </FileLink>
         )
       })}
     </div>

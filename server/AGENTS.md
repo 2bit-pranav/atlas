@@ -117,9 +117,17 @@ Each run also records the files it created or changed in the workspace
 
 Every request: the Host must be 127.0.0.1 or localhost (no DNS rebinding);
 an Origin must be the web UI's own (the backend's port, or Vite's), or a
-browser extension carrying the pairing token; other sites get 403. A
-cross-site request without an Origin (an image, a `no-cors` fetch) needs the
-token as `?token=`. Local programs send no Origin and pass.
+browser extension carrying the pairing token; other sites get 403. A request
+without an Origin that a browser marks `cross-site`, or `none` on a fetch (what
+Edge sends for an extension's GET), needs the token too. Local programs send no
+fetch metadata and pass; so does an address typed in the address bar.
+
+The token is accepted only as `Authorization: Bearer`, never in a URL, and
+opens only what the side panel uses (`EXTENSION_ROUTES`): chats, turns, runs,
+a chat's files, reading settings, and the extension routes. Settings writes,
+MCP, skills, restart, pairing, the profile and chat import/export are the web
+UI's alone. In the panel, images and downloads are fetched with the header and
+shown from a blob (`features/chat/FileLink.tsx`).
 
 A message sent with `page: {url, title}` (from the extension) adds the page
 tools to that turn; a page tool emits `client_call {id, op, args}` and waits

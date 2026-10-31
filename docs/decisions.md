@@ -571,3 +571,15 @@ the turn completes, and "continue" goes on with the work in the history. A
 repeat past the limit is refused as a tool result, before the policy, so it
 never shows a card. Checked on the real model with a limit of 2: two
 `calculate` calls ran, then the stop message.
+
+**The extension's token: a header, and only the panel's routes** (2026-10-31,
+plan item 7). The token opened the whole API, and travelled in `?token=` links
+(history, logs, Referer). It is now a header only, and opens only
+`EXTENSION_ROUTES`; the panel fetches images and downloads with it. Measuring
+what Edge sends found an older hole: an extension's GET carries no Origin and
+`Sec-Fetch-Site: none`, which the guard took for a local program, so any
+installed extension allowed on all sites could read every chat, the profile
+and `GET /api/pairing` (the token itself) with no token. Such fetches now need
+the token and get the same scope. Verified in headless Edge: the panel sends a
+message and follows its run with every request let in; without the token, with
+`?token=`, or for pairing and settings writes, it is refused.

@@ -87,14 +87,20 @@ export async function uploadFile(chatId: string, file: File): Promise<ChatFile> 
   return request<ChatFile>(`/chats/${chatId}/files`, { method: "POST", body: form })
 }
 
-/** A workspace file. `name` may contain folders; each segment is encoded. A URL
- * carries no header, so the extension's token goes in the query. */
+/** A workspace file. `name` may contain folders; each segment is encoded. Never
+ * carries the token: where one is needed (the extension), see `fetchFile`. */
 export function fileUrl(chatId: string, name: string, download = false): string {
-  const query = new URLSearchParams()
-  if (download) query.set("download", "1")
-  if (TOKEN) query.set("token", TOKEN)
-  const qs = query.toString()
-  return `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${qs ? `?${qs}` : ""}`
+  return `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${download ? "?download=1" : ""}`
+}
+
+/** True in the extension: a plain link to the backend would not be let in. */
+export const needsToken = () => Boolean(TOKEN)
+
+/** A workspace file fetched with the token in a header, never in its URL. */
+export async function fetchFile(chatId: string, name: string): Promise<Blob> {
+  const response = await fetch(fileUrl(chatId, name), { headers: auth() })
+  if (!response.ok) throw new ApiError(await describe(response), response.status)
+  return await response.blob()
 }
 /** A PDF by its link (`file://` or web) copied into the chat's workspace by the backend. */
 export const importFile = (chatId: string, url: string) =>

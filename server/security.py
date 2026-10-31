@@ -8,20 +8,24 @@ opens, so the API checks each request:
 * **Origin**, when the browser sends one: the web UI's own origins (the
   backend's port, and Vite's with `--dev`) pass; a browser extension must carry
   the pairing token; any other site is refused.
-* A cross-site request without an Origin (an `<img>` or `no-cors` fetch) is
-  refused too, unless it carries the token, which is how the extension loads
-  images and files by URL.
+* A request without an Origin that a browser marks cross-site (an `<img>` or
+  `no-cors` fetch) or `none` on a fetch (an extension's GET: Edge sends no
+  Origin there) is refused too, unless it carries the token.
+* A request let in by the token reaches only what the side panel uses
+  (`EXTENSION_ROUTES`): never settings writes, MCP, skills, restart or pairing.
 
 Requests from local programs (curl, `atlas`) send no Origin and pass: they
 already run as the user. The pairing token lives in `<data>/pairing-token`,
 made on first start. "Connect" on the web UI's Browser extension page hands it
-to the extension, which checks it against `/api/health` before keeping it. The extension sends it as `Authorization: Bearer`,
-or as `?token=` where a URL is all it can give.
+to the extension, which checks it against `/api/health` before keeping it. The
+extension sends it only as `Authorization: Bearer`, never in a URL (URLs end up
+in history, logs and Referer headers); images and downloads are fetched.
 """
 
 from __future__ import annotations
 
 import hmac
+import re
 import secrets
 from pathlib import Path
 from typing import Any
@@ -31,6 +35,29 @@ from fastapi.responses import JSONResponse
 
 EXTENSION_SCHEMES = ("chrome-extension://", "extension://", "moz-extension://")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+_ID = r"[^/]+"
+#: What the paired extension may call: (methods, path). Everything else is the web UI's.
+EXTENSION_ROUTES: list[tuple[set[str], re.Pattern[str]]] = [
+    ({"GET"}, re.compile(r"/api/(health|settings)")),
+    ({"GET", "POST"}, re.compile(r"/api/chats")),
+    ({"GET", "PATCH", "DELETE"}, re.compile(rf"/api/chats/{_ID}")),
+    ({"GET"}, re.compile(rf"/api/chats/{_ID}/workspace")),
+    ({"POST"}, re.compile(rf"/api/chats/{_ID}/(messages|files|files/import)")),
+    ({"GET", "DELETE"}, re.compile(rf"/api/chats/{_ID}/files/.+")),
+    ({"POST"}, re.compile(rf"/api/turns/{_ID}/(retry|edit|select)")),
+    ({"GET"}, re.compile(rf"/api/runs/{_ID}(/events)?")),
+    ({"POST"}, re.compile(rf"/api/runs/{_ID}/(approvals|calls)/{_ID}")),
+    ({"POST"}, re.compile(rf"/api/runs/{_ID}/cancel")),
+    ({"POST"}, re.compile(r"/api/extension/(fill|table)")),
+    ({"GET"}, re.compile(r"/api/extension/pdf")),
+]
+
+
+def extension_may(method: str, path: str) -> bool:
+    if method == "OPTIONS":
+        return True
+    return any(method in methods and pattern.fullmatch(path) for methods, pattern in EXTENSION_ROUTES)
 
 
 class Pairing:
@@ -51,7 +78,6 @@ class Pairing:
 
     def valid(self, request: Request) -> bool:
         given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-        given = given or request.query_params.get("token", "")
         return bool(given) and hmac.compare_digest(given, self.token)
 
 
@@ -74,17 +100,40 @@ def guard(pairing: Pairing, trusted_origins: set[str]):
         if host not in LOCAL_HOSTS:
             return JSONResponse({"detail": f"unexpected Host {host!r}"}, status_code=403)
         origin = request.headers.get("origin")
-        if origin and origin not in trusted_origins:
-            if not origin.startswith(EXTENSION_SCHEMES):
-                return JSONResponse({"detail": f"requests from {origin} are not allowed"}, status_code=403)
+        site = request.headers.get("sec-fetch-site")
+        if origin and origin not in trusted_origins and not origin.startswith(EXTENSION_SCHEMES):
+            return JSONResponse({"detail": f"requests from {origin} are not allowed"}, status_code=403)
+        if _needs_token(origin, site, request.headers.get("sec-fetch-mode")):
             if not pairing.valid(request):
                 return JSONResponse({"detail": "not paired: connect the extension from the Browser "
                                      "extension page in Atlas"}, status_code=401)
-        elif not origin and request.headers.get("sec-fetch-site") == "cross-site" and not pairing.valid(request):
-            return JSONResponse({"detail": "cross-site requests are not allowed"}, status_code=403)
+            if not extension_may(request.method, request.url.path):
+                return _outside_scope()
         return await call_next(request)
 
     return middleware
 
 
-__all__ = ["Pairing", "guard"]
+def _needs_token(origin: str | None, site: str | None, mode: str | None) -> bool:
+    """Whether the request is the extension's (or could be another extension's).
+
+    - an extension Origin (POSTs from an extension carry one);
+    - no Origin and cross-site: an `<img>` or `no-cors` fetch from some page;
+    - no Origin and `Sec-Fetch-Site: none` on a fetch, not a navigation: what
+      Edge sends for an extension page's or worker's GET (measured). Without
+      this, any installed extension allowed on all sites could read every
+      chat, the profile and the pairing token itself.
+
+    Local programs (curl, `atlas`) send no fetch metadata at all, and an address
+    typed in the address bar is a navigation: neither needs the token.
+    """
+    if origin:
+        return origin.startswith(EXTENSION_SCHEMES)
+    return site == "cross-site" or (site == "none" and mode not in (None, "navigate"))
+
+
+def _outside_scope() -> JSONResponse:
+    return JSONResponse({"detail": "the extension cannot do this: use Atlas in the browser tab"}, status_code=403)
+
+
+__all__ = ["EXTENSION_ROUTES", "Pairing", "extension_may", "guard"]
