@@ -23,6 +23,7 @@ agent/
                 approvals.py     the Approver type
                 shell.py         a shell command parsed (tree-sitter-bash): read, write, delete, install, other
                 installs.py      the install rules, applied by shell.py to each simple command
+                rules.toml       the floor: shell commands refused in every tier (rules.py loads and checks it)
                 limits.py        RunLimits: model calls, minutes and repeated calls per message
   recovery/     model_retry.py   LocalModelRetry: model calls that fail or come back empty
                 tool_recovery.py ToolFailureRecovery: crashed tools, non-zero exits, giving up
@@ -194,7 +195,10 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    paths (`/c/Users/x` -> `C:/Users/x`) and relative paths placed by `locate`;
    `read`/`write`/`edit` get `/c/...` for a pasted `C:\...`; unquoted `C:\...` in
    a shell command becomes `C:/...` (bash eats the backslashes).
-2. **access**: a path outside the scope asks the user (kind `access`).
+2. **floor**: refused outright, no card: Atlas's own files (protected.py), the
+   floor's shell rules (rules.toml), and shell writes or deletes that land in
+   Atlas's data or another chat (relative paths placed from the workspace).
+3. **access**: a path outside the scope asks the user (kind `access`).
 3. **install**: a `shell` command that installs asks (kind `install`).
 4. **page taint**: once outside content is in the **chat** (the extension's page
    tools, `web_fetch`, an MCP tool from an untrusted server), shell commands and

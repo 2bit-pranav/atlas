@@ -19,7 +19,7 @@ is `other`, so reading is the one class that must be proven.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cache
 from pathlib import PureWindowsPath
 from typing import Any
@@ -55,6 +55,8 @@ class Effect:
     kind: str
     program: str
     paths: tuple[str, ...] = ()
+    #: The command's arguments, unquoted (for the floor's rules).
+    args: tuple[str, ...] = ()
 
 
 @dataclass
@@ -146,8 +148,11 @@ def _command(node: Any, depth: int) -> list[Effect]:
         words = words[1:]
     if not words:
         return []
-    program = _program(words[0])
-    args = words[1:]
+    program, args = _program(words[0]), words[1:]
+    return [e if e.args else replace(e, args=tuple(args)) for e in _place(program, words, args, depth)]
+
+
+def _place(program: str, words: list[str], args: list[str], depth: int) -> list[Effect]:
     if installs(words):
         return [Effect("install", program)]
     if program in _SHELLS or program in _FOREIGN:

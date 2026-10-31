@@ -594,3 +594,14 @@ class that must be proven: a program not on the list is `other`, readers that
 can write (`sed` with `w`/`e`, `uniq in out`, `date -s`) are not read, and a
 command that does not parse is `other`. Install detection runs on the same
 parse. Nothing decides on the classes yet; the tiers will.
+
+**The floor is a data file** (2026-10-31, plan item 5). `agent/safety/rules.toml`
+lists commands refused in every tier with no card (formatting disks, raw disk
+writes, deleting backups, boot changes, registry deletes, deleting a drive, the
+home folder or a system folder). Each rule's examples are checked when it
+loads, so a rule that stops matching fails Atlas's start instead of silently
+letting its commands through. Writing the tests found that the shell runs in
+`.data/chats/<id>`, so `rm -rf ../..` reached Atlas's data and `rm -rf ../c2`
+another chat, unseen by any check (relative paths were never placed). The
+floor now places a shell command's write and delete targets from the
+workspace and refuses those.

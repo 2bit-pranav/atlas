@@ -94,3 +94,24 @@ def test_the_chats_folder_and_atlas_code_reads_still_work(layout) -> None:
 def test_without_protection_nothing_changes(tmp_path) -> None:
     scope = Scope(tmp_path / "ws", folders=[tmp_path])
     assert _run(scope, "write", {"path": (tmp_path / "x.txt").as_posix(), "content": "x"}).cancel_tool is False
+
+
+@pytest.mark.parametrize("command", [
+    "rm -rf ../..",                       # .data: the database, snapshots, the token
+    "rm -rf ..",                          # every chat
+    "rm -rf ../c2",                       # another chat
+    "echo x > ../c2/notes.txt",
+    "cp evil.py ../../../agent/x.py",     # Atlas's own code
+    "format C: /q",                       # the floor's rules
+])
+def test_shell_commands_cannot_reach_atlas_or_other_chats(layout, command) -> None:
+    """The workspace is .data/chats/<id>: a relative path in a shell command
+    reached the data folder and other chats, and no check saw it."""
+    asked = _Asked()
+    event = _run(layout.scope, "shell", {"command": command}, asked)
+    assert event.cancel_tool and asked.calls == [], command
+
+
+@pytest.mark.parametrize("command", ["rm -rf build", "echo x > out/notes.txt", "rm -rf ./old", "ls .."])
+def test_shell_commands_in_the_workspace_pass(layout, command) -> None:
+    assert not _run(layout.scope, "shell", {"command": command}).cancel_tool, command

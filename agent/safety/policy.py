@@ -37,12 +37,13 @@ from strands.hooks import HookProvider, HookRegistry
 from strands.hooks.events import AfterToolCallEvent, BeforeToolCallEvent
 from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
-from agent.platform.winpaths import model_path
+from agent.platform.winpaths import model_path, windows_path
 from agent.safety.approvals import Approver
 from agent.safety.call_paths import _PATH_KEYS, _paths_of, _rewrite, _unbackslash
 from agent.safety.placement import locate
+from agent.safety.rules import floor
 from agent.safety.scope import Scope, _absolute
-from agent.safety.shell import is_install
+from agent.safety.shell import classify, is_install
 from agent.tools.documents.base import GUARDED
 
 logger = logging.getLogger(__name__)
@@ -143,13 +144,45 @@ class ToolPolicy(HookProvider):
         return value
 
     async def _floor(self, event: BeforeToolCallEvent) -> Decision | None:
-        """Atlas's own files: refused outright, before anything could ask (protected.py)."""
+        """Refused outright, before anything could ask: the floor's rules for shell
+        commands (rules.toml), and Atlas's own files and other chats (protected.py)."""
+        name, args = event.tool_use.get("name", ""), event.tool_use.get("input") or {}
+        if name == "shell":
+            command = str(args.get("command", ""))
+            if rule := floor(command):
+                return Decision(refuse=(
+                    f"Refused: this command would {rule}. Atlas never runs that, in any mode, and the "
+                    "user cannot allow it here. Do not try another way; if it is needed, tell the user "
+                    "to run it themselves."))
+            if reason := self._shell_targets(command):
+                return Decision(refuse=reason)
         if self.scope.protected is None:
             return None
-        name, args = event.tool_use.get("name", ""), event.tool_use.get("input") or {}
         for path, write in _paths_of(name, args, event.selected_tool, self.scope):
             if reason := self.scope.protected.refuses(path, write=write):
                 return Decision(refuse=reason)
+        return None
+
+    def _shell_targets(self, command: str) -> str | None:
+        """What a shell command writes or deletes, placed from the workspace (where
+        it runs): `rm -rf ../..` from `.data/chats/<id>` is Atlas's data folder.
+        Variables (`$X`) cannot be placed; `cd` within the command is not followed."""
+        protected = self.scope.protected
+        if protected is None:
+            return None
+        parsed = classify(command)
+        chats = _absolute(protected.data / "chats")
+        workspace = _absolute(self.scope.workspace)
+        for raw in parsed.paths("write") + parsed.paths("delete"):
+            if "$" in raw or "%" in raw or raw.startswith("~"):
+                continue
+            target = _absolute(Path(windows_path(raw)) if raw.startswith("/") or Path(raw).is_absolute()
+                               else self.scope.workspace / raw)
+            if reason := protected.refuses(target, write=True):
+                return reason
+            if (target == chats or chats in target.parents) and not (target == workspace or workspace in target.parents):
+                return (f"{raw} is another chat's files (or all of them). The agent may change only this "
+                        "chat's folder. Continue without it.")
         return None
 
     async def _access(self, event: BeforeToolCallEvent) -> Decision | None:
