@@ -1,0 +1,467 @@
+"""MCP servers: a pool of connections that outlives every turn.
+
+The config is `mcp.json` at the application root, in the standard `mcpServers`
+format, so a block from any MCP server's README pastes in unchanged:
+
+    {"mcpServers": {"fetch": {"command": "uvx", "args": ["mcp-server-fetch"]}}}
+
+**Why a pool.** Atlas builds a fresh agent for every turn (so LIVE settings
+apply). Handing that agent an `MCPClient` would make Strands start the server
+when the agent is built and stop it when the agent goes away -- relaunching
+`npx some-server` on every single message. Instead the pool connects each
+server once, holds it open as a permanent consumer, and gives each turn the
+server's individual tool objects. A turn's agent never owns a connection.
+
+**Per-tool modes: on, ask, off.** "Off" is stored in the server's standard
+`tool_filters.rejected` list; "ask" (the user must Allow each call, see
+`policy.py`) in an Atlas-only `atlas.ask` list. The pool connects *without*
+either, so the UI can still list a switched-off tool and switch it back on;
+filtering happens when a turn's tool list is built, and changing a mode needs
+no reconnect.
+
+**Allowed folders.** Atlas cannot know what an arbitrary server's arguments
+mean, and Strands' MCP client does not implement the MCP "roots" protocol, so
+the link is explicit: an argument `"{atlas:folders}"` is replaced, when the
+server connects, by the chats folder and every folder in `access.folders`,
+one argument each. Changing that list reconnects the servers that use it.
+
+**Cost.** Every tool schema is sent with every request. On a 32k window and a
+2B model that is the real constraint on MCP, so each tool reports an estimate
+of its prompt tokens and the UI shows the total.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
+
+from strands.tools.mcp import MCPClient
+
+from agent.config import paths
+from agent.config.settings import Settings
+from agent.integrations.mcp.secrets import redact, restore
+
+logger = logging.getLogger(__name__)
+
+
+#: The pool's own consumer id. While it is registered, Strands never tears the
+#: connection down, whatever the per-turn agents do.
+POOL = "atlas-mcp-pool"
+
+
+class McpError(Exception):
+    """A config edit was refused. The message is shown to the user."""
+
+
+def _estimate_tokens(spec: dict[str, Any]) -> int:
+    """About four characters per token, which is close enough to budget with."""
+    return max(1, len(json.dumps(spec, separators=(",", ":"))) // 4)
+
+
+class _Server:
+    def __init__(self, name: str, config: dict[str, Any]) -> None:
+        self.name = name
+        self.config = config
+        self.status = "disabled" if config.get("disabled") else "stopped"
+        self.error: str | None = None
+        self.client: MCPClient | None = None
+        self.tools: list[Any] = []
+        #: Set to give up a start in progress (Refresh, a settings change, shutdown).
+        self.cancel = threading.Event()
+        #: Set once no start is in progress, so whoever cancelled can wait for it.
+        self.idle = threading.Event()
+        self.idle.set()
+
+    @property
+    def rejected(self) -> set[str]:
+        filters = self.config.get("tool_filters") or {}
+        return {str(n) for n in filters.get("rejected") or [] if isinstance(n, str)}
+
+    @property
+    def ask(self) -> set[str]:
+        atlas = self.config.get("atlas") or {}
+        return {str(n) for n in atlas.get("ask") or [] if isinstance(n, str)}
+
+    def mode(self, tool: str) -> str:
+        return "off" if tool in self.rejected else "ask" if tool in self.ask else "on"
+
+    def describe(self) -> dict[str, Any]:
+        tools = []
+        for tool in self.tools:
+            spec = tool.tool_spec
+            original = getattr(getattr(tool, "mcp_tool", None), "name", tool.tool_name)
+            tools.append({
+                "name": original,
+                "agent_name": tool.tool_name,
+                "description": spec.get("description", "").removeprefix(MCP_LABEL.format(self.name)),
+                "enabled": original not in self.rejected,
+                "mode": self.mode(original),
+                "tokens": _estimate_tokens(spec),
+            })
+        return {
+            "name": self.name,
+            # Never the stored secrets: env, headers, key-like args and URL parameters
+            # are placeholders here and are put back by `upsert` (secrets.py).
+            "config": redact(self.config),
+            "transport": "remote" if self.config.get("url") else "local",
+            "status": self.status,
+            "error": self.error,
+            "enabled": not self.config.get("disabled", False),
+            "uses_folders": FOLDERS in (self.config.get("args") or []),
+            "tools": tools,
+            "tokens": sum(t["tokens"] for t in tools if t["enabled"]),
+        }
+
+
+MCP_LABEL = "[MCP: {}] "
+
+
+#: Replaced, in a server's `args`, by the folders Atlas allows.
+FOLDERS = "{atlas:folders}"
+
+
+def _label(tool: Any, server: str) -> None:
+    """Prefix the description the model sees with the tool's server.
+
+    Without it an MCP tool is just another name in the list, and asked to
+    "use the MCP fetch tool" the model reached for the built-in web_fetch or
+    went looking for a skill. The label is also how `mcp_server_of` finds a
+    tool's server again when the prompt's tool list is built.
+    """
+    mcp_tool = getattr(tool, "mcp_tool", None)
+    if mcp_tool is None:
+        return
+    label = MCP_LABEL.format(server)
+    description = mcp_tool.description or f"Tool which performs {mcp_tool.name}"
+    if not description.startswith(label):
+        mcp_tool.description = label + description
+
+
+def mcp_server_of(tool: Any) -> str | None:
+    description = getattr(getattr(tool, "mcp_tool", None), "description", "") or ""
+    if description.startswith("[MCP: "):
+        return description[6:description.index("]")]
+    return None
+
+
+class _Cancelled(Exception):
+    """A start given up on purpose: not a failure."""
+
+
+def _start_bounded(client: MCPClient, timeout: float, cancel: threading.Event) -> None:
+    """`client.start()`, given up after `timeout` seconds or on `cancel`, leaving nothing running.
+
+    Strands' own startup timeout cannot stop a server that never answers
+    `initialize` (say, `uvx` still trying to download it): its `stop()` then
+    waits for the background thread forever, the server stays "connecting" and
+    its process lives on. Atlas waits itself instead, and when it gives up
+    cancels the background loop's tasks, which closes the transport and ends
+    the server's process tree.
+    """
+    done, error = threading.Event(), []
+
+    def run() -> None:
+        try:
+            client.start()
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
+            error.append(exc)
+        finally:
+            done.set()
+
+    threading.Thread(target=run, name="mcp-start", daemon=True).start()
+    deadline = time.monotonic() + timeout
+    while not done.wait(0.2):
+        if cancel.is_set() or time.monotonic() > deadline:
+            break
+    if done.is_set():
+        if error:
+            raise error[0]
+        return
+    loop = client._background_thread_event_loop  # noqa: SLF001 - see the docstring
+    if loop is not None:
+        loop.call_soon_threadsafe(lambda: [task.cancel() for task in asyncio.all_tasks(loop)])
+    if not client._init_future.done():  # noqa: SLF001
+        client._init_future.set_exception(TimeoutError())  # noqa: SLF001 - wakes start()
+    done.wait(15)
+    if cancel.is_set():
+        raise _Cancelled
+    raise TimeoutError(f"did not start in {timeout:g} seconds")
+
+
+class McpManager:
+    """Owns `mcp.json` and one connection per enabled server."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self._lock = threading.RLock()
+        self._servers: dict[str, _Server] = {}
+
+    # ------------------------------------------------------------- config --
+
+    def config_path(self) -> Path:
+        return paths.mcp_config(self.settings)
+
+    def read_config(self) -> dict[str, dict[str, Any]]:
+        path = self.config_path()
+        if not path.is_file():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise McpError(f"{path} is not valid JSON: {exc}") from exc
+        servers = data.get("mcpServers", data) if isinstance(data, dict) else {}
+        return {k: v for k, v in servers.items() if isinstance(v, dict)}
+
+    def _write_config(self, servers: dict[str, dict[str, Any]]) -> None:
+        path = self.config_path()
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+
+    # ---------------------------------------------------------- lifecycle --
+
+    def start_all(self) -> None:
+        """Connect every enabled server, side by side so a slow one holds up no
+        other. Blocking; call from a worker thread."""
+        try:
+            config = self.read_config()
+        except McpError as exc:
+            logger.error("%s", exc)
+            return
+        with ThreadPoolExecutor(max_workers=max(1, len(config)), thread_name_prefix="mcp") as pool:
+            list(pool.map(lambda item: self._connect(*item), config.items()))
+
+    def stop_all(self) -> None:
+        """Stop every server, including any still starting, and wait until they are gone."""
+        with self._lock:
+            servers = list(self._servers.values())
+            self._servers.clear()
+        with ThreadPoolExecutor(max_workers=max(1, len(servers)), thread_name_prefix="mcp") as pool:
+            list(pool.map(self._disconnect, servers))
+
+    def _connect(self, name: str, config: dict[str, Any]) -> _Server:
+        with self._lock:
+            old = self._servers.get(name)
+            server = _Server(name, config)
+            self._servers[name] = server
+        if old is not None:
+            # Stopped, or its start cancelled, and gone before the new one starts:
+            # two copies of one server fight over the same things (uv's cache
+            # lock, a port). Outside the lock: this can take a few seconds.
+            self._disconnect(old)
+        if config.get("disabled"):
+            return server
+
+        server.status = "connecting"
+        server.idle.clear()
+        try:
+            # Connected without tool_filters (or Atlas's own keys), so a
+            # switched-off tool can still be listed and switched back on.
+            # Filtering happens per turn.
+            unfiltered = {k: v for k, v in config.items() if k not in ("tool_filters", "atlas")}
+            if FOLDERS in (unfiltered.get("args") or []):
+                unfiltered["args"] = self._expand_folders(unfiltered["args"])
+            timeout = float(unfiltered.pop("startup_timeout", self.settings.mcp.startup_timeout))
+            # Strands' own timeout must never fire first (see _start_bounded).
+            unfiltered["startup_timeout"] = int(timeout) + 300
+            (client,) = MCPClient.load_servers({name: unfiltered}, prefix_with_server_name=True)
+            client.add_consumer(POOL)
+            _start_bounded(client, timeout, server.cancel)
+            client._tool_provider_started = True  # noqa: SLF001 - Strands' own lifecycle flag
+            server.client = client
+            server.tools = list(client._list_all_tools_sync())  # noqa: SLF001
+            if server.cancel.is_set():
+                raise _Cancelled
+            for tool in server.tools:
+                _label(tool, name)
+            server.status = "connected"
+            logger.info("mcp %s connected (%d tools)", name, len(server.tools))
+        except _Cancelled:
+            server.status = "stopped"
+            self._release(server)
+        except Exception as exc:  # noqa: BLE001 - one bad server must not stop the rest
+            server.status = "failed"
+            server.error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, TimeoutError) and Path(str(config.get("command", ""))).stem in ("uvx", "npx"):
+                server.error += (f" ({Path(str(config['command'])).stem} fetches the package from the internet;"
+                                 " check the connection, then Retry)")
+            logger.warning("mcp %s failed: %s", name, server.error)
+            self._release(server)
+        finally:
+            server.idle.set()
+        return server
+
+    def _expand_folders(self, args: list[Any]) -> list[Any]:
+        folders = [str(paths.data_dir(self.settings) / "chats")]
+        for f in self.settings.access.folders:
+            p = Path(f).expanduser()
+            if f.strip() and p.is_dir():
+                folders.append(str(p.resolve()))
+        out: list[Any] = []
+        for arg in args:
+            out.extend(folders if arg == FOLDERS else [arg])
+        return out
+
+    def set_settings(self, settings: Settings) -> None:
+        """Take new settings; reconnect the servers whose folders changed."""
+        before = list(self.settings.access.folders)
+        self.settings = settings
+        if before == list(settings.access.folders):
+            return
+        try:
+            config = self.read_config()
+        except McpError:
+            return
+        for name, server in config.items():
+            if FOLDERS in (server.get("args") or []) and not server.get("disabled"):
+                logger.info("mcp %s: allowed folders changed, reconnecting", name)
+                self._connect(name, server)
+
+    def is_sensitive(self, agent_name: str) -> bool:
+        """Whether this tool (by its agent-facing name) must ask the user first."""
+        with self._lock:
+            for server in self._servers.values():
+                for tool in server.tools:
+                    if tool.tool_name == agent_name:
+                        original = getattr(getattr(tool, "mcp_tool", None), "name", agent_name)
+                        return server.mode(original) == "ask"
+        return False
+
+    def is_untrusted(self, agent_name: str) -> bool:
+        """Whether this MCP tool's results are outside content that taints the chat.
+
+        Every server is, except one Atlas points only at the allowed folders
+        (`{atlas:folders}` in its args: it lists the user's own files) and one
+        marked `"atlas": {"trusted": true}` in mcp.json. A tool that is not an
+        MCP tool is not this method's to judge.
+        """
+        with self._lock:
+            for server in self._servers.values():
+                if any(tool.tool_name == agent_name for tool in server.tools):
+                    config = server.config
+                    if (config.get("atlas") or {}).get("trusted") is True:
+                        return False
+                    return FOLDERS not in (config.get("args") or [])
+        return False
+
+    def _disconnect(self, server: _Server) -> None:
+        """Stop a server; one still starting is cancelled and waited for."""
+        server.cancel.set()
+        if not server.idle.wait(30):
+            logger.warning("mcp %s: its start did not end", server.name)
+        self._release(server)
+
+    @staticmethod
+    def _release(server: _Server) -> None:
+        if server.client is not None:
+            try:
+                server.client.remove_consumer(POOL)
+            except Exception:  # noqa: BLE001
+                logger.debug("mcp %s did not stop cleanly", server.name, exc_info=True)
+        server.client = None
+        server.tools = []
+
+    # ------------------------------------------------------------- per turn --
+
+    def agent_tools(self) -> list[Any]:
+        """The tool objects for one turn: connected servers, switched-on tools."""
+        out: list[Any] = []
+        with self._lock:
+            for server in self._servers.values():
+                if server.status != "connected":
+                    continue
+                rejected = server.rejected
+                out.extend(t for t in server.tools
+                           if getattr(getattr(t, "mcp_tool", None), "name", t.tool_name)
+                           not in rejected)
+        return out
+
+    def describe(self) -> list[dict[str, Any]]:
+        try:
+            config = self.read_config()
+        except McpError:
+            config = {}
+        with self._lock:
+            for name, cfg in config.items():
+                if name not in self._servers:
+                    self._servers[name] = _Server(name, cfg)
+                else:
+                    self._servers[name].config = cfg
+            return [self._servers[n].describe() for n in sorted(self._servers) if n in config]
+
+    # -------------------------------------------------------------- edits --
+
+    def upsert(self, name: str, config: dict[str, Any]) -> dict[str, Any]:
+        name = name.strip()
+        if not name or any(c in name for c in "/\\ "):
+            raise McpError("a server name needs letters, digits, '-' or '_' only")
+        if not isinstance(config, dict) or not (config.get("command") or config.get("url")):
+            raise McpError("a server needs either a `command` (local) or a `url` (remote)")
+        servers = self.read_config()
+        keep = servers.get(name, {})
+        try:
+            config = restore(config, keep)  # placeholders from describe() -> the stored secrets
+        except ValueError as exc:
+            raise McpError(str(exc)) from exc
+        # Keep the user's tool modes across an edit of the launch command.
+        for key in ("tool_filters", "atlas"):
+            if key in keep and key not in config:
+                config = {**config, key: keep[key]}
+        servers[name] = config
+        self._write_config(servers)
+        return self._connect(name, config).describe()
+
+    def remove(self, name: str) -> None:
+        servers = self.read_config()
+        servers.pop(name, None)
+        self._write_config(servers)
+        with self._lock:
+            server = self._servers.pop(name, None)
+        if server is not None:
+            self._disconnect(server)
+
+    def set_enabled(self, name: str, enabled: bool) -> dict[str, Any]:
+        servers = self.read_config()
+        if name not in servers:
+            raise McpError(f"no MCP server {name!r}")
+        servers[name] = {**servers[name], "disabled": not enabled}
+        if enabled:
+            servers[name].pop("disabled")
+        self._write_config(servers)
+        return self._connect(name, servers[name]).describe()
+
+    def set_tool(self, name: str, tool: str, mode: str) -> dict[str, Any]:
+        """`mode` is "on", "ask" (the user approves each call) or "off"."""
+        if mode not in ("on", "ask", "off"):
+            raise McpError(f"a tool mode is on, ask or off, not {mode!r}")
+        servers = self.read_config()
+        if name not in servers:
+            raise McpError(f"no MCP server {name!r}")
+        filters = dict(servers[name].get("tool_filters") or {})
+        rejected = {t for t in filters.get("rejected") or [] if t != tool} | ({tool} if mode == "off" else set())
+        filters["rejected"] = sorted(rejected)
+        atlas = dict(servers[name].get("atlas") or {})
+        ask = {t for t in atlas.get("ask") or [] if t != tool} | ({tool} if mode == "ask" else set())
+        atlas["ask"] = sorted(ask)
+        servers[name] = {**servers[name], "tool_filters": filters, "atlas": atlas}
+        self._write_config(servers)
+        with self._lock:
+            if name in self._servers:
+                self._servers[name].config = servers[name]
+                return self._servers[name].describe()
+        return _Server(name, servers[name]).describe()
+
+    def reconnect(self, name: str) -> dict[str, Any]:
+        servers = self.read_config()
+        if name not in servers:
+            raise McpError(f"no MCP server {name!r}")
+        return self._connect(name, servers[name]).describe()
+
+
+__all__ = ["FOLDERS", "MCP_LABEL", "McpError", "McpManager", "POOL", "mcp_server_of"]

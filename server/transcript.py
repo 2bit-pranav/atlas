@@ -3,7 +3,7 @@
 The same fold runs in two places: here, so a finished turn can be stored as
 `render_json` and reopened without replaying a snapshot, and in the client's
 store, so the live view and the reloaded view are built by the same rules. If
-one changes, change the other (`client/src/lib/transcript.ts`).
+one changes, change the other (`client/src/features/chat/transcript.ts`).
 
 Parts:
 
@@ -69,7 +69,7 @@ class Transcript:
         elif kind == "approval_request":
             self.parts.append({"kind": "approval", "id": event.get("id"), "command": event.get("command", ""),
                                "request": event.get("kind", "install"), "folder": event.get("folder"),
-                               "status": "pending", "expires_at": event.get("expires_at")})
+                               "access": event.get("access"), "status": "pending", "expires_at": event.get("expires_at")})
         elif kind == "approval_result":
             for part in self.parts:
                 if part["kind"] == "approval" and part["id"] == event.get("id"):

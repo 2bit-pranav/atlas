@@ -7,17 +7,20 @@
  * - Save table: select text inside a data table and the chip offers xlsx / csv.
  *   The rows go straight to the backend; no model.
  * - Fill suggestions: the form's fields out, a preview of values back, filled
- *   only on Apply, never submitted (`lib/fill.ts`).
+ *   only on Apply, never submitted (`lib/fill/fill.ts`).
  * - Pairing, on Atlas's own page only: relays "are you connected?" and
  *   "Connect" to the background worker, which checks and keeps the token.
  *
  * Nothing runs on sites in the never-read list.
  */
 
-import { blocked, loadSettings, localHttp, type ExtensionSettings } from "@ext/settings"
-import { selectionChip } from "@ext/chip"
-import * as fill from "@ext/fill"
-import * as page from "@ext/page"
+import { blocked, loadSettings, localHttp, type ExtensionSettings } from "@ext/shared/settings"
+import { selectionChip } from "@ext/ui/chip"
+import * as fill from "@ext/fill/fill"
+import { elements, readable } from "@ext/page/read"
+import { tables } from "@ext/page/tables"
+import { imageSrc, images } from "@ext/page/images"
+import { clearHighlights, find, highlight, scrollToQuote } from "@ext/page/highlight"
 
 type Op = { type: "atlas:op"; op: string; args: Record<string, unknown> }
 
@@ -78,18 +81,18 @@ function run(op: string, args: Record<string, unknown>): Record<string, unknown>
       return { ok: true }
     case "read": {
       const view = String(args.view ?? "text")
-      const content = view === "elements" ? page.elements() : view === "tables" ? page.tables()
-        : view === "images" ? page.images() : page.readable()
+      const content = view === "elements" ? elements() : view === "tables" ? tables()
+        : view === "images" ? images() : readable()
       return { title: document.title, url: location.href, content }
     }
     case "find":
-      return page.find(String(args.text ?? ""))
+      return find(String(args.text ?? ""))
     case "highlight":
-      return page.highlight((args.quotes as string[]) ?? [])
+      return highlight((args.quotes as string[]) ?? [])
     case "scrollToQuote":
-      return { ok: page.scrollToQuote(Number(args.index ?? 0)) }
+      return { ok: scrollToQuote(Number(args.index ?? 0)) }
     case "imageSrc": {
-      const src = page.imageSrc(Number(args.index ?? 0))
+      const src = imageSrc(Number(args.index ?? 0))
       return src ? { src } : { error: `there is no image ${Number(args.index ?? 0) + 1} on the page` }
     }
     case "formFields":
@@ -101,7 +104,7 @@ function run(op: string, args: Record<string, unknown>): Record<string, unknown>
     case "discardFill":
       return fill.discardFill()
     case "clear":
-      page.clearHighlights()
+      clearHighlights()
       return { ok: true }
     default:
       return { error: `unknown page operation ${op}` }

@@ -4,35 +4,52 @@ Everything that decides what the model is given and how a conversation is
 stored. The server imports this; this never imports the server.
 
 ```
-agent/core/
-  settings.py        settings.json schema, LIVE vs RESTART tiers. The only schema.
-  paths.py           every path, anchored to the app root (ATLAS_ROOT)
-  agent_factory.py   build_agent(): the one place that calls create_harness
-  model.py           AtlasLlamaCppModel: thinking switch, streaming, timings
-  resilience.py      LocalModelRetry, ToolFailureRecovery (Strands hooks)
-  documents.py       create_document / edit_document: Markdown -> docx, pdf, xlsx
-  maths.py           calculate / dates: exact arithmetic and date counting from one expression
-  policy.py          ToolPolicy: every check before a tool runs, in one order
-  page_tools.py      page_read / page_find for the browser extension, via client calls
-  approvals.py       the Approver type and what counts as an install
-  skill_requirements.py what a skill needs installed; installing it
-  chats.py           ChatStore: the chat tree and display transcripts (SQLite)
-  session_manager.py where Strands writes snapshots; deleting them on edit
-  tool_manager.py    tools.builtin -> the harness's builtin_tools
-  skill_manager.py   which skills exist and which the agent gets
-  skill_installer.py install from skills.sh / GitHub / zip; delete
-  mcp_manager.py     MCP connection pool, per-tool switches, registry search
-  memory_manager.py  long-term memory: off, and why
-  shell_env.py       WindowsLocalEnvironment: the shell and file paths on Windows
+agent/
+  config/       settings.py      settings.json schema, LIVE vs RESTART tiers. The only schema.
+                paths.py         every path, anchored to the app root (ATLAS_ROOT)
+  model/        llamacpp.py      AtlasLlamaCppModel: thinking switch, streaming, timings
+                sampling.py      build_model, build_summarizer, RetryPlan (sampling for a turn)
+                server.py        llama-server: its API key, the models folder
+  prompt/       system.py        the system prompt: instructions, runtime facts, tool sources
+                notes.py         notes for the model only: the clock, a retry's hint
+                page.py          the note on a message sent from the extension
+  runtime/      factory.py       build_agent(): the one place that calls create_harness
+                restore.py       restoring from a Strands snapshot, then re-setting the prompt
+                memory.py        long-term memory: off, and why
+  safety/       policy.py        ToolPolicy: every check before a tool runs, in one order; TaintTracker
+                scope.py         Scope: the workspace and allowed folders; where a path argument lands
+                placement.py     locate(): the one rule for relative paths, never outside its folder
+                call_paths.py    which paths a call touches; the path rewrites before the checks
+                approvals.py     the Approver type
+                installs.py      what counts as an install command
+  recovery/     model_retry.py   LocalModelRetry: model calls that fail or come back empty
+                tool_recovery.py ToolFailureRecovery: crashed tools, non-zero exits, giving up
+  platform/     windows_shell.py WindowsLocalEnvironment: the shell, stoppable commands
+                winpaths.py      path forms (/c/... for the model, C:/... for Python), finding Git Bash
+  tools/        manager.py       which built-in and Atlas tools are on
+                documents/       create_document / edit_document: markdown.py parses, docx.py,
+                                 pdf.py and xlsx.py write, base.py writes atomically, tool.py is the tool
+                maths/           calculate / dates: evaluator.py (the safe evaluator), dates.py, tool.py
+                page.py          page_read / page_find for the browser extension, via client calls
+  store/        chats.py         ChatStore: the chat tree and display transcripts (SQLite)
+                snapshots.py     where Strands writes snapshots; deleting them on edit
+  integrations/ mcp/             pool.py (connections, per-tool switches), registry.py (search)
+                skills/          catalog.py (which exist), installer.py, requirements.py, readers.py
+  extension/    form_fill.py     fill suggestions from the user's details
+                table_export.py  a web page's table as xlsx or csv, no model
+  common/       ids.py           sortable ids
+                redact.py        credentials in free text (install output), hidden before the UI
 agent/cli/
-  main.py            atlas start | stop | status | logs | settings
-  launcher.py        starts, health-checks, supervises, restarts, stops; emits events, prints nothing
-  screen.py          the start screen (Rich Live, inline)
-  views.py           --dev (filtered logs, pinned status line) and plain lines (piped, --raw)
-  log_filters.py     per-service parsing and drop / collapse / rewrite rules
-  processes.py       spawning, log capture to .data/logs, killing process trees
-  launched.py        launched.json, ports, stopping what Atlas started
-  launch.py          the command lines, built from settings
+  main.py            argument parsing and the entry point (`atlas`)
+  commands.py        atlas start | stop | status | logs | settings
+  launcher/          supervisor.py (Launcher: starts, health-checks, supervises, restarts, stops;
+                     emits events, prints nothing), services.py (each service's command line),
+                     logs.py (per-service parsing; drop / collapse / rewrite rules)
+  procs.py           spawning, log capture to .data/logs, killing process trees, the job object
+  ports.py           who holds a port; stopping only what Atlas started there
+  launched.py        launched.json: what was started, and with which settings
+  views/             screen.py (the start screen, Rich Live) and keys.py, dev.py (--dev),
+                     plain.py (piped, --raw), base.py (shared)
 ```
 
 ## One turn, end to end
@@ -60,9 +77,9 @@ error, not a silent no-op). Every key is in `TIERS`:
 
 A new knob goes into `settings.py` and `TIERS` first, then is read by exactly
 one manager. The UI shows unknown keys under Storage → Other automatically; to
-give one a label and a control, add it to `client/src/lib/settingsSchema.ts`.
+give one a label and a control, add it to `client/src/features/settings/schema.ts`.
 
-## The chat tree (`chats.py`)
+## The chat tree (`store/chats.py`)
 
 Two tables. `turns` holds a turn's user text, attachments, `before_snap` (the
 parent's `after_snap`: where to restore from) and `after_snap` (Strands
@@ -95,7 +112,7 @@ small model gives a near-copy. `retry.*` settings, applied to retries only:
 
 On a factual question, expect different framing, not different facts.
 
-## Recovery (`resilience.py`)
+## Recovery (`recovery/`)
 
 Hooks, not prompt text: a 2B model does not reliably follow "retry on failure".
 
@@ -113,7 +130,7 @@ Hooks, not prompt text: a 2B model does not reliably follow "retry on failure".
     (`AfterInvocationEvent.resume`). The run emits `resumed`, and the answer
     the model gave up with is shown folded away as an earlier attempt.
 
-## The model adapter (`model.py`)
+## The model adapter (`model/llamacpp.py`)
 
 The stock `LlamaCppModel` needed five things:
 
@@ -130,7 +147,7 @@ The stock `LlamaCppModel` needed five things:
 - `document` blocks (what the harness `read` tool returns for a pdf/docx/xlsx)
   become a text note pointing at the skill; llama-server answers them with a 400.
 
-## Documents (`documents.py`)
+## Documents (`tools/documents/`)
 
 The model writes **Markdown**; `create_document` turns it into docx
 (python-docx), pdf (reportlab) or xlsx (openpyxl: every Markdown table becomes
@@ -152,7 +169,7 @@ Images: the pdf and docx readers save a document's images into a hidden
 `create_document` embeds such lines in docx and pdf, so a rewrite keeps its
 figures. Images that cannot be found are left out and named in the result.
 
-## Arithmetic and dates (`maths.py`)
+## Arithmetic and dates (`tools/maths/`)
 
 `calculate("3940 + 824.82 + 1895.5")` and `dates('days_between("2 Oct 2026",
 "15 Nov 2026")')` each take **one string**, so the model never picks an
@@ -166,7 +183,7 @@ Atlas's own tools (these two and the document tools) are switched one by one
 in `tools.atlas` (Settings > Agent > Built-in tools); `ToolManager.atlas_tools()`
 resolves them. An older `tools.documents` switch still loads.
 
-## Tool policy (`policy.py`)
+## Tool policy (`safety/policy.py`)
 
 Every check made before a tool runs is one `ToolPolicy` hook with ordered
 steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
@@ -177,12 +194,17 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    a shell command becomes `C:/...` (bash eats the backslashes).
 2. **access**: a path outside the scope asks the user (kind `access`).
 3. **install**: a `shell` command that installs asks (kind `install`).
-4. **page taint**: once web-page content is in the turn (the extension's page
-   tools), shell commands and writes outside the workspace ask (kind `page`).
+4. **page taint**: once outside content is in the **chat** (the extension's page
+   tools, `web_fetch`, an MCP tool from an untrusted server), shell commands and
+   writes outside the workspace ask (kind `page`), in that turn and every later
+   one: the content stays in the history. Stored on the chat (`chats.tainted`);
+   `TaintTracker` marks it after such a tool returns. An MCP server is trusted
+   when Atlas points it only at the allowed folders (`{atlas:folders}`) or it is
+   marked `"atlas": {"trusted": true}` in mcp.json.
 5. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
 6. **documents**: `read`/`write`/`edit` on a binary document is redirected.
 
-Recovery after a tool runs stays in `resilience.py`.
+Recovery after a tool runs stays in `recovery/`.
 
 ### Access
 
@@ -192,7 +214,7 @@ and, read-only, the skills folder and Python install so scripts can be read.
 What is checked:
 
 - `read`, `write`, `edit`, `create_document`, `edit_document`: an absolute
-  `path` argument. A relative path is placed by `shell_env.locate`: the
+  `path` argument. A relative path is placed by `safety/placement.locate`: the
   workspace first, then each allowed folder (an existing file wins; a new
   one goes where its folder exists). The filesystem MCP server, the skill
   scripts (`$ATLAS_FOLDERS`) and the `read` hint follow the same rule, so
@@ -202,7 +224,9 @@ What is checked:
 - MCP tools: any string argument that is a drive path.
 
 Outside the scope the user gets an Allow / Deny card naming the folder. Allow
-holds for that folder for the rest of the turn. With `access.ask_outside` off
+holds for that folder for the rest of the turn, for what was asked: a read
+grant does not allow writes, and at a drive root or the home folder only the
+exact path is granted (never all of `C:/`). With `access.ask_outside` off
 it is refused, and the model is told the user can add the folder in Settings.
 
 MCP servers get the same folders through their arguments: `{atlas:folders}` in
@@ -220,14 +244,14 @@ counts as Deny, as does cancelling the run. The model is then told not to try
 another way. Python packages are installed with `python -m pip`, so they land
 in Atlas's own venv.
 
-### Skill requirements (`skill_requirements.py`)
+### Skill requirements (`integrations/skills/requirements.py`)
 
 Read from `requirements.txt`, `package.json` dependencies, and install commands
 in SKILL.md code fences (`npm install -g x`, `pip install y`), each with its
 installed status. The Skills page lists them and installs the missing ones.
 That click is the approval; the model never has to.
 
-## Windows (`shell_env.py`)
+## Windows (`platform/`)
 
 - Every shell command starts in the **chat's workspace**, `$ATLAS_SKILLS`
   points at the skills folder and `$ATLAS_FOLDERS` lists the allowed folders. An attached file is named by its name alone
@@ -253,12 +277,12 @@ That click is the approval; the model never has to.
 
 ## Skills and MCP
 
-- **Skills** (`skill_manager.py`): every folder under `skills/` with a
+- **Skills** (`integrations/skills/catalog.py`): every folder under `skills/` with a
   `SKILL.md` is on unless listed in `skills.disabled`. The harness gets the
   list of enabled folders. Front matter is parsed as YAML. Installed skills
   carry `.atlas-source.json`; folders without one shipped with Atlas and can
   be switched off but not deleted. See [skills/AGENTS.md](../skills/AGENTS.md).
-- **MCP** (`mcp_manager.py`): `mcp.json` in the standard format. Each enabled
+- **MCP** (`integrations/mcp/pool.py`): `mcp.json` in the standard format. Each enabled
   server is connected **once per process** and kept open by a permanent pool
   consumer; each turn gets the individual tool objects. A per-tool switch is
   stored as the server's standard `tool_filters.rejected` and applied when the
@@ -282,11 +306,12 @@ That click is the approval; the model never has to.
 Off, enforced by validation. The harness memory store is a flat folder with no
 chat or branch in its key, injected every turn, so a fact from one version of a
 chat leaks into every other. Turning it on needs a design (scope per chat or
-per branch), not a flag. `memory_manager.py` sets all four switches it takes to
+per branch), not a flag. `runtime/memory.py` sets all four switches it takes to
 keep it, and its tools, out of the request.
 
 ## Checking it
 
-Atlas is tested by hand in the UI. The development tests and the benchmark
-(`tests/`: offline rule tests, a live API test, `bench.py`) are kept on the
-developer's machine and are not in the repository (`.gitignore`).
+`python tests/check.py` runs every offline check (ruff, pyright, pytest, and
+the TypeScript checks); CI runs the same on every push. The real-model checks
+(`tests/bench.py`, `tests/live/`) need the GPU and are run by hand at every
+checkpoint. See [tests/README.md](../tests/README.md).

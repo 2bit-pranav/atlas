@@ -60,10 +60,10 @@ def fail(message: str, *, hint: str = "") -> int:
         package = message.rsplit("No module named", 1)[-1].strip().strip("'\"").split("'")[0]
         return fail(
             f"a required library is missing: {package}",
-            hint=f"this is an Atlas setup problem, not something to install. "
-                 f"Do NOT run pip install -- the interpreter that runs these "
-                 f"scripts already has the library; a bare `pip` installs "
-                 f"somewhere else. Report this to the user.",
+            hint="this is an Atlas setup problem, not something to install. "
+                 "Do NOT run pip install -- the interpreter that runs these "
+                 "scripts already has the library; a bare `pip` installs "
+                 "somewhere else. Report this to the user.",
         )
     body = f"ERROR: {message}"
     if hint:
@@ -427,7 +427,7 @@ def shown(path: Path) -> str:
         return path.resolve().as_posix()
 
 
-def created(names: Path | str, **details: Any) -> str:
+def created(names: Path | str, /, **details: Any) -> str:
     """The lines every writing script ends with, so the model tells the user."""
     names = shown(names) if isinstance(names, Path) else names
     return header(created=names, **details) + "\nThe user sees it as a download in the chat."

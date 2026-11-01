@@ -6,18 +6,24 @@ extension only adds what needs the browser. Design: `docs/extension.md`.
 
 ```
 entrypoints/
-  sidepanel/Panel.tsx  pairing, the tab a chat is attached to, quote sources, chip questions, settings
-  content.ts           page operations (the chip and table menu come from lib/chip.ts)
+  sidepanel/           Panel.tsx (which view; the tab a chat is attached to), components/ (PageChip,
+                       HistoryView, QuoteSources, SettingsView, Centered), actions/ (pageCall,
+                       suggestFill, pdf), hooks/usePendingAsks.ts (chip and context-menu questions),
+                       status.ts, url.ts
+  content.ts           page operations in the tab (the chip comes from lib/ui/chip.ts)
   viewer/              the Atlas PDF viewer: pdf.js with a text layer, read / find / highlight
-  background.ts        opens the panel; context menu; posts tables to the backend
+  background.ts        opens the panel; context menu; pairing; posts tables to the backend
 lib/
-  page.ts              the page layer: readable Markdown, element list, tables, images, find, highlight
-  fill.ts              fill suggestions: fields out, preview over them, fill on Apply, never submit
-  images.ts            screenshots of the tab and images from the page, for the model
-  chip.ts              the selection chip (Explain, Simplify, Define, Translate, Save table)
-  overlay.ts           what is drawn on the page (shadow root, plain DOM)
-  tab.ts               calling the content script (injects it into tabs opened before install)
-  settings.ts          the extension's settings (storage.local)
+  page/                the page layer, built in code from the live DOM (the model never sees HTML):
+                       read.ts (readable Markdown via Readability and Turndown; the element list,
+                       never what the user typed: a typed field is only "filled"), tables.ts (tables, rows with merged cells
+                       expanded), images.ts, highlight.ts (find and highlight with the CSS Custom
+                       Highlight API, the page's DOM unchanged)
+  fill/fill.ts         fill suggestions: fields out, preview over them, fill on Apply, never submit
+  ui/                  chip.ts (Explain, Simplify, Define, Translate, Save table), overlay.ts (drawn
+                       on the page in a shadow root)
+  shared/              settings.ts (storage.local), tab.ts (calling the content script or the PDF
+                       viewer), capture.ts (screenshots and page images for the model)
 ```
 
 ## Build and load
@@ -32,8 +38,10 @@ npm run dev          # Edge with the extension loaded and hot reload
 `extension/.output/chrome-mv3`. Then Connect, from the panel or from Atlas's
 Browser extension page: the page posts `atlas:pair` with the token, the
 content script (only on a local http page, only from that page's own window)
-relays it to the background worker, which keeps it only if the backend at that
-local address accepts it. The page learns whether it is connected, never more.
+relays it to the background worker, which keeps it only if that address is the
+one the extension is set to (default `http://127.0.0.1:8000`) and the backend
+there accepts it. A page cannot change the address: another port is set in the
+panel's Settings. The page learns whether it is connected, never more.
 The token and address can still be typed under the panel's Advanced settings.
 
 ## Sharing the web UI
@@ -72,7 +80,7 @@ Two ways in:
   `/api/chats/{id}/files/import`), and the pdf skill reads it, OCR included.
 
 **Tables** are offered only on request: select text inside a real data table
-and the chip adds xlsx / csv. "Real" is strict (`dataTable` in `chip.ts`): the
+and the chip adds xlsx / csv. "Real" is strict (`dataTable` in `lib/ui/chip.ts`): the
 innermost `<table>`, not presentation, not in a menu, dialog or nav; a header
 or 3+ rows; 2+ columns most rows agree on; short cells. There is no
 right-click entry: a browser cannot show a menu item only over tables, so it
@@ -99,4 +107,4 @@ offers "Open that page" or "Use this tab", never silently reading a different
 page. The last chat comes back when the panel reopens on the same page. All
 chats, these included, are also in the web UI.
 
-Nothing runs on sites in the never-read list; password values are never read.
+Nothing runs on sites in the never-read list; what the user typed into a field is never read.

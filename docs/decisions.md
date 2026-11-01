@@ -401,6 +401,15 @@ decimals. Exposed directly, switchable in Settings; no enforcement yet, to see
 how often the model uses them unprompted. The @ menu lists MCP servers by name
 only (every MCP tool made it too long), after tools and skills.
 
+**Tests are in the repository, with CI** (2026-10-30, reverses the entry
+below). A restructure needs something to check against, so the offline tests
+(policy, maths, chat tree, runs) are committed and `tests/check.py` runs every
+check (ruff, pyright as a ratchet at 73 errors, pytest, tsc, oxlint) locally
+and in GitHub Actions on Windows. The real-model checks (`tests/bench.py`,
+`tests/live/`) are committed too but run by hand: they need the GPU. No fake
+llama-server: behaviour is judged on the real model, and the policy-level bugs
+are tested by calling the policy directly.
+
 **Tests stay out of the repository** (2026-10-19, decided). The user tests by
 hand; the development tests and benchmark live in an ignored `tests/`.
 
@@ -532,3 +541,24 @@ of the window. Hence the per-tool switches and the budget meter.
 
 **The MCP registry is slow** (2026-10-18, measured). About 28 seconds for two
 results at times. Searches are cached for ten minutes.
+
+**Pairing is pinned to one address** (2026-10-30, B28). Pairing accepted any
+local backend that answered 200, so a page on another local port (a dev server
+running untrusted packages) could pair the extension with its own server and
+receive what it reads. The extension now pairs only with the address in its own
+settings (default `http://127.0.0.1:8000`); a different port is set in the
+panel's Settings, which no page can reach.
+
+**The element list never carries typed values** (2026-10-30, B29). It sent the
+first 60 characters of every non-password field: OTPs and card numbers went to
+the model and the transcript. A field the user typed into is now only
+"(filled)"; a value the page itself set (its default) is still shown, and
+one-time-code, card and password fields never are.
+
+**The chat says when it has read outside content** (2026-10-30, plan item 3).
+Once a web page, a fetched link or an untrusted MCP server's output is in a
+chat, commands and changes outside its folder ask first, for the rest of the
+chat. That used to be visible only as approval cards. A line above the composer
+now says so (web UI and side panel, one shared `ChatScreen`), from the moment
+the run emits `tainted` and after any reload (the chat row's `tainted`).
+Verified with a real `web_fetch` turn in headless Edge.

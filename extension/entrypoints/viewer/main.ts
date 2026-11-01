@@ -3,7 +3,7 @@
  * find in it and highlight it side by side with the panel. The browser's own
  * viewer runs no content script, so none of that works there.
  *
- * pdf.js renders each page with a text layer; the page layer (`lib/page.ts`)
+ * pdf.js renders each page with a text layer; the page layer (`lib/page/`)
  * finds and highlights in that text exactly as on a web page. Reading uses
  * pdf.js's own text, page by page. The selection chip works here too.
  *
@@ -16,9 +16,9 @@ import * as pdfjs from "pdfjs-dist"
 import worker from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import "pdfjs-dist/web/pdf_viewer.css"
 
-import { selectionChip } from "@ext/chip"
-import * as page from "@ext/page"
-import { loadSettings } from "@ext/settings"
+import { selectionChip } from "@ext/ui/chip"
+import { clearHighlights, find, highlight, scrollToQuote } from "@ext/page/highlight"
+import { loadSettings } from "@ext/shared/settings"
 
 pdfjs.GlobalWorkerOptions.workerSrc = worker
 
@@ -98,13 +98,13 @@ function listen() {
         return reply({ title: name, url: file, content })
       }
       case "find":
-        return reply(page.find(String(args.text ?? "")))
+        return reply(find(String(args.text ?? "")))
       case "highlight":
-        return reply(page.highlight((args.quotes as string[]) ?? []))
+        return reply(highlight((args.quotes as string[]) ?? []))
       case "scrollToQuote":
-        return reply({ ok: page.scrollToQuote(Number(args.index ?? 0)) })
+        return reply({ ok: scrollToQuote(Number(args.index ?? 0)) })
       case "clear":
-        page.clearHighlights()
+        clearHighlights()
         return reply({ ok: true })
       default:
         return reply({ error: "this is a PDF: Atlas can read, find, highlight and look at it, but it has no forms, tables or images to list" })

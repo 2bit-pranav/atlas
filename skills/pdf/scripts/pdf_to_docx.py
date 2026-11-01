@@ -19,7 +19,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from _shared import created, default_output, fail, main_wrapper, output_path, page_list, require, resolve  # noqa: E402
+from _shared import (  # noqa: E402
+    created,
+    default_output,
+    fail,
+    main_wrapper,
+    output_path,
+    page_list,
+    require,
+    resolve,
+)
 
 warnings.filterwarnings("ignore")      # PyMuPDF's deprecation notice for `fitz`
 pdf2docx, = require("pdf2docx")

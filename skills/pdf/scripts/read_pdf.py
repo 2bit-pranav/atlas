@@ -41,7 +41,6 @@ from _shared import (  # noqa: E402
 pdfium, = require("pypdfium2")
 import _ocr  # noqa: E402 - beside this script
 
-
 #: A document this short is read whole when no --pages is given.
 SHORT_DOC = 5
 #: The most pages one call reads.

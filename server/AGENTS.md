@@ -4,13 +4,25 @@ FastAPI. It owns runs (one at a time, outliving the browser), the event
 stream, and the routes. Everything else is imported from `agent/`.
 
 ```
-app.py         Atlas state, chats/turns/runs/settings routes, the run body
-extensions.py  skills and MCP routes
-runs.py        Run and RunManager: event buffer, cancel, replay
-events.py      Strands stream events -> flat API events
-transcript.py  fold events into a turn's display parts (mirrored in the client)
-main.py        ASGI entry: `uvicorn server.main:app` (never with --reload)
+app.py            create_app: middleware, lifespan, and each area's routes registered
+state.py          Atlas: settings, chat store, runs, MCP; the run body (build, stream, record)
+schemas.py        request bodies (Pydantic)
+views.py          what the API returns for a turn and a run
+routes/           one module per area, each with register(api, state, ...):
+                  chats, files, turns, runs, settings (+ models, restart), health,
+                  extension (pairing, profile, fill, pdf, table), integrations (skills, MCP),
+                  spa (the built web UI)
+services/         prompt.py (attachments, @ mentions, PDF links, media for the model),
+                  workspace.py (what a run created or changed), settings_service.py
+runs.py           Run and RunManager: event buffer, cancel, replay
+events.py         Strands stream events -> flat API events
+transcript.py     fold events into a turn's display parts (mirrored in the client)
+security.py       the request guard: Host, Origin, the pairing token
+main.py           ASGI entry: `uvicorn server.main:app` (never with --reload)
 ```
+
+The routes are closures over the state, moved verbatim out of `create_app`;
+turning them into FastAPI dependencies (`Depends(state)`) is a later refactor.
 
 ## Runs
 
@@ -42,7 +54,7 @@ Server-sent events, each `{"seq": n, "type": ...}`:
 | `tool_start` | `id`, `name`, `args` | a tool call |
 | `tool_args_delta` | `id`, `name`, `args` | arguments still arriving |
 | `tool_end` | `id`, `name`, `status`, `text` | the result |
-| `approval_request` | `id`, `kind` (`install`, `access`, `tool`), `command`, `folder?`, `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
+| `approval_request` | `id`, `kind` (`install`, `access`, `tool`, `page`), `command`, `folder?`, `access?` (`read`/`write`), `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
 | `approval_result` | `id`, `decision` (`allowed`, `denied`, `expired`) | the answer, or the timeout |
 | `stats` | `context_used`, `context_size`, `prompt_tokens`, `completion_tokens`, `tokens_per_second`, `prompt_per_second`, `model_calls`, `duration_ms` | at most 4/s while generating, and once at the end |
 | `usage` | `input`, `output`, `total` | per model call, from Strands |
@@ -64,6 +76,8 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `GET /chats/{id}/export`, `POST /chats/import` | a chat with every version and its Strands snapshots; an import can be continued |
 | `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace; a file as a download (raster images inline) |
 | `GET /chats/{id}/workspace` | every file in the workspace, newest first. Outlives edits |
+| `POST /chats/{id}/files/import` | `{url}`: a PDF by its link (`file://` copied, `http(s)://` downloaded) into the workspace, as an attachment |
+| `DELETE /chats/{id}/files/{path}` | remove an upload before it is sent |
 | `POST /chats/{id}/messages` | send `{text, files, refs, thinking}` → `{run, chat}` |
 | `POST /turns/{id}/retry` | last turn only → `{run, chat}` |
 | `POST /turns/{id}/edit` | `{text, files?, thinking}`, destructive → `{run, chat}` |
@@ -74,6 +88,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `POST /runs/{id}/calls/{call_id}` | the client's result for a `client_call` (a page operation) |
 | `GET /profile`, `PUT /profile` | the user's details for fill suggestions (web UI only; the extension cannot read them) |
 | `POST /extension/fill` | `{fields, title}` -> `{values, missing}`: one schema-constrained model call; nothing is filled here |
+| `GET /extension/pdf?url=` | a PDF's bytes for the extension's viewer: a `file://` one, or a web one it could not fetch; PDFs only, 100 MB at most |
 | `POST /extension/table` | `{rows, title, url, format, folder}`: a page's table saved as xlsx/csv, no model |
 | `GET /models` | the models in the models folder, which one is running, which is selected |
 | `POST /restart`, `GET /restart` | ask `atlas start` to restart llama-server and the backend; how the last restart went |

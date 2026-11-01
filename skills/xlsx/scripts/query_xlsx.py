@@ -90,7 +90,7 @@ def load(path: Path, con, only: str = "") -> tuple[list[str], int]:
         coerced += _coerced_count(rows, types, len(unique))
         con.execute(
             f"CREATE TABLE {quote(name)} ("
-            + ", ".join(f"{quote(c)} {t}" for c, t in zip(unique, types))
+            + ", ".join(f"{quote(c)} {t}" for c, t in zip(unique, types, strict=False))
             + ")"
         )
         placeholders = ", ".join("?" for _ in unique)

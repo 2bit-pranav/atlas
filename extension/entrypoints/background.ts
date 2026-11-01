@@ -12,7 +12,7 @@
  *   checked against that Atlas before it is kept.
  */
 
-import { loadSettings, localHttp, saveSettings, type PendingAsk } from "@ext/settings"
+import { loadSettings, localHttp, samePlace, saveSettings, type PendingAsk } from "@ext/shared/settings"
 
 export default defineBackground(() => {
   void browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
@@ -87,10 +87,14 @@ async function status(base: string) {
 }
 
 async function pair(base: string, token: string) {
+  const settings = await loadSettings()
+  if (!samePlace(settings.base, base))
+    return { connected: false, error: `The extension is set to use Atlas at ${settings.base}. ` +
+                                      "To use this one, change the address in the extension's Settings." }
   const ok = token ? await works(base, token) : false
   if (ok === null) return { connected: false, error: `Atlas is not answering at ${base}` }
   if (!ok) return { connected: false, error: "Atlas did not accept the token" }
-  await saveSettings({ base: trim(base), token })
+  await saveSettings({ token })
   return { connected: true, version: browser.runtime.getManifest().version }
 }
 
