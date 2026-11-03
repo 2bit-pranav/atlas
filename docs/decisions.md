@@ -658,3 +658,32 @@ also refuses `sed -i`, `tee` and redirections (`>`, `>>`, `&>`) whose target is
 a .docx/.xlsx/.pdf/.pptx, using the shell classifier's write targets. Copies
 (`cp`) and the skill scripts still run. A script that writes one itself
 (`python -c ...`) is not caught: it is `other`, which the tiers will ask about.
+
+**Documents are parsed at upload; reading is fetching** (2026-11-03, plan
+Phase 2). `agent/ingest/`: an upload or import submits the file, one worker
+parses it into blocks in one SQLite database with FTS5 (`<data>/parsed/
+index.db`, images beside it), a PDF's text layer first and each scanned page
+as OCR finishes. `read_pdf`, `read_docx` and `read_xlsx` fetch from it. One
+database instead of a folder of JSON files per document: transactions make
+every write atomic, and search lives in the same file. Entries are shared by
+content hash, owned per chat; deleting a chat drops entries nobody else owns;
+an `asset:` image resolves only for an owner. `read_pdf` refuses `file://`
+(the old script read any PDF on disk through one, past the access check).
+The skill reader scripts and the per-folder `.atlas-images` writes are gone.
+
+Measured: a text PDF, docx or xlsx is ready 0.1-0.2 s after upload; on the
+12-page scan a requested page arrives in 3.3 s (the old `--search` OCR'd all
+12 pages first, 25.7 s), the rest in 18 s in the background.
+`tests/bench_docs.py`, cold store: 13/16 (Phase 1: 11/16, baseline 8/16).
+All 12 question runs passed, with no wrong-tool calls; a PDF question now
+takes 1-2 tool calls. Edits 1/4, for Phase 3. Two fixes the runs forced: a
+search on a scan still being OCR'd now waits up to 30 s (returning at once,
+the model searched 3 s after upload and gave up), and a long PDF's footer
+offers search before the next pages (offered pages first, the model walked
+18 of 40 pages).
+
+The edit checks now require the rest of the file unchanged: one "pass"
+was the model regenerating the whole workbook with `create_document` after
+five failed edits, with February's numbers replaced by January's. Overwriting
+an attached file with a regenerated copy is a data-loss risk to settle in
+Phase 3.
