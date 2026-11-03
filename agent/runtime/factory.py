@@ -16,8 +16,8 @@ from strands_harness import create_harness
 
 from agent.config import paths
 from agent.config.settings import Settings
+from agent.ingest.store import store_for
 from agent.integrations.skills.catalog import SkillManager
-from agent.integrations.skills.readers import reader_command
 from agent.model.sampling import RetryPlan, build_model, build_summarizer
 from agent.platform.windows_shell import WindowsLocalEnvironment, default_environment
 from agent.platform.winpaths import model_path
@@ -32,6 +32,7 @@ from agent.safety.policy import TaintTracker, ToolPolicy
 from agent.safety.protected import Protected
 from agent.safety.scope import Scope
 from agent.store.snapshots import SessionManager
+from agent.tools.doc_reading import doc_read_tools
 from agent.tools.documents.tool import document_tools
 from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
@@ -120,10 +121,12 @@ def build_agent(
     skills = skill_manager.enabled()
     enabled = set(tool_manager.atlas_tools())
     folders = _scope(settings, workspace_dir).folders
-    reader = lambda p: reader_command(settings, p, _shown(p, workspace_dir, folders))  # noqa: E731
-    atlas_tools = [t for t in (*read_tools(lambda p: _resolve(p, workspace_dir, folders), model_path, reader,
-                                           settings.model.supports_vision),
-                               *document_tools(workspace_dir, model_path, folders),
+    resolve = lambda p: _resolve(p, workspace_dir, folders)  # noqa: E731
+    store = store_for(paths.data_dir(settings))
+    atlas_tools = [t for t in (*read_tools(resolve, model_path, settings.model.supports_vision),
+                               *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
+                               *document_tools(workspace_dir, model_path, folders,
+                                               lambda ref: store.asset(chat_id, ref)),
                                *maths_tools())
                    if t.tool_name in enabled]
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
@@ -201,21 +204,6 @@ def _resolve(path: str, workspace: Path, folders: list[Path]) -> Path:
     if p.is_absolute():
         return p
     return locate(path, workspace, folders) or workspace / p
-
-
-def _shown(path: str, workspace: Path, folders: list[Path] | None = None) -> str:
-    """A file in the workspace by its bare name (commands start there); a
-    relative path found in an allowed folder in full; else as given."""
-    from agent.platform.winpaths import model_path, windows_path
-    from agent.safety.placement import locate
-
-    if path.lower().startswith(("http://", "https://", "file://")):
-        return path  # a link: the pdf reader takes it as it is
-    found = locate(path, workspace, folders or [])
-    if found is not None and found.parent.resolve() != workspace.resolve():
-        return model_path(found)
-    p = Path(windows_path(path))
-    return p.name if p.parent.resolve() == workspace.resolve() else path
 
 
 __all__ = ["CONVERSATION_MANAGERS", "build_agent", "build_conversation_manager"]

@@ -72,9 +72,9 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `GET /chats`, `POST /chats` | list, create |
 | `GET /chats/{id}` | the visible path: each turn with `render`, `stats`, `version`, `versions`, and the active run |
 | `PATCH /chats/{id}` | rename |
-| `DELETE /chats/{id}` | the chat, its snapshots and its files |
+| `DELETE /chats/{id}` | the chat, its snapshots, its files, and parsed documents no other chat owns |
 | `GET /chats/{id}/export`, `POST /chats/import` | a chat with every version and its Strands snapshots; an import can be continued |
-| `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace; a file as a download (raster images inline) |
+| `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace (a pdf/docx/xlsx is queued for ingest); a file as a download (raster images inline) |
 | `GET /chats/{id}/workspace` | every file in the workspace, newest first. Outlives edits |
 | `POST /chats/{id}/files/import` | `{url}`: a PDF by its link (`file://` copied, `http(s)://` downloaded) into the workspace, as an attachment |
 | `DELETE /chats/{id}/files/{path}` | remove an upload before it is sent |

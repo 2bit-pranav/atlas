@@ -17,7 +17,6 @@ from agent.config.settings import (
     load_settings,
 )
 from agent.integrations.mcp.pool import McpManager
-from agent.integrations.skills.readers import reader_command
 from agent.model import server as llama
 from agent.model.sampling import RetryPlan
 from agent.platform.winpaths import model_path
@@ -182,7 +181,6 @@ class Atlas:
                     for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
             media = [f for f in files if _media_kind(f) and Path(str(f.get("path", ""))).is_file()]
             text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs,
-                               reader=lambda p, shown: reader_command(settings, p, shown),
                                workspace=workspace)
             if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
                 text = f"{text}\n\n{guidance}".strip()

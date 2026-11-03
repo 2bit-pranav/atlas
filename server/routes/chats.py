@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from typing import Any
 
 from fastapi import HTTPException
 
 from agent.config import paths
+from agent.ingest.store import store_for
 from agent.store.snapshots import SessionManager
 from server.schemas import (
     CreateChat,
@@ -48,6 +50,8 @@ def register(api: Any, state: Any) -> None:
         state.store.delete_chat(chat_id)
         await SessionManager(state.settings, chat_id).delete_all()
         shutil.rmtree(paths.chat_dir(state.settings, chat_id), ignore_errors=True)
+        # Its parsed documents too, unless another chat has the same file.
+        await asyncio.to_thread(store_for(paths.data_dir(state.settings)).forget_chat, chat_id)
         return {"deleted": chat_id}
 
     @api.get("/chats/{chat_id}/export")

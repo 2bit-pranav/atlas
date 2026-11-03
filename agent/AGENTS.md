@@ -34,11 +34,15 @@ agent/
                                  pdf.py and xlsx.py write, base.py writes atomically, tool.py is the tool
                 maths/           calculate / dates: evaluator.py (the safe evaluator), dates.py, tool.py
                 reading.py       read_text / read_image: capped, typed reads (the harness `read` is off)
+                doc_reading.py   read_pdf / read_docx / read_xlsx: fetch from the ingest store
                 page.py          page_read / page_find for the browser extension, via client calls
+  ingest/       store.py         the ingest store: parse at upload, one worker, SQLite + FTS5, per-chat ownership
+                parse.py         a pdf/docx/xlsx into blocks whose ids the edit tools address
+                ocr.py           OCR of scanned pages and pictures (RapidOCR)
   store/        chats.py         ChatStore: the chat tree and display transcripts (SQLite)
                 snapshots.py     where Strands writes snapshots; deleting them on edit
   integrations/ mcp/             pool.py (connections, per-tool switches), registry.py (search)
-                skills/          catalog.py (which exist), installer.py, requirements.py, readers.py
+                skills/          catalog.py (which exist), installer.py, requirements.py
   extension/    form_fill.py     fill suggestions from the user's details
                 table_export.py  a web page's table as xlsx or csv, no model
   common/       ids.py           sortable ids
@@ -166,12 +170,33 @@ to create it again.
 
 The policy's documents step refuses the plain `write`/`edit` tools on
 .docx/.xlsx/.pdf/.pptx (writing text into one is how corrupt documents
-happened). `read_text` answers a pdf/docx/xlsx with the command that reads it.
+happened). `read_text` answers a pdf/docx/xlsx with the tool that reads it.
 
-Images: the pdf and docx readers save a document's images into a hidden
-`.atlas-images/<name>/` folder beside it and print each as `![caption](path)`.
-`create_document` embeds such lines in docx and pdf, so a rewrite keeps its
-figures. Images that cannot be found are left out and named in the result.
+Images: ingest saves a document's images in the store and the readers print
+each as `![caption](asset:<sha12>/<file>)`. `create_document` embeds such
+lines in docx and pdf, so a rewrite keeps its figures; an `asset:` image
+resolves only for a chat that owns the document. Images that cannot be
+found are left out and named in the result.
+
+## Reading documents (`ingest/`, `tools/doc_reading.py`)
+
+**Ingest is not reading.** An upload or import submits the file to the
+store (`store_for(data_dir)`), which returns at once; one worker thread
+parses it into blocks in `<data>/parsed/index.db`, images under
+`<data>/parsed/<sha>/`. A PDF's text layer is published first (`partial`),
+then each scanned page as OCR finishes, pages a read waits for first. The
+read tools only fetch: they wait briefly for pages in progress and never
+parse. Every write is a transaction; an interrupted PDF resumes at the next
+submit.
+
+Entries are shared by content hash but owned per chat (`owners`), written
+when the chat attaches or reads the file, after the policy's access check.
+Deleting a chat drops its ownership and every entry nobody else owns.
+`read_pdf` downloads an https link into the workspace and taints the chat;
+it refuses `file://`, which would slip past the access check.
+
+Block ids are the edit tools' addresses: `p27.3` (pdf), `b12` and `t1`
+(docx body paragraph and table; a cell is `t1.r3.c3`), `Mar!A1:C51` (xlsx).
 
 ## Arithmetic and dates (`tools/maths/`)
 
@@ -224,7 +249,7 @@ What is checked:
   `path` argument. A relative path is placed by `safety/placement.locate`: the
   workspace first, then each allowed folder (an existing file wins; a new
   one goes where its folder exists). The filesystem MCP server, the skill
-  scripts (`$ATLAS_FOLDERS`) and the reader commands follow the same rule, so
+  scripts (`$ATLAS_FOLDERS`) and the read tools follow the same rule, so
   `Demo/Invoices/x.pdf` means one file to every tool.
 - `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
   quoted or bare). `/tmp` and other POSIX paths are the shell's own.
@@ -263,8 +288,8 @@ That click is the approval; the model never has to.
 - Every shell command starts in the **chat's workspace**, `$ATLAS_SKILLS`
   points at the skills folder and `$ATLAS_FOLDERS` lists the allowed folders. An attached file is named by its name alone
   (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
-  `python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>"`. The attachment
-  list gives each pdf/docx/xlsx's exact command.
+  `python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" ...`. The attachment
+  list gives each file's exact read call.
 - **Stop ends a running command.** Strands stops a turn only at its safe
   points, and a running shell command is not one. The environment watches the
   agent's cancel signal (set on it in `build_agent`) and, on Stop or timeout,

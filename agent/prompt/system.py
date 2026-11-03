@@ -72,9 +72,10 @@ def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> st
             servers.setdefault(server, []).append(tool.tool_name)
     lines = ["Your tools, by where they come from:"]
     lines.append(f"- Built in: {', '.join(builtin) or 'none'}.")
-    if "read_text" in builtin:
-        lines.append("- `read_text` reads text files, `read_image` shows an image. A .pdf, .docx or "
-                     ".xlsx is read with its skill's script; the command is given next to each attached file.")
+    if "read_pdf" in builtin:
+        # Reading needs no skill: loading one cost a call and 1-1.5k tokens per document task.
+        lines.append("- Read files with read_pdf, read_docx, read_xlsx, read_text or read_image; no skill "
+                     "is needed to read. Skills are for merging, splitting, converting and writing.")
     if skills:
         lines.append(f"- Skills (instructions, loaded with the `skills` tool; not tools themselves): "
                      f"{', '.join(skills)}.")

@@ -128,6 +128,9 @@ class AtlasToolSettings(StrictModel):
 
     read_text: bool = True  # agent/tools/reading.py; replaces the harness `read`
     read_image: bool = True
+    read_pdf: bool = True  # agent/tools/doc_reading.py: from the ingest store
+    read_docx: bool = True
+    read_xlsx: bool = True
     create_document: bool = True  # agent/tools/documents/
     edit_document: bool = True
     calculate: bool = True  # agent/tools/maths/
@@ -389,6 +392,9 @@ TIERS: dict[str, Tier] = {
     "tools.builtin.subagent": Tier.LIVE,
     "tools.atlas.read_text": Tier.LIVE,
     "tools.atlas.read_image": Tier.LIVE,
+    "tools.atlas.read_pdf": Tier.LIVE,
+    "tools.atlas.read_docx": Tier.LIVE,
+    "tools.atlas.read_xlsx": Tier.LIVE,
     "tools.atlas.create_document": Tier.LIVE,
     "tools.atlas.edit_document": Tier.LIVE,
     "tools.atlas.calculate": Tier.LIVE,

@@ -98,13 +98,13 @@ def _search(name: str, lines: list[str], query: str) -> str:
                    + "\n".join(out))
 
 
-def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str],
-               reader: Callable[[str], str | None], vision: bool) -> list[Any]:
-    """The two tools, for one chat.
+#: Documents have their own readers (doc_reading.py).
+DOCUMENTS = {".pdf": "read_pdf", ".docx": "read_docx", ".xlsx": "read_xlsx", ".xlsm": "read_xlsx"}
 
-    `resolve` places a path as every file tool does (`placement.locate`);
-    `reader` gives the skill command for a pdf/docx/xlsx (`readers.py`).
-    """
+
+def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str], vision: bool) -> list[Any]:
+    """The two tools, for one chat. `resolve` places a path as every file tool
+    does (`placement.locate`)."""
 
     def _missing(target: Path) -> dict[str, Any]:
         return _failed(f"no file {target.name} at {shown(target)}. Name a file in your workspace, "
@@ -114,7 +114,7 @@ def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str],
     def read_text(path: str, start_line: int = 1, end_line: int = 0, search: str = "") -> Any:
         """Read a text file (.txt, .md, .csv, .log, .json, code): numbered lines, capped near 1,500 tokens.
 
-        Not for .pdf/.docx/.xlsx (use the command given with the file) or images (use read_image).
+        Not for .pdf/.docx/.xlsx (use read_pdf, read_docx, read_xlsx) or images (use read_image).
         Long files: read in steps with start_line, or find lines with search, e.g. search="error timeout".
 
         Args:
@@ -126,9 +126,8 @@ def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str],
         target = resolve(path)
         if target.suffix.lower() in IMAGES:
             return _failed(f"{target.name} is an image. Use read_image(path=\"{target.name}\").")
-        if (command := reader(path)) is not None:
-            return _failed(f"{target.name} is not a text file. Read it with: {command} "
-                           "(to merge, split, combine or convert it, load its skill first)")
+        if (other := DOCUMENTS.get(target.suffix.lower())) is not None:
+            return _failed(f"{target.name} is not a text file. Use {other}(path=\"{target.name}\").")
         if not target.is_file():
             return _missing(target)
         text = _decode(target.read_bytes())
@@ -162,4 +161,4 @@ def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str],
     return [read_text, read_image]
 
 
-__all__ = ["MAX_CHARS", "read_tools"]
+__all__ = ["DOCUMENTS", "MAX_CHARS", "read_tools"]

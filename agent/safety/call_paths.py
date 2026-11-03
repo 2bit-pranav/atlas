@@ -13,7 +13,7 @@ from agent.platform.winpaths import drive_path, windows_path
 from agent.safety.scope import Scope
 
 #: Tools whose `path` argument is a file path, and those of them that only read.
-READ_TOOLS = {"read_text", "read_image"}
+READ_TOOLS = {"read_text", "read_image", "read_pdf", "read_docx", "read_xlsx"}
 FILE_TOOLS = {*READ_TOOLS, "write", "edit", "create_document", "edit_document"}
 
 

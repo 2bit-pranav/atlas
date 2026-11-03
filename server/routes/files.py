@@ -12,6 +12,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 
 from agent.config import paths
+from agent.ingest.store import store_for
 from server.schemas import (
     ImportFile,
 )
@@ -37,9 +38,9 @@ def register(api: Any, state: Any) -> None:
         target = unique_path(folder, safe_name(upload_file.filename or ""))
         name = target.name
 
-        # Nothing is parsed at upload: the file is saved and the model reads it
-        # on demand through a skill. Copying is still blocking I/O, so it runs
-        # off the event loop and cannot freeze an active run's stream.
+        # Saved off the event loop (blocking I/O must not freeze an active run's
+        # stream), then queued for ingest: a document is parsed while the user
+        # is still typing, so the read tools only fetch.
         def _save() -> bool:
             written = 0
             with target.open("wb") as fh:
@@ -55,6 +56,7 @@ def register(api: Any, state: Any) -> None:
 
         if not await asyncio.to_thread(_save):
             raise HTTPException(413, f"the file is larger than {MAX_UPLOAD_BYTES >> 20} MB")
+        await asyncio.to_thread(store_for(paths.data_dir(state.settings)).submit, target, chat_id)
         return {"name": name, "path": str(target), "size": target.stat().st_size,
                 "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
 
@@ -74,6 +76,7 @@ def register(api: Any, state: Any) -> None:
                                                 state.chat_dir(chat_id), copy_local=True)
         except LinkError as exc:
             raise HTTPException(422, str(exc)) from exc
+        await asyncio.to_thread(store_for(paths.data_dir(state.settings)).submit, target, chat_id)
         return {"name": target.name, "path": str(target), "size": target.stat().st_size,
                 "type": "application/pdf"}
 

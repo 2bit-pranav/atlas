@@ -8,8 +8,7 @@ from agent.tools.reading import MAX_CHARS, read_tools
 
 
 def _tools(ws: Path, vision: bool = True):
-    reader = lambda p: f'python read_pdf.py "{p}"' if p.endswith(".pdf") else None  # noqa: E731
-    text, image = read_tools(lambda p: ws / p, lambda p: p.name, reader, vision)
+    text, image = read_tools(lambda p: ws / p, lambda p: p.name, vision)
     return text, image
 
 
@@ -52,7 +51,7 @@ def test_wrong_file_types_name_the_right_tool(tmp_path) -> None:
     (tmp_path / "pic.png").write_bytes(b"\x89PNG")
     (tmp_path / "blob.bin").write_bytes(b"\x00\x01\x02")
     text, image = _tools(tmp_path)
-    for result, needle in ((text(path="report.pdf"), 'python read_pdf.py "report.pdf"'),
+    for result, needle in ((text(path="report.pdf"), 'read_pdf(path="report.pdf")'),
                            (text(path="pic.png"), "read_image"),
                            (text(path="blob.bin"), "binary"),
                            (text(path="gone.txt"), "no file gone.txt"),
@@ -76,7 +75,7 @@ def test_a_long_text_attachment_is_announced_with_its_search_form(tmp_path) -> N
     (tmp_path / "short.txt").write_text("a\n" * 10)
     (tmp_path / "long.log").write_text("a\n" * 400)
     files = [{"path": str(tmp_path / n), "name": n, "size": 1} for n in ("short.txt", "long.log", "pic.png")]
-    text = _agent_text("q", files, reader=lambda p, s: None, workspace=tmp_path)
+    text = _agent_text("q", files, workspace=tmp_path)
     assert 'short.txt at' in text and 'read_text(path="short.txt")' in text
     assert 'it has 400 lines, so to find something use read_text(path="long.log", search="words")' in text
     assert "pic.png" in text and 'read_text(path="pic.png")' not in text   # images go to the model as they are

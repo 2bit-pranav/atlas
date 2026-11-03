@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +14,8 @@ from agent.tools.documents.pdf import _check_pdf, _write_pdf
 from agent.tools.documents.xlsx import _check_xlsx, _write_xlsx
 
 
-def create(path: Path, content: str, title: str | None = None,
-           base: Path | None = None) -> dict[str, Any]:
+def create(path: Path, content: str, title: str | None = None, base: Path | None = None,
+           asset: Callable[[str], Path | None] | None = None) -> dict[str, Any]:
     """Write `content` (Markdown) to `path` in the format its extension names.
 
     Relative image paths are taken from `base` (the chat workspace). Images
@@ -32,7 +33,7 @@ def create(path: Path, content: str, title: str | None = None,
     if not content.strip():
         raise DocumentError("content is empty: write the document as Markdown")
     blocks = parse_markdown(content)
-    missing = _resolve_images(blocks, base or path.parent)
+    missing = _resolve_images(blocks, base or path.parent, asset)
     if ext == ".docx":
         info = _atomic(path, lambda p: _write_docx(blocks, p, title), _check_docx)
         return {**info, "missing_images": missing}

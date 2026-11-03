@@ -12,9 +12,9 @@ from agent.config.settings import (
     Settings,
 )
 from agent.integrations.skills.catalog import SkillManager
-from agent.integrations.skills.readers import reader_command
 from agent.platform.winpaths import model_path
 from agent.tools.manager import ToolManager
+from agent.tools.reading import DOCUMENTS
 from server.services.workspace import _scan
 
 _IMAGE = {"png": "png", "jpg": "jpeg", "jpeg": "jpeg", "gif": "gif", "webp": "webp"}
@@ -49,19 +49,23 @@ _MENTION = re.compile(r'(?<![\w@])@(?:"([^"\n]+)"|([\w.-]+))')
 _PDF_LINK = re.compile(r"""(?:https?|file)://[^\s<>"')\]]+?\.pdf(?:\?[^\s<>"')\]]*)?(?=[\s<>"')\],.;!?]|$)""", re.I)
 
 
+def _reader(name: str) -> str | None:
+    """The read tool for a document, by its extension: `read_pdf(path="x.pdf")`."""
+    tool = DOCUMENTS.get(Path(name.split("?", 1)[0]).suffix.lower())
+    return f'{tool}(path="{name}")' if tool else None
+
+
 def _link_guidance(user_text: str, settings: Settings) -> str:
-    """The exact command for each PDF link, as attachments get one.
+    """The exact call for each PDF link, as attachments get one.
 
     Without it the model tried the `read` tool on the URL, which cannot fetch,
     and asked the user to upload the file instead.
     """
     lines = []
     for link in dict.fromkeys(_PDF_LINK.findall(user_text)):
-        from urllib.parse import urlparse
-
-        if command := reader_command(settings, urlparse(link).path, link):  # the path names the type, not ?query
-            lines.append(f"- {link}: read it with: {command}")
-    return ("PDF links in this message (the reader downloads them into your workspace):\n"
+        if link.lower().startswith(("http://", "https://")) and (call := _reader(link)):
+            lines.append(f"- {link}: read it with {call}")
+    return ("PDF links in this message (read_pdf downloads them into your workspace):\n"
             + "\n".join(lines)) if lines else ""
 
 
@@ -93,9 +97,8 @@ def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
     for name in names:
         if name in files:
             shown = model_path(str(workspace / name))  # type: ignore[operator]
-            command = reader_command(settings, name, name)
-            lines.append(f"- `{name}` is the file at {shown}"
-                         + (f"; read it with: {command}" if command else "."))
+            call = _reader(name)
+            lines.append(f"- `{name}` is the file at {shown}" + (f"; read it with {call}" if call else "."))
         elif name in servers:
             lines.append(f"- Use the tools of the MCP server `{name}` "
                          f"({', '.join(servers[name]) or 'none enabled'}), not built-in tools that "
@@ -110,13 +113,11 @@ def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
 
 
 def _agent_text(user_text: str, files: list[dict[str, Any]],
-                refs: list[dict[str, Any]] | None = None,
-                reader: Any = None, workspace: Path | None = None) -> str:
+                refs: list[dict[str, Any]] | None = None, workspace: Path | None = None) -> str:
     """What the agent is told, as opposed to what the user typed.
 
-    Nothing is parsed at upload, but a file the model has never heard of is a
-    file it will not look for. So attachments are named explicitly, as
-    absolute paths. Built here rather than stored, so the stored `user_text`
+    A file the model has never heard of is a file it will not look for. So
+    attachments are named explicitly, each with the exact call that reads it. Built here rather than stored, so the stored `user_text`
     stays exactly what was typed -- which is what the transcript shows and what
     a retry replays.
     """
@@ -134,18 +135,17 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
             continue
         shown = model_path(f["path"])
         line = f"- {f.get('name')} at {shown} ({f.get('size', 0)} bytes)"
-        # The exact command for a pdf/docx/xlsx: the model runs it directly
-        # instead of trying `read` first and loading the skill to find out.
-        # Commands start in the workspace, so a file there is named bare.
+        # The exact call for each file. A file in the workspace is named bare
+        # (the tools place it there).
         here = workspace is not None and Path(str(f["path"])).parent == workspace
-        if reader is not None and (command := reader(str(f["path"]), f["name"] if here else shown)):
-            line += f". Read it with: {command}"
+        name = f["name"] if here else shown
+        if call := _reader(name):
+            line += f". Read it with {call}"
             # Without this the model read the file and rewrote it with
             # create_document even when asked to merge or convert it.
-            skill = command.split("$ATLAS_SKILLS/", 1)[-1].split("/", 1)[0]
-            line +=f" (to merge, split, combine or convert it instead, load the {skill} skill first)"
-        elif reader is not None and _media_kind(f) is None:  # images and audio are sent to the model as they are
-            name = f["name"] if here else shown
+            skill = Path(name).suffix.lower().lstrip(".").replace("xlsm", "xlsx")
+            line += f" (to merge, split, combine or convert it instead, load the {skill} skill first)"
+        elif _media_kind(f) is None:  # images and audio are sent to the model as they are
             line += f". Read it with read_text(path=\"{name}\")"
             # A long file read from the top is answered from its first lines ("no errors in
             # this log"); told the size and the search form up front, the model searches.

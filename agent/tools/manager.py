@@ -23,7 +23,7 @@ SWITCHABLE: tuple[str, ...] = ("write", "edit", "shell", "web_fetch", "subagent"
 
 
 #: Atlas's own tools, given to the agent directly (not a skill, not MCP).
-ATLAS_TOOLS: tuple[str, ...] = ("read_text", "read_image", "create_document", "edit_document", "calculate", "dates")
+ATLAS_TOOLS: tuple[str, ...] = ("read_text", "read_image", "read_pdf", "read_docx", "read_xlsx", "create_document", "edit_document", "calculate", "dates")
 
 
 class ToolManager:

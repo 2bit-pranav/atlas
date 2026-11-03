@@ -43,7 +43,8 @@ def _failed(message: str) -> dict[str, Any]:
 
 
 def document_tools(workspace: Path, shown: Callable[[Path], str],
-                   folders: list[Path] | None = None) -> list[Any]:
+                   folders: list[Path] | None = None,
+                   asset: Callable[[str], Path | None] | None = None) -> list[Any]:
     """The two agent tools, bound to one chat's workspace.
 
     `shown` turns a path into the form the model is shown (`model_path`). A
@@ -66,7 +67,7 @@ def document_tools(workspace: Path, shown: Callable[[Path], str],
         **bold**, *italic*, - bullets, 1. numbered lists, tables
         (| Name | Total |, then |---|---|, then one row per line), and images
         as ![caption](path) on their own line -- to keep a source document's
-        images, copy the ![...](...) lines its reader printed. For .xlsx,
+        images, copy the ![...](asset:...) lines its reader printed, exactly. For .xlsx,
         every Markdown table becomes a sheet named after the heading above it.
         An existing file at `path` is replaced. Use this, never `write`, for
         .docx/.pdf/.xlsx files.
@@ -78,7 +79,7 @@ def document_tools(workspace: Path, shown: Callable[[Path], str],
         """
         target = resolve(path)
         try:
-            info = create(target, content, title or None, base=workspace)
+            info = create(target, content, title or None, base=workspace, asset=asset)
         except DocumentError as exc:
             return _failed(str(exc))
         except Exception as exc:  # noqa: BLE001 - the model needs words, not a traceback

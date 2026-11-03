@@ -1,7 +1,7 @@
 """The document benchmark: questions and edits on attached files, end to end.
 
     python tests/bench_docs.py --url http://127.0.0.1:8000
-    python tests/bench_docs.py --readers          # time the reader scripts only, no model
+    python tests/bench_docs.py --ingest           # time ingest of the fixtures, no model
 
 Baseline for docs/plan.md (file ingestion and retrieval). Same runner as
 `bench.py`; fixtures are generated into `.data/bench/fixtures/` with one fact
@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import json
 import random
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -25,7 +24,7 @@ from typing import Any
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bench import FIXTURES, ROOT, Case, Run, make_fixtures, run_case, trace  # noqa: E402
+from bench import FIXTURES, Case, Run, make_fixtures, run_case, trace  # noqa: E402
 
 FONT = "C:/Windows/Fonts/arial.ttf"
 WORDS = ("signal network sensor module report value system process data field level output input "
@@ -125,8 +124,14 @@ def _docx_text(path: Path) -> str:
 
 def check_docx_edit(run: Run) -> dict[str, bool]:
     out = sorted(run.workspace.glob("*.docx"), key=lambda p: p.stat().st_mtime)
-    text = _docx_text(out[-1]) if out else ""
-    return {"18 days present": "18 days" in text, "23 days gone": "23 days" not in text}
+    try:
+        text = _docx_text(out[-1]) if out else ""
+    except Exception:  # noqa: BLE001 - a corrupt file is a failed edit
+        text = ""
+    return {"18 days present": "18 days" in text, "23 days gone": "23 days" not in text,
+            # An edit, not a rewrite: everything else is still there.
+            "rest unchanged": all(k in text for k in ("Northwind", "12.40", "14 days", "Corvex", "9 days",
+                                                      "Keep Northwind as the main supplier"))}
 
 
 def check_xlsx_edit(run: Run) -> dict[str, bool]:
@@ -135,8 +140,16 @@ def check_xlsx_edit(run: Run) -> dict[str, bool]:
     out = sorted(run.workspace.glob("*.xlsx"), key=lambda p: p.stat().st_mtime)
     if not out:
         return {"workbook present": False}
-    ws = load_workbook(str(out[-1]))["Mar"]
-    return {"Mar North = 5000": ws["B2"].value in (5000, 5000.0, "5000")}
+    try:
+        wb = load_workbook(str(out[-1]))
+    except Exception:  # noqa: BLE001 - a corrupt file is a failed edit
+        return {"workbook opens": False}
+    cells = {(ws.title, c.coordinate): c.value for ws in wb.worksheets for row in ws.iter_rows() for c in row}
+    expected = {("Jan", "B2"): 1200, ("Jan", "B3"): 3400.5, ("Jan", "B4"): 980, ("Feb", "B2"): 2200,
+                ("Feb", "B3"): 1850.25, ("Feb", "B4"): 3100, ("Mar", "B3"): 2950.25, ("Mar", "B4"): 5400}
+    return {"Mar North = 5000": cells.get(("Mar", "B2")) in (5000, 5000.0, "5000"),
+            # An edit, not a rewrite: a regenerated workbook got Feb wrong (2026-11-03).
+            "rest unchanged": all(cells.get(k) == v for k, v in expected.items())}
 
 
 CASES = {c.name: c for c in [
@@ -165,34 +178,26 @@ def wrong_tool_calls(run: Run) -> int:
     return sum(1 for t in run.tools() if any(r in t["text"] for r in REFUSED))
 
 
-def time_readers() -> None:
-    """The reader scripts as the agent runs them: cold (OCR cache cleared) and warm."""
-    py = sys.executable
-    jobs = [
-        ("manual.pdf p1", ["skills/pdf/scripts/read_pdf.py", "manual.pdf"]),
-        ("manual.pdf p27", ["skills/pdf/scripts/read_pdf.py", "manual.pdf", "--pages", "27"]),
-        ("manual.pdf p1-15", ["skills/pdf/scripts/read_pdf.py", "manual.pdf", "--pages", "1-15"]),
-        ("scan.pdf p1-12", ["skills/pdf/scripts/read_pdf.py", "scan.pdf", "--pages", "1-12"]),
-        ("scan.pdf p9", ["skills/pdf/scripts/read_pdf.py", "scan.pdf", "--pages", "9"]),
-        ("suppliers.docx", ["skills/docx/scripts/read_docx.py", "suppliers.docx"]),
-        ("sales.xlsx", ["skills/xlsx/scripts/read_xlsx.py", "sales.xlsx"]),
-    ]
-    import shutil
+def time_ingest() -> None:
+    """Ingest of each fixture into a fresh store (no model): text pass, then OCR."""
+    import tempfile
 
-    for run in ("cold", "warm"):
-        if run == "cold":
-            for d in FIXTURES.glob(".atlas-images"):
-                shutil.rmtree(d, ignore_errors=True)
-        for label, (script, name, *rest) in jobs:
-            t = time.perf_counter()
-            p = subprocess.run([py, str(ROOT / script), str(FIXTURES / name), *rest],
-                               capture_output=True, text=True, encoding="utf-8", errors="replace")
-            s = time.perf_counter() - t
-            found = {"4.183": "4.183" in p.stdout, "INV-58213": "INV-58213" in p.stdout}
-            print(f"{run:<5} {label:<18} {s:6.2f}s  exit={p.returncode} out={len(p.stdout):>6} chars  "
-                  f"{' '.join(k for k, v in found.items() if v)}  {p.stdout[-160:].strip()[:0]}")
-            if p.returncode:
-                print("      " + (p.stdout + p.stderr).strip().replace("\n", " | ")[:300])
+    from agent.ingest.store import Store
+
+    store = Store(Path(tempfile.mkdtemp()) / "parsed")
+    for name in ("manual.pdf", "suppliers.docx", "sales.xlsx", "exp1.pdf", "scan.pdf"):
+        t = time.perf_counter()
+        sha = store.submit(FIXTURES / name, "bench")
+        assert sha
+        first = store.wait(sha, lambda e: e["status"] != "queued", 120)
+        t1 = time.perf_counter() - t
+        if name == "scan.pdf":
+            store.want(sha, [9])
+            store.wait(sha, lambda e: e["page_status"][8] not in ("scan", "pictures"), 120)
+            print(f"{name:<15} text pass {t1:5.2f}s  page 9 by OCR {time.perf_counter() - t:5.2f}s")
+        done = store.wait(sha, lambda e: e["status"] == "ready", 300)
+        print(f"{name:<15} {(first or {}).get('status')!s:<8} {t1:5.2f}s  ready {time.perf_counter() - t:6.2f}s  "
+              f"blocks {len(store.blocks(sha))}  ({(done or {}).get('status')})")
 
 
 def main() -> int:
@@ -200,12 +205,12 @@ def main() -> int:
     parser.add_argument("cases", nargs="*", default=list(CASES), help=f"of {list(CASES)}")
     parser.add_argument("--thinking", choices=["off", "on", "both"], default="both")
     parser.add_argument("--url", default="http://127.0.0.1:8000")
-    parser.add_argument("--readers", action="store_true", help="time the reader scripts only")
+    parser.add_argument("--ingest", action="store_true", help="time ingest of the fixtures only")
     args = parser.parse_args()
 
     make_doc_fixtures()
-    if args.readers:
-        time_readers()
+    if args.ingest:
+        time_ingest()
         return 0
     client = httpx.Client(base_url=f"{args.url}/api", timeout=1800)
     settings = client.get("/settings").json()
