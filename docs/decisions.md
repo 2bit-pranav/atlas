@@ -605,3 +605,25 @@ letting its commands through. Writing the tests found that the shell runs in
 another chat, unseen by any check (relative paths were never placed). The
 floor now places a shell command's write and delete targets from the
 workspace and refuses those.
+
+**Document baseline before the file pipeline** (2026-11-03, `tests/bench_docs.py`).
+Eight document tasks (long text PDF, 12-page scan, short PDF, docx table, xlsx
+sum, 3,000-line log, docx edit, xlsx edit), thinking off and on, run twice:
+8/16 passed in the clean run. Questions on short files mostly pass; what fails:
+- The harness `read` returned a 3,000-line log whole (124,792 characters, 70k
+  tokens): the request overflowed the 32k context and the turn failed, both
+  modes, both runs. `read` has no cap.
+- `read` was called on a binary document 6 to 11 times per 16 runs; one run
+  spent four calls on it before loading the skill.
+- Long PDF: the reader shows pages 1-2 by default and the model answered "not
+  present" without searching; once it searched with a phrase ("sensor K7
+  calibration constant") that substring search cannot match, on a path it
+  invented under `skills/`.
+- Edits: 1 of 8 runs passed. The docx reader prints a table as a pipe row and
+  the model passes that row to `edit_document`, which matches within one cell.
+  No tool sets a spreadsheet cell; the model tried SQL with string literals in
+  double quotes (identifiers in DuckDB).
+- Every document task spends a call and about 1-1.5k tokens loading a skill;
+  the fixed prompt (system, tools) is about 4.4k tokens.
+- Readers are fast on text (0.2-0.5 s). OCR is 2.1 s per page cold (12 pages,
+  25.7 s); `--search` on a scan OCRs every page first.
