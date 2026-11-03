@@ -69,7 +69,7 @@ def test_atlas_itself_is_never_written(layout, name, rel, content) -> None:
 @pytest.mark.parametrize("rel", [".data/pairing-token", ".data/profile.md", ".data/atlas.db",
                                  ".data/sessions/s/x.json", "mcp.json"])
 def test_secrets_are_never_read(layout, rel) -> None:
-    event = _run(layout.scope, "read", {"path": (layout.root / rel).as_posix()})
+    event = _run(layout.scope, "read_text", {"path": (layout.root / rel).as_posix()})
     assert event.cancel_tool and "Atlas's own" in event.cancel_tool
 
 
@@ -77,15 +77,15 @@ def test_shell_and_relative_paths_are_caught_too(layout) -> None:
     token = (layout.data / "pairing-token").as_posix()
     assert _run(layout.scope, "shell", {"command": f"cat {token}"}).cancel_tool
     # From the workspace (.data/chats/c1), ../../pairing-token is the token.
-    assert _run(layout.scope, "read", {"path": "../../pairing-token"}).cancel_tool
+    assert _run(layout.scope, "read_text", {"path": "../../pairing-token"}).cancel_tool
 
 
 def test_the_chats_folder_and_atlas_code_reads_still_work(layout) -> None:
     assert _run(layout.scope, "write", {"path": "notes.txt", "content": "x"}).cancel_tool is False
     other_chat = (layout.data / "chats" / "c2" / "a.txt").as_posix()
-    assert _run(layout.scope, "read", {"path": other_chat}).cancel_tool is False
+    assert _run(layout.scope, "read_text", {"path": other_chat}).cancel_tool is False
     code = (layout.root / "agent" / "x.py").as_posix()
-    assert _run(layout.scope, "read", {"path": code}).cancel_tool is False
+    assert _run(layout.scope, "read_text", {"path": code}).cancel_tool is False
     # Elsewhere on the allowed Desktop: unaffected.
     desk = (layout.root.parent / "report.docx").as_posix()
     assert _run(layout.scope, "create_document", {"path": desk, "content": "x"}).cancel_tool is False

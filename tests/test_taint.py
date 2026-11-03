@@ -49,7 +49,7 @@ def test_taint_is_stored_on_the_chat(tmp_path) -> None:
 def test_web_fetch_and_untrusted_mcp_tools_taint() -> None:
     hits: list[str] = []
     tracker = TaintTracker(untrusted=lambda name: name == "ddg_fetch_content", on_taint=lambda: hits.append("x"))
-    tracker._after_tool(_after("read"))                                   # a local file: no
+    tracker._after_tool(_after("read_text"))                                 # a local file: no
     tracker._after_tool(_after("filesystem_read", _mcp("filesystem_read")))  # trusted MCP: no
     assert hits == []
     tracker._after_tool(_after("web_fetch"))

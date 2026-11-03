@@ -360,8 +360,8 @@ def _reasoning_of(block: Any) -> str:
 def _sendable(block: Any) -> Any:
     """Replace `document` blocks, which llama-server rejects with a 400.
 
-    The harness `read` tool returns a pdf, docx or xlsx as a `document` block,
-    meant for cloud models that can view one. llama.cpp cannot, and the whole
+    A tool (an MCP server's; the harness `read`, now off) can return a pdf, docx
+    or xlsx as a `document` block, meant for cloud models that can view one. llama.cpp cannot, and the whole
     request fails -- so the model is told what it tried to read and pointed at
     the skill that can. Images are left alone: those the model can see.
     """

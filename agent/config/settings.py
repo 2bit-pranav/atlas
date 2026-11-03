@@ -116,7 +116,6 @@ class LlamaCppSettings(StrictModel):
 class BuiltinToolSettings(StrictModel):
     """Which of the harness's built-in tools the agent gets, one switch each."""
 
-    read: bool = True
     write: bool = True
     edit: bool = True
     shell: bool = True
@@ -127,6 +126,8 @@ class BuiltinToolSettings(StrictModel):
 class AtlasToolSettings(StrictModel):
     """Atlas's own tools (not the harness's, not skills, not MCP), one switch each."""
 
+    read_text: bool = True  # agent/tools/reading.py; replaces the harness `read`
+    read_image: bool = True
     create_document: bool = True  # agent/tools/documents/
     edit_document: bool = True
     calculate: bool = True  # agent/tools/maths/
@@ -381,12 +382,13 @@ TIERS: dict[str, Tier] = {
     "sampling.frequency_penalty": Tier.LIVE,
     "sampling.repeat_penalty": Tier.LIVE,
     "sampling.thinking": Tier.LIVE,
-    "tools.builtin.read": Tier.LIVE,
     "tools.builtin.write": Tier.LIVE,
     "tools.builtin.edit": Tier.LIVE,
     "tools.builtin.shell": Tier.LIVE,
     "tools.builtin.web_fetch": Tier.LIVE,
     "tools.builtin.subagent": Tier.LIVE,
+    "tools.atlas.read_text": Tier.LIVE,
+    "tools.atlas.read_image": Tier.LIVE,
     "tools.atlas.create_document": Tier.LIVE,
     "tools.atlas.edit_document": Tier.LIVE,
     "tools.atlas.calculate": Tier.LIVE,

@@ -12,8 +12,9 @@ from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 from agent.platform.winpaths import drive_path, windows_path
 from agent.safety.scope import Scope
 
-#: Tools whose `path` argument is a file path.
-FILE_TOOLS = {"read", "write", "edit", "create_document", "edit_document"}
+#: Tools whose `path` argument is a file path, and those of them that only read.
+READ_TOOLS = {"read_text", "read_image"}
+FILE_TOOLS = {*READ_TOOLS, "write", "edit", "create_document", "edit_document"}
 
 
 #: Absolute Windows paths inside a shell command: `/c/...`, `C:/...` or `C:\\...`,
@@ -73,7 +74,7 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     are placed as the tool will place them (`Scope.place`), so `../x` is checked."""
     out: list[tuple[Path, bool]] = []
     if name in FILE_TOOLS and isinstance(args.get("path"), str) and args["path"]:
-        out.append((scope.place(args["path"]), name != "read"))
+        out.append((scope.place(args["path"]), name not in READ_TOOLS))
     elif name == "shell":
         for raw in _shell_paths(str(args.get("command", ""))):
             out.append((Path(windows_path(_trim(raw))), False))

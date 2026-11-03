@@ -64,17 +64,17 @@ def test_outside_asks_once_per_folder(tmp_path) -> None:
     policy = _policy(tmp_path, approver=asked)
     outside = tmp_path / "elsewhere"
     outside.mkdir()
-    assert _run(policy, _event("read", {"path": (outside / "x.txt").as_posix()})).cancel_tool is False
-    assert _run(policy, _event("read", {"path": (outside / "y.txt").as_posix()})).cancel_tool is False
+    assert _run(policy, _event("read_text", {"path": (outside / "x.txt").as_posix()})).cancel_tool is False
+    assert _run(policy, _event("read_text", {"path": (outside / "y.txt").as_posix()})).cancel_tool is False
     assert [k for k, _ in asked.calls] == ["access"]
     assert Path(asked.calls[0][1]["folder"]) == outside.resolve()
 
 
 def test_outside_denied_or_not_askable_is_refused(tmp_path) -> None:
     target = {"path": (tmp_path / "x.txt").as_posix()}
-    denied = _run(_policy(tmp_path, approver=_Asked("denied")), _event("read", dict(target)))
+    denied = _run(_policy(tmp_path, approver=_Asked("denied")), _event("read_text", dict(target)))
     assert "did not allow" in denied.cancel_tool
-    off = _run(_policy(tmp_path, approver=_Asked(), ask_outside=False), _event("read", dict(target)))
+    off = _run(_policy(tmp_path, approver=_Asked(), ask_outside=False), _event("read_text", dict(target)))
     assert "Settings > Access" in off.cancel_tool
 
 
@@ -83,7 +83,7 @@ def test_readable_roots_are_read_only(tmp_path) -> None:
     skills.mkdir()
     asked = _Asked("denied")
     policy = ToolPolicy(Scope(tmp_path / "ws", readable=[skills]), approver=asked)
-    assert _run(policy, _event("read", {"path": (skills / "pdf" / "SKILL.md").as_posix()})).cancel_tool is False
+    assert _run(policy, _event("read_text", {"path": (skills / "pdf" / "SKILL.md").as_posix()})).cancel_tool is False
     assert _run(policy, _event("write", {"path": (skills / "x.md").as_posix()})).cancel_tool
 
 
@@ -128,14 +128,12 @@ def test_sensitive_mcp_tool_asks(tmp_path) -> None:
 
 
 def test_documents_redirected_after_access(tmp_path) -> None:
-    policy = _policy(tmp_path, approver=_Asked(), reader=lambda p: f"python read.py {p}")
-    read = _run(policy, _event("read", {"path": "report.pdf"}))
-    assert "python read.py report.pdf" in read.cancel_tool
+    policy = _policy(tmp_path, approver=_Asked())
     write = _run(policy, _event("write", {"path": "report.docx", "content": "x"}))
     assert "create_document" in write.cancel_tool
     # A denied access check refuses before the document step is reached.
     outside = _run(_policy(tmp_path, approver=_Asked("denied")),
-                   _event("read", {"path": (tmp_path / "x.pdf").as_posix()}))
+                   _event("read_text", {"path": (tmp_path / "x.pdf").as_posix()}))
     assert "did not allow" in outside.cancel_tool
 
 
@@ -163,7 +161,7 @@ def test_requirement_status_for_pip() -> None:
 def test_pasted_windows_path_works_in_file_tools(tmp_path) -> None:
     policy = _policy(tmp_path, approver=_Asked())
     inside = str(tmp_path / "docs" / "notes.txt")                 # C:\Users\...\notes.txt
-    event = _run(policy, _event("read", {"path": inside}))
+    event = _run(policy, _event("write", {"path": inside, "content": "x"}))
     assert event.cancel_tool is False
     assert event.tool_use["input"]["path"].startswith("/")        # /c/Users/... for the harness
 
@@ -216,7 +214,7 @@ def test_relative_escape_from_the_workspace_asks(tmp_path) -> None:
     for name, args in (("create_document", {"path": "../settings.json.md", "content": "x"}),
                        ("edit_document", {"path": "../settings.json", "find": "a", "replace": "b"}),
                        ("write", {"path": "../../x.txt", "content": "x"}),
-                       ("read", {"path": "../settings.json"})):
+                       ("read_text", {"path": "../settings.json"})):
         asked = _Asked("denied")
         event = _run(_policy(tmp_path, approver=asked), _event(name, args))
         assert asked.calls and asked.calls[0][0] == "access", name
@@ -264,13 +262,13 @@ def test_a_read_grant_does_not_allow_writes(tmp_path) -> None:
     policy = _policy(tmp_path, approver=asked)
     outside = tmp_path / "elsewhere"
     outside.mkdir()
-    assert _run(policy, _event("read", {"path": (outside / "a.txt").as_posix()})).cancel_tool is False
+    assert _run(policy, _event("read_text", {"path": (outside / "a.txt").as_posix()})).cancel_tool is False
     assert asked.calls[-1][1]["access"] == "read"
     _run(policy, _event("write", {"path": (outside / "b.txt").as_posix(), "content": "x"}))
     assert [k for k, _ in asked.calls] == ["access", "access"]      # the write asked again
     assert asked.calls[-1][1]["access"] == "write"
     # A write grant covers reads in that folder.
-    _run(policy, _event("read", {"path": (outside / "c.txt").as_posix()}))
+    _run(policy, _event("read_text", {"path": (outside / "c.txt").as_posix()}))
     assert len(asked.calls) == 2
 
 
@@ -282,10 +280,10 @@ def test_a_file_at_a_drive_root_or_home_grants_only_itself(tmp_path, monkeypatch
     asked = _Asked("allowed")
     policy = _policy(tmp_path, approver=asked)
     first = (home / "a.txt").as_posix()
-    _run(policy, _event("read", {"path": first}))
+    _run(policy, _event("read_text", {"path": first}))
     assert Path(asked.calls[-1][1]["folder"]) == Path(first).resolve()   # the file, not the home folder
-    _run(policy, _event("read", {"path": (home / "b.txt").as_posix()}))
+    _run(policy, _event("read_text", {"path": (home / "b.txt").as_posix()}))
     assert len(asked.calls) == 2                                      # a sibling asks again
     root = Path(tmp_path.anchor)
-    _run(policy, _event("read", {"path": (root / "x.txt").as_posix()}))
+    _run(policy, _event("read_text", {"path": (root / "x.txt").as_posix()}))
     assert Path(asked.calls[-1][1]["folder"]) == (root / "x.txt").resolve()

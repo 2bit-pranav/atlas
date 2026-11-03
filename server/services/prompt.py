@@ -144,11 +144,26 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
             # create_document even when asked to merge or convert it.
             skill = command.split("$ATLAS_SKILLS/", 1)[-1].split("/", 1)[0]
             line +=f" (to merge, split, combine or convert it instead, load the {skill} skill first)"
+        elif reader is not None and _media_kind(f) is None:  # images and audio are sent to the model as they are
+            name = f["name"] if here else shown
+            line += f". Read it with read_text(path=\"{name}\")"
+            # A long file read from the top is answered from its first lines ("no errors in
+            # this log"); told the size and the search form up front, the model searches.
+            if (count := _line_count(Path(str(f["path"])))) > 150:
+                line += f"; it has {count:,} lines, so to find something use read_text(path=\"{name}\", search=\"words\")"
         lines.append(line)
     if lines:
         parts.append("Files attached to this message (use the paths exactly as written):\n"
                      + "\n".join(lines))
     return "\n\n".join(p for p in parts if p).strip()
+
+
+def _line_count(path: Path) -> int:
+    try:
+        with path.open("rb") as fh:
+            return sum(chunk.count(b"\n") for chunk in iter(lambda: fh.read(1 << 20), b""))
+    except OSError:
+        return 0
 
 
 def _strip_hint(messages: list[dict[str, Any]], start: int, hint: str) -> None:

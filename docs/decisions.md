@@ -627,3 +627,15 @@ sum, 3,000-line log, docx edit, xlsx edit), thinking off and on, run twice:
   the fixed prompt (system, tools) is about 4.4k tokens.
 - Readers are fast on text (0.2-0.5 s). OCR is 2.1 s per page cold (12 pages,
   25.7 s); `--search` on a scan OCRs every page first.
+
+**`read_text` and `read_image` replace the harness `read`** (2026-11-03, plan
+Phase 1). The harness `read` is off (it is no longer a setting); Atlas's own
+tools are capped near 1,500 tokens, name what they left out and the next call,
+search by words rather than the phrase, and answer a pdf/docx/xlsx with its
+reader command and an image with `read_image`. The policy's `read` redirect
+went with it. `tests/bench_docs.py`: 11/16 (baseline 8/16). Every question
+about a PDF, docx or xlsx passed; wrong-tool calls fell from 6-11 to 2; edits
+are still 0/4 (Phase 3). The long log still failed with thinking off (read
+the first window, said "no error codes") until its attachment line gave the
+line count and the search form: then 4/4, one call each, 5.8k context instead
+of 8.6k. Saying so in the result's header alone did not do it (1/3).

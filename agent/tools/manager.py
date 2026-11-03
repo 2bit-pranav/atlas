@@ -15,13 +15,15 @@ from agent.config.settings import Settings
 #: The built-in tools a user can switch on, in `tools.builtin`. Every name here
 #: must exist in `BUILTIN_TOOL_NAMES`; a typo would otherwise be a tool that
 #: silently never appears. Deliberately absent: `web_search` (needs a cloud
-#: provider's search or Exa, a third party that would see every query) and
-#: `programmatic_tool_caller` (lets the model run tools without asking).
-SWITCHABLE: tuple[str, ...] = ("read", "write", "edit", "shell", "web_fetch", "subagent")
+#: provider's search or Exa, a third party that would see every query),
+#: `programmatic_tool_caller` (lets the model run tools without asking) and
+#: `read` (uncapped, and its name drew it onto PDFs: Atlas's `read_text` and
+#: `read_image` replace it, agent/tools/reading.py).
+SWITCHABLE: tuple[str, ...] = ("write", "edit", "shell", "web_fetch", "subagent")
 
 
 #: Atlas's own tools, given to the agent directly (not a skill, not MCP).
-ATLAS_TOOLS: tuple[str, ...] = ("create_document", "edit_document", "calculate", "dates")
+ATLAS_TOOLS: tuple[str, ...] = ("read_text", "read_image", "create_document", "edit_document", "calculate", "dates")
 
 
 class ToolManager:

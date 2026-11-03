@@ -35,6 +35,7 @@ from agent.store.snapshots import SessionManager
 from agent.tools.documents.tool import document_tools
 from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
+from agent.tools.reading import read_tools
 
 CONVERSATION_MANAGERS = {
     "null": "NullConversationManager",
@@ -118,8 +119,11 @@ def build_agent(
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
     enabled = set(tool_manager.atlas_tools())
-    atlas_tools = [t for t in (*document_tools(paths.chat_dir(settings, chat_id), model_path,
-                                               _scope(settings, paths.chat_dir(settings, chat_id)).folders),
+    folders = _scope(settings, workspace_dir).folders
+    reader = lambda p: reader_command(settings, p, _shown(p, workspace_dir, folders))  # noqa: E731
+    atlas_tools = [t for t in (*read_tools(lambda p: _resolve(p, workspace_dir, folders), model_path, reader,
+                                           settings.model.supports_vision),
+                               *document_tools(workspace_dir, model_path, folders),
                                *maths_tools())
                    if t.tool_name in enabled]
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
@@ -157,9 +161,7 @@ def build_agent(
         # (policy.py), so a refused repeat never shows a card. After: recovery.
         hooks=[RunLimits(settings.limits, notify=observer),
                ToolPolicy(_scope(settings, workspace_dir), approver=approver,
-                          ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
-                          reader=lambda p: reader_command(settings, p, _shown(
-                              p, workspace_dir, _scope(settings, workspace_dir).folders))),
+                          ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted),
                ToolFailureRecovery(settings.resilience, notify=observer),
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )
@@ -188,6 +190,17 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
                             mcp_config=paths.mcp_config(settings), venv=Path(sys.prefix),
                             skills=paths.skills_dir(settings)),
     )
+
+
+def _resolve(path: str, workspace: Path, folders: list[Path]) -> Path:
+    """Where a file tool's `path` points, placed as `document_tools` places it."""
+    from agent.platform.winpaths import windows_path
+    from agent.safety.placement import locate
+
+    p = Path(windows_path(path)) if path.startswith("/") else Path(path)
+    if p.is_absolute():
+        return p
+    return locate(path, workspace, folders) or workspace / p
 
 
 def _shown(path: str, workspace: Path, folders: list[Path] | None = None) -> str:

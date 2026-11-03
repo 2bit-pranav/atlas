@@ -12,8 +12,8 @@ place a tool call is inspected before it runs, as ordered steps:
                    extension), shell commands and writes outside the
                    workspace ask the user: the page may carry instructions
     5. sensitive   an MCP tool the user marked "ask" asks the user
-    6. documents   `read`/`write`/`edit` on a .docx/.pdf/.xlsx is redirected
-                   to the commands and tools that handle them
+    6. documents   `write`/`edit` on a .docx/.pdf/.xlsx is redirected to the
+                   document tools
 
 The first step that refuses ends the check; an approved step moves on to the
 next. Everything after a tool runs (re-running a crashed tool, annotating a
@@ -69,7 +69,6 @@ class ToolPolicy(HookProvider):
         approver: Approver | None = None,
         ask_outside: bool = True,
         sensitive: Callable[[str], bool] | None = None,
-        reader: Callable[[str], str | None] | None = None,
         tainted: Callable[[], bool] | None = None,
     ) -> None:
         self.scope = scope
@@ -77,7 +76,6 @@ class ToolPolicy(HookProvider):
         self.approver = approver
         self.ask_outside = ask_outside
         self.sensitive = sensitive or (lambda name: False)
-        self.reader = reader
         #: Folders the user allowed during this turn: not asked again.
         #: What the user allowed this turn: (folder or file, write?). A read grant
         #: is not a write grant (B9).
@@ -105,7 +103,7 @@ class ToolPolicy(HookProvider):
     async def _normalise(self, event: BeforeToolCallEvent) -> Decision | None:
         """Paths in the form each tool takes.
 
-        The harness file tools (`read`, `write`, `edit`) refuse any path not
+        The harness file tools (`write`, `edit`) refuse any path not
         starting with `/`, so a Windows path the user pasted (`C:\\Users\\...`)
         failed as "not absolute"; it becomes `/c/Users/...` (`model_path`).
 
@@ -116,7 +114,7 @@ class ToolPolicy(HookProvider):
         an allowed folder) was "no such directory". Relative paths are placed
         by `locate`, as for every other tool.
         """
-        if event.tool_use.get("name") in ("read", "write", "edit"):
+        if event.tool_use.get("name") in ("write", "edit"):
             args = event.tool_use.get("input") or {}
             raw = args.get("path")
             if isinstance(raw, str) and not raw.startswith("/") and Path(raw).is_absolute():
@@ -278,25 +276,15 @@ class ToolPolicy(HookProvider):
                                 "run. Do not call it again for this; tell the user what you meant to do."))
 
     async def _documents(self, event: BeforeToolCallEvent) -> Decision | None:
-        """Keep the plain file tools off binary documents.
-
-        `write`/`edit` would corrupt one; `read` returns nothing the model can
-        use. Both are answered at once with what does work.
-        """
+        """Keep the plain `write`/`edit` tools off binary documents: writing text
+        into one corrupts it. Answered at once with the tool that does work."""
         name = event.tool_use.get("name")
-        if name not in ("read", "write", "edit"):
+        if name not in ("write", "edit"):
             return None
         path = str((event.tool_use.get("input") or {}).get("path", ""))
         ext = Path(path).suffix.lower()
         if ext not in GUARDED:
             return None
-        if name == "read":
-            command = self.reader(path) if self.reader else None
-            return Decision(refuse=(
-                f"`read` only handles text files and images; {Path(path).name} is a binary {ext} "
-                + (f"file. Read it with: {command}" if command else "file. Use the matching skill's script.")
-                + " To merge, split, combine or convert it, load its skill first: the scripts do that "
-                  "in one call, without reading it."))
         what = "edit_document" if name == "edit" else "create_document"
         return Decision(refuse=(f"{Path(path).name} is a binary {ext} file; writing text into it would "
                                 f"corrupt it. Use the `{what}` tool instead."))

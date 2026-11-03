@@ -55,7 +55,6 @@ export const SECTIONS: Section[] = [
       {
         title: "Built-in tools",
         fields: [
-          { key: "tools.builtin.read", label: "read", control: toggle, help: "Read text files and images." },
           { key: "tools.builtin.write", label: "write", control: toggle, help: "Create or overwrite text files." },
           { key: "tools.builtin.edit", label: "edit", control: toggle, help: "Replace exact text in a file." },
           { key: "tools.builtin.shell", label: "shell", control: toggle,
@@ -64,6 +63,9 @@ export const SECTIONS: Section[] = [
             help: "Fetch a web page as text. Leaves this machine." },
           { key: "tools.builtin.subagent", label: "subagent", control: toggle,
             help: "Delegate a task to a child agent. Slow with one llama slot." },
+          { key: "tools.atlas.read_text", label: "read_text", control: toggle,
+            help: "Read a text file by lines, or search it. Capped, so a long file cannot fill the context." },
+          { key: "tools.atlas.read_image", label: "read_image", control: toggle, help: "Look at an image file." },
           { key: "tools.atlas.create_document", label: "create_document", control: toggle,
             help: "Write a Word, PDF or Excel file from Markdown." },
           { key: "tools.atlas.edit_document", label: "edit_document", control: toggle,

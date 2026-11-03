@@ -15,8 +15,8 @@ skills/
   <installed>/  ...  .atlas-source.json                  (where it came from)
 ```
 
-Rich documents are *read* through skills: the harness `read` tool returns a
-pdf, docx or xlsx as a `document` block that llama.cpp cannot accept. They are
+Rich documents are *read* through skills: llama.cpp cannot accept a pdf, docx
+or xlsx as a `document` block, and Atlas's `read_text` reads text only. They are
 *written* with Atlas's own `create_document` and `edit_document` tools, which
 take Markdown; the bundled skills say so. What a skill needs is listed on
 the Skills page with an install button.

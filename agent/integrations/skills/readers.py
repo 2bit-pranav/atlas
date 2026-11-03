@@ -19,9 +19,9 @@ READERS: dict[str, tuple[str, str]] = {
 def reader_command(settings: Settings, path: str, shown: str) -> str | None:
     """The exact shell command that reads `path`, if an enabled skill can.
 
-    Named in the attachment list and in the `read` guard, so the model runs
-    the right script first time instead of trying `read`, getting nothing
-    useful back, and loading the skill to find out what to run.
+    Named in the attachment list and in `read_text`'s error, so the model runs
+    the right script first time instead of loading the skill to find out
+    what to run.
     """
     reader = READERS.get(Path(path).suffix.lower())
     if reader is None:

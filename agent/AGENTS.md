@@ -33,6 +33,7 @@ agent/
                 documents/       create_document / edit_document: markdown.py parses, docx.py,
                                  pdf.py and xlsx.py write, base.py writes atomically, tool.py is the tool
                 maths/           calculate / dates: evaluator.py (the safe evaluator), dates.py, tool.py
+                reading.py       read_text / read_image: capped, typed reads (the harness `read` is off)
                 page.py          page_read / page_find for the browser extension, via client calls
   store/        chats.py         ChatStore: the chat tree and display transcripts (SQLite)
                 snapshots.py     where Strands writes snapshots; deleting them on edit
@@ -147,7 +148,7 @@ The stock `LlamaCppModel` needed five things:
   Gemma's template keeps the current turn's reasoning and drops older turns'
   by itself; stripping it all made the model forget its plan after every tool
   call and repeat its steps.
-- `document` blocks (what the harness `read` tool returns for a pdf/docx/xlsx)
+- `document` blocks (a pdf/docx/xlsx some tools return)
   become a text note pointing at the skill; llama-server answers them with a 400.
 
 ## Documents (`tools/documents/`)
@@ -165,7 +166,7 @@ to create it again.
 
 The policy's documents step refuses the plain `write`/`edit` tools on
 .docx/.xlsx/.pdf/.pptx (writing text into one is how corrupt documents
-happened), and answers `read` on one at once with the command that does read it.
+happened). `read_text` answers a pdf/docx/xlsx with the command that reads it.
 
 Images: the pdf and docx readers save a document's images into a hidden
 `.atlas-images/<name>/` folder beside it and print each as `![caption](path)`.
@@ -182,7 +183,7 @@ allow-list (numbers, quoted dates, `+ - * / // **`, a few named functions);
 nothing is executed. Numbers are `Decimal`, so money is exact. The docstrings
 carry examples, which a 2B model copies. Nothing yet forces their use.
 
-Atlas's own tools (these two and the document tools) are switched one by one
+Atlas's own tools (these two, the document tools and the read tools) are switched one by one
 in `tools.atlas` (Settings > Agent > Built-in tools); `ToolManager.atlas_tools()`
 resolves them. An older `tools.documents` switch still loads.
 
@@ -193,7 +194,7 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 
 1. **normalise**: paths in the form each tool takes. MCP arguments get Windows
    paths (`/c/Users/x` -> `C:/Users/x`) and relative paths placed by `locate`;
-   `read`/`write`/`edit` get `/c/...` for a pasted `C:\...`; unquoted `C:\...` in
+   `write`/`edit` get `/c/...` for a pasted `C:\...`; unquoted `C:\...` in
    a shell command becomes `C:/...` (bash eats the backslashes).
 2. **floor**: refused outright, no card: Atlas's own files (protected.py), the
    floor's shell rules (rules.toml), and shell writes or deletes that land in
@@ -208,7 +209,7 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    when Atlas points it only at the allowed folders (`{atlas:folders}`) or it is
    marked `"atlas": {"trusted": true}` in mcp.json.
 5. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
-6. **documents**: `read`/`write`/`edit` on a binary document is redirected.
+6. **documents**: `write`/`edit` on a binary document is redirected.
 
 Recovery after a tool runs stays in `recovery/`.
 
@@ -219,11 +220,11 @@ workspace (always), `access.folders` (Settings > Access, subfolders included),
 and, read-only, the skills folder and Python install so scripts can be read.
 What is checked:
 
-- `read`, `write`, `edit`, `create_document`, `edit_document`: an absolute
+- `read_text`, `read_image`, `write`, `edit`, `create_document`, `edit_document`: an absolute
   `path` argument. A relative path is placed by `safety/placement.locate`: the
   workspace first, then each allowed folder (an existing file wins; a new
   one goes where its folder exists). The filesystem MCP server, the skill
-  scripts (`$ATLAS_FOLDERS`) and the `read` hint follow the same rule, so
+  scripts (`$ATLAS_FOLDERS`) and the reader commands follow the same rule, so
   `Demo/Invoices/x.pdf` means one file to every tool.
 - `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
   quoted or bare). `/tmp` and other POSIX paths are the shell's own.
