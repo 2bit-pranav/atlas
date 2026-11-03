@@ -639,3 +639,14 @@ are still 0/4 (Phase 3). The long log still failed with thinking off (read
 the first window, said "no error codes") until its attachment line gave the
 line count and the search form: then 4/4, one call each, 5.8k context instead
 of 8.6k. Saying so in the result's header alone did not do it (1/3).
+
+**Unused dependencies removed** (2026-11-03). `requirements.in` lists only
+what agent/ or server/ import or run. Gone, imported by nothing: docling (and
+with it torch, torchvision, transformers, scipy), fastembed, sqlite-vec,
+pandas, matplotlib, sse-starlette; pytest moved to `requirements-dev.in` only.
+Declared because code imports them directly (they came in through other
+packages before): pillow, pyyaml. Made core for ingestion (they were
+skill-only, and resolved through docling): pypdfium2, rapidocr, onnxruntime.
+The lock went from 162 packages to 90, the venv from 1.5 GB to 672 MB. The
+pdf skill's pdf2docx brings PyMuPDF, which is AGPL-3.0: worth replacing
+before Atlas is distributed.
