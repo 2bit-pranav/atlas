@@ -70,3 +70,24 @@ def test_only_raster_images_are_shown_inline(client, name, inline) -> None:
     disposition = r.headers.get("content-disposition", "")
     assert ("attachment" not in disposition) is inline
     assert r.headers.get("x-content-type-options") == "nosniff"
+
+
+def test_an_upload_is_parsed_and_its_progress_can_be_asked(client) -> None:
+    """Plan Phase 2 and 4: a document is parsed at upload; the composer polls /ingest."""
+    import io
+    import time
+
+    from docx import Document
+
+    buf = io.BytesIO()
+    d = Document()
+    d.add_paragraph("Hello")
+    d.save(buf)
+    _upload(client, "a.docx", buf.getvalue())
+    _upload(client, "notes.txt", b"plain text is not parsed")
+    url = f"/api/chats/{client.chat}/ingest?names=a.docx,notes.txt,../../escape.docx,missing.pdf"
+    end = time.monotonic() + 20
+    while (body := client.get(url).json()).get("a.docx", {}).get("status") != "ready" and time.monotonic() < end:
+        time.sleep(0.2)
+    assert body == {"a.docx": {"status": "ready", "done": 0, "total": 0}}   # the rest are left out
+

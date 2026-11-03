@@ -21,6 +21,13 @@ export interface ChatFile {
   type: string
 }
 
+/** How far an attachment's parsing has got (GET /chats/{id}/ingest). Pages count a PDF's. */
+export interface IngestStatus {
+  status: "queued" | "reading" | "ready" | "failed"
+  done: number
+  total: number
+}
+
 export interface ChatSummary {
   id: string
   title: string

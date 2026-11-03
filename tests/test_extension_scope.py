@@ -61,6 +61,7 @@ def test_the_panel_can_do_its_work(client, method, path) -> None:
     ("PUT", "/api/profile", {"text": "x"}),
     ("POST", "/api/chats/import", {}),
     ("GET", "/api/chats/{chat}/export", None),
+    ("GET", "/api/chats/{chat}/ingest", None),          # the web UI's composer only
 ])
 def test_everything_else_is_refused(client, method, path, body) -> None:
     r = client.request(method, path.format(chat=client.chat), headers=_ext(client), json=body)

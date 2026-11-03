@@ -711,3 +711,9 @@ expression with a sheet becomes `SELECT ... FROM "sheet"`, and a failed query
 lists each sheet's columns (the model wrote `SUM(B)`, then tried pandas and
 `pip install`); `edit` called with `edit_docx`'s arguments is answered with the
 exact `edit_docx(...)` call (it was refused generically and gave up).
+
+**Attachment chips show parsing progress** (2026-11-03, plan Phase 4).
+`GET /chats/{id}/ingest?names=...` gives each attachment's status and a PDF's
+pages done; the composer polls it once a second until ready or failed.
+Checked live on the 12-page scan: 0 to 12 pages, then ready. Web UI only, not
+in the extension's routes.

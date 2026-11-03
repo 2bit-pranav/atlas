@@ -12,7 +12,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 
 from agent.config import paths
-from agent.ingest.store import store_for
+from agent.ingest.store import PENDING, store_for
 from server.schemas import (
     ImportFile,
 )
@@ -89,6 +89,37 @@ def register(api: Any, state: Any) -> None:
         if not target.is_file():
             raise HTTPException(404, "no such file")
         return target
+
+    @api.get("/chats/{chat_id}/ingest")
+    async def ingest_status(chat_id: str, names: str = "") -> dict[str, Any]:
+        """How far parsing has got for each named attachment (the composer's chips).
+
+        `{name: {status, done, total}}`: `status` is queued, reading, ready or
+        failed; `done`/`total` count a PDF's pages. A name that is not a parsed
+        type, or not in this chat's workspace, is left out.
+        """
+        store = store_for(paths.data_dir(state.settings))
+
+        def _one(name: str) -> dict[str, Any] | None:
+            try:
+                target = workspace_file(chat_id, name)
+            except HTTPException:
+                return None
+            sha = store.submit(target, chat_id)   # owned already; queued again if it was lost
+            if sha is None:
+                return None
+            e = store.entry(sha)
+            if e is None:
+                return {"status": "queued", "done": 0, "total": 0}
+            pages = e["page_status"] or []
+            done = sum(1 for s in pages if s not in PENDING)
+            status = {"partial": "reading"}.get(e["status"], e["status"])
+            return {"status": status, "done": done, "total": len(pages)}
+
+        state.require_chat(chat_id)
+        wanted = [n for n in names.split(",") if n.strip()][:50]
+        found = await asyncio.to_thread(lambda: {n: _one(n) for n in wanted})
+        return {n: s for n, s in found.items() if s is not None}
 
     @api.delete("/chats/{chat_id}/files/{name:path}")
     async def remove_upload(chat_id: str, name: str) -> dict[str, Any]:

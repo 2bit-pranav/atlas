@@ -122,6 +122,10 @@ for the missing ones.
 
 ## The composer
 
+- **Attachment chips** show how far a document's parsing has got ("Reading 4/12
+  pages", "Couldn't read"), polled from `/ingest` once a second until ready
+  (`useIngest.ts`). Parsing starts at upload, so it often finishes while the
+  user types.
 - **`@`** opens a menu of this chat's files, then tools, skills and connected MCP
   servers (by name, not each MCP tool). Picking one inserts `@name` as text;
   the backend turns each known name into an instruction for the model (a

@@ -11,6 +11,7 @@ import { ContextGauge } from "@/features/chat/ContextGauge"
 import { filterMentions, MentionMenu, useMentionables, type Mention } from "@/features/composer/MentionMenu"
 import { Recorder } from "@/features/composer/audio"
 import { FileChip } from "@/features/composer/FileChip"
+import { useIngest } from "@/features/composer/useIngest"
 
 /** Pasting more than this many characters attaches the text as a file instead. */
 const PASTE_AS_FILE = 2500
@@ -98,6 +99,8 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
 
   const files = edit ? editFiles.map((f) => ({ ...f, key: f.path, uploading: false })) : staged
   const uploading = files.some((f) => f.uploading)
+  // Documents are parsed as soon as they are uploaded; the chips show how far it has got.
+  const ingest = useIngest(chatId, files.filter((f) => !f.uploading).map((f) => f.name))
   const canSend = !uploading && (text.trim().length > 0 || files.length > 0) &&
     (!busy || Boolean(edit))
 
@@ -161,7 +164,7 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
         {files.length > 0 && (
           <div className="flex gap-2 overflow-x-auto px-3 pt-3">
             {files.map((f) => (
-              <FileChip key={f.key} file={f} uploading={f.uploading}
+              <FileChip key={f.key} file={f} uploading={f.uploading} ingest={ingest[f.name]}
                         onRemove={() => edit ? setEditFiles((x) => x.filter((y) => y.path !== f.path)) : atlas.unstage(f.key)} />
             ))}
           </div>

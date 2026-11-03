@@ -75,6 +75,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `DELETE /chats/{id}` | the chat, its snapshots, its files, and parsed documents no other chat owns |
 | `GET /chats/{id}/export`, `POST /chats/import` | a chat with every version and its Strands snapshots; an import can be continued |
 | `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace (a pdf/docx/xlsx is queued for ingest); a file as a download (raster images inline) |
+| `GET /chats/{id}/ingest?names=a.pdf,b.docx` | how far each attachment's parsing has got: `{name: {status, done, total}}` (the composer's chips; not open to the extension) |
 | `GET /chats/{id}/workspace` | every file in the workspace, newest first. Outlives edits |
 | `POST /chats/{id}/files/import` | `{url}`: a PDF by its link (`file://` copied, `http(s)://` downloaded) into the workspace, as an attachment |
 | `DELETE /chats/{id}/files/{path}` | remove an upload before it is sent |
@@ -105,7 +106,7 @@ What the model is told, built per run and never stored as `user_text`:
   Images and audio are sent as content blocks after the text instead, so a
   voice recording with an empty prompt is a complete message.
 - **Passages** (`refs`, from the former preview panel; older turns only), with their file's path,
-  ready for `edit_document`.
+  ready for the edit tools.
 - **@ mentions** (`_mention_guidance`): `@name` in the text that matches a
   skill, tool or MCP server becomes an explicit instruction. Resolved at run
   time, so a retry or an edit gets the same one; unknown names are ignored.

@@ -7,6 +7,7 @@
 import {
   ApiError,
   type ChatFile,
+  type IngestStatus,
   type ChatSummary,
   type ChatView,
   type McpServer,
@@ -80,6 +81,9 @@ export const renameChat = (id: string, title: string) =>
 export const deleteChat = (id: string) => request<{ deleted: string }>(`/chats/${id}`, json("DELETE"))
 export const exportChat = (id: string) => request<Record<string, unknown>>(`/chats/${id}/export`)
 export const importChat = (data: unknown) => request<ChatSummary>("/chats/import", json("POST", data))
+
+export const ingestStatus = (chatId: string, names: string[]) =>
+  request<Record<string, IngestStatus>>(`/chats/${chatId}/ingest?names=${encodeURIComponent(names.join(","))}`)
 
 export async function uploadFile(chatId: string, file: File): Promise<ChatFile> {
   const form = new FormData()
