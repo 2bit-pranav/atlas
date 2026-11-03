@@ -650,3 +650,11 @@ skill-only, and resolved through docling): pypdfium2, rapidocr, onnxruntime.
 The lock went from 162 packages to 90, the venv from 1.5 GB to 672 MB. The
 pdf skill's pdf2docx brings PyMuPDF, which is AGPL-3.0: worth replacing
 before Atlas is distributed.
+
+**Shell text writes into binary documents are refused** (2026-11-03). After
+two failed `edit_document` calls the model ran `sed -i` on a .docx and
+destroyed it; the documents step guarded only the `write`/`edit` tools. It now
+also refuses `sed -i`, `tee` and redirections (`>`, `>>`, `&>`) whose target is
+a .docx/.xlsx/.pdf/.pptx, using the shell classifier's write targets. Copies
+(`cp`) and the skill scripts still run. A script that writes one itself
+(`python -c ...`) is not caught: it is `other`, which the tiers will ask about.

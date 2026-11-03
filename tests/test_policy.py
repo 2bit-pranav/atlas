@@ -9,6 +9,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from mcp import types as mcp_types
 from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
@@ -287,3 +288,24 @@ def test_a_file_at_a_drive_root_or_home_grants_only_itself(tmp_path, monkeypatch
     root = Path(tmp_path.anchor)
     _run(policy, _event("read_text", {"path": (root / "x.txt").as_posix()}))
     assert Path(asked.calls[-1][1]["folder"]) == (root / "x.txt").resolve()
+
+
+@pytest.mark.parametrize("command", [
+    "sed -i 's/23 days/18 days/' suppliers.docx",
+    "echo hi > report.pdf",
+    "cat notes.txt >> book.xlsx",
+    "echo x | tee deck.pptx",
+])
+def test_shell_text_writes_into_binary_documents_are_refused(tmp_path, command) -> None:
+    """The model ran `sed -i` on a .docx after edit_document failed, and destroyed it."""
+    event = _run(_policy(tmp_path, approver=_Asked()), _event("shell", {"command": command}))
+    assert event.cancel_tool and "would corrupt it" in event.cancel_tool and "edit_document" in event.cancel_tool
+
+
+@pytest.mark.parametrize("command", [
+    "cp a.pdf b.pdf",
+    'python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" out.pdf a.pdf b.pdf',
+    "sed -i 's/a/b/' notes.txt",
+])
+def test_copies_scripts_and_text_edits_still_run(tmp_path, command) -> None:
+    assert _run(_policy(tmp_path, approver=_Asked()), _event("shell", {"command": command})).cancel_tool is False

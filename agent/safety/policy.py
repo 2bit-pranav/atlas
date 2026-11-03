@@ -276,9 +276,26 @@ class ToolPolicy(HookProvider):
                                 "run. Do not call it again for this; tell the user what you meant to do."))
 
     async def _documents(self, event: BeforeToolCallEvent) -> Decision | None:
-        """Keep the plain `write`/`edit` tools off binary documents: writing text
-        into one corrupts it. Answered at once with the tool that does work."""
+        """Keep text writers off binary documents: writing text into one corrupts it.
+
+        The plain `write`/`edit` tools, and in a shell command `sed -i`, `tee` and
+        redirections (`>`, `>>`): after two failed `edit_document` calls the model
+        ran `sed -i` on a .docx and destroyed it (bench_docs, 2026-11-03). Copying
+        one (`cp`) and the skill scripts are not text writes and still run.
+        Answered at once with the tool that does work.
+        """
         name = event.tool_use.get("name")
+        if name == "shell":
+            command = str((event.tool_use.get("input") or {}).get("command", ""))
+            for effect in classify(command).effects:
+                if effect.kind != "write" or not (effect.program in ("sed", "tee") or effect.program.startswith((">", "&>"))):
+                    continue
+                hit = next((p for p in effect.paths if Path(p.strip("\"'")).suffix.lower() in GUARDED), None)
+                if hit is not None:
+                    return Decision(refuse=(f"{Path(hit).name} is a binary {Path(hit).suffix.lower()} file; "
+                                            f"writing text into it with `{effect.program}` would corrupt it. Use "
+                                            "the `edit_document` tool to change it, or `create_document` to write it."))
+            return None
         if name not in ("write", "edit"):
             return None
         path = str((event.tool_use.get("input") or {}).get("path", ""))
