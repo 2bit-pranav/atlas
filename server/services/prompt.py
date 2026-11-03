@@ -125,7 +125,7 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
     quoted = [r for r in refs or [] if isinstance(r, dict) and r.get("quote")]
     if quoted:
         # Quoted from a file (the former preview panel). Named with the file's path, so a
-        # request like "reword this" can go straight to edit_document.
+        # request like "reword this" can go straight to the edit tools.
         parts.append("The user selected these passages and is asking about them:\n" + "\n".join(
             f"- from {r.get('file')} at {model_path(r['path']) if r.get('path') else r.get('file')}: "
             f'"{r["quote"]}"' for r in quoted))

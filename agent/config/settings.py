@@ -132,7 +132,8 @@ class AtlasToolSettings(StrictModel):
     read_docx: bool = True
     read_xlsx: bool = True
     create_document: bool = True  # agent/tools/documents/
-    edit_document: bool = True
+    edit_docx: bool = True  # with the docx skill
+    set_cell: bool = True  # with the xlsx skill
     calculate: bool = True  # agent/tools/maths/
     dates: bool = True
 
@@ -396,7 +397,8 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.read_docx": Tier.LIVE,
     "tools.atlas.read_xlsx": Tier.LIVE,
     "tools.atlas.create_document": Tier.LIVE,
-    "tools.atlas.edit_document": Tier.LIVE,
+    "tools.atlas.edit_docx": Tier.LIVE,
+    "tools.atlas.set_cell": Tier.LIVE,
     "tools.atlas.calculate": Tier.LIVE,
     "tools.atlas.dates": Tier.LIVE,
     "tools.interventions": Tier.LIVE,

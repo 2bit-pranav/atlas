@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agent.tools.documents.base import _require
 from agent.tools.documents.images import _image_size
 from agent.tools.documents.markdown import Block, Run, plain
 
@@ -78,44 +77,6 @@ def _check_docx(path: Path) -> None:
     from docx import Document
 
     Document(str(path))
-
-
-def _docx_paragraphs(doc: Any) -> list[Any]:
-    out = list(doc.paragraphs)
-    for table in doc.tables:
-        for row in table.rows:
-            for c in row.cells:
-                out.extend(c.paragraphs)
-    return out
-
-
-def _edit_docx(src: Path, dst: Path, find: str, replace: str, replace_all: bool) -> int:
-    from docx import Document
-
-    doc = Document(str(src))
-    paragraphs = _docx_paragraphs(doc)
-    n = sum(p.text.count(find) for p in paragraphs)
-    _require(n, replace_all, find, [p.text for p in paragraphs])
-    done = 0
-    for p in paragraphs:
-        if find not in p.text or (done and not replace_all):
-            continue
-        runs = p.runs
-        # Within one run: keep every run's formatting untouched.
-        hit = next((r for r in runs if find in r.text), None)
-        if hit is not None:
-            hit.text = hit.text.replace(find, replace, -1 if replace_all else 1)
-        else:
-            # Spans runs: the paragraph's text goes into its first run.
-            new = p.text.replace(find, replace, -1 if replace_all else 1)
-            runs[0].text = new
-            for r in runs[1:]:
-                r.text = ""
-        done += 1
-        if not replace_all:
-            break
-    doc.save(str(dst))
-    return n if replace_all else 1
 
 
 __all__ = []

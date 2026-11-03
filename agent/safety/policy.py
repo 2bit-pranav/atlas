@@ -39,12 +39,13 @@ from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
 from agent.platform.winpaths import model_path, windows_path
 from agent.safety.approvals import Approver
-from agent.safety.call_paths import _PATH_KEYS, _paths_of, _rewrite, _unbackslash
+from agent.safety.call_paths import _PATH_KEYS, WRITE_TOOLS, _paths_of, _rewrite, _unbackslash
 from agent.safety.placement import locate
 from agent.safety.rules import floor
 from agent.safety.scope import Scope, _absolute
 from agent.safety.shell import classify, is_install
 from agent.tools.documents.base import GUARDED
+from agent.tools.documents.tool import skill_of
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +223,7 @@ class ToolPolicy(HookProvider):
             if is_install(command):
                 return None
             what = f"shell: {command}"
-        elif name in ("write", "edit", "create_document", "edit_document"):
+        elif name in WRITE_TOOLS:
             raw = str(args.get("path", ""))
             if not raw:
                 return None
@@ -279,12 +280,16 @@ class ToolPolicy(HookProvider):
         """Keep text writers off binary documents: writing text into one corrupts it.
 
         The plain `write`/`edit` tools, and in a shell command `sed -i`, `tee` and
-        redirections (`>`, `>>`): after two failed `edit_document` calls the model
+        redirections (`>`, `>>`): after two failed document edits the model
         ran `sed -i` on a .docx and destroyed it (bench_docs, 2026-11-03). Copying
         one (`cp`) and the skill scripts are not text writes and still run.
         Answered at once with the tool that does work.
         """
         name = event.tool_use.get("name")
+        if event.selected_tool is None and (skill := skill_of(str(name))) is not None:
+            # Writing tools come with their skill (runtime/skill_tools.py).
+            return Decision(refuse=(f"`{name}` comes with the {skill} skill. Load it with the `skills` "
+                                    f"tool (skill_name=\"{skill}\"), then call `{name}` again."))
         if name == "shell":
             command = str((event.tool_use.get("input") or {}).get("command", ""))
             for effect in classify(command).effects:
@@ -294,7 +299,8 @@ class ToolPolicy(HookProvider):
                 if hit is not None:
                     return Decision(refuse=(f"{Path(hit).name} is a binary {Path(hit).suffix.lower()} file; "
                                             f"writing text into it with `{effect.program}` would corrupt it. Use "
-                                            "the `edit_document` tool to change it, or `create_document` to write it."))
+                                            "`edit_docx` or `set_cell` to change it (they come with the docx and xlsx skills), "
+                                            "or `create_document` to write a new one."))
             return None
         if name not in ("write", "edit"):
             return None
@@ -302,9 +308,15 @@ class ToolPolicy(HookProvider):
         ext = Path(path).suffix.lower()
         if ext not in GUARDED:
             return None
-        what = "edit_document" if name == "edit" else "create_document"
+        args = event.tool_use.get("input") or {}
+        if name == "edit" and ext == ".docx" and "block" in args:
+            # The model called `edit` with edit_docx's arguments, was refused, and gave up.
+            return Decision(refuse=(f"`edit` is for text files. Call edit_docx(path=\"{Path(path).name}\", "
+                                    f"block=\"{args.get('block')}\", text=...) instead, with the same arguments."))
+        what = ("`edit_docx` or `set_cell` (with the docx or xlsx skill)" if name == "edit"
+                else "the `create_document` tool")
         return Decision(refuse=(f"{Path(path).name} is a binary {ext} file; writing text into it would "
-                                f"corrupt it. Use the `{what}` tool instead."))
+                                f"corrupt it. Use {what} instead."))
 
 
 def _grant_scope(target: Path) -> Path:

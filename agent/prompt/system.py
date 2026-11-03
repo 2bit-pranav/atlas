@@ -75,7 +75,8 @@ def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> st
     if "read_pdf" in builtin:
         # Reading needs no skill: loading one cost a call and 1-1.5k tokens per document task.
         lines.append("- Read files with read_pdf, read_docx, read_xlsx, read_text or read_image; no skill "
-                     "is needed to read. Skills are for merging, splitting, converting and writing.")
+                     "is needed to read. To create or change a .docx, .xlsx or .pdf, load its skill "
+                     "(docx, xlsx or pdf): that adds create_document, edit_docx and set_cell.")
     if skills:
         lines.append(f"- Skills (instructions, loaded with the `skills` tool; not tools themselves): "
                      f"{', '.join(skills)}.")

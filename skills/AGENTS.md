@@ -17,8 +17,8 @@ skills/
 Documents are *read* with Atlas's own tools (`read_pdf`, `read_docx`,
 `read_xlsx`), from what was parsed at upload; no skill is loaded to read.
 The bundled skills are for what reading is not: merging, splitting,
-converting, and writing with `create_document` and `edit_document`, which take
-Markdown. What a skill needs is listed on
+converting and writing. Loading one adds its writing tools: `create_document`
+(Markdown in), `edit_docx` (a paragraph or cell by id) and `set_cell`. What a skill needs is listed on
 the Skills page with an install button.
 
 ## Writing one for a 2B model

@@ -30,7 +30,7 @@ agent/
   platform/     windows_shell.py WindowsLocalEnvironment: the shell, stoppable commands
                 winpaths.py      path forms (/c/... for the model, C:/... for Python), finding Git Bash
   tools/        manager.py       which built-in and Atlas tools are on
-                documents/       create_document / edit_document: markdown.py parses, docx.py,
+                documents/       create_document, edit_docx, set_cell: markdown.py parses, docx.py,
                                  pdf.py and xlsx.py write, base.py writes atomically, tool.py is the tool
                 maths/           calculate / dates: evaluator.py (the safe evaluator), dates.py, tool.py
                 reading.py       read_text / read_image: capped, typed reads (the harness `read` is off)
@@ -164,9 +164,20 @@ file is written to a temp file, reopened by its own library to prove it
 parses, and only then moved into place. A failure returns an *error* tool
 result in words the model can act on, so `ToolFailureRecovery` counts it.
 
-`edit_document` replaces exact text inside a docx paragraph or table cell, an
-xlsx cell, or a text file. A PDF cannot be edited in place; the model is told
-to create it again.
+`edit_docx` replaces one paragraph or table cell, by the id `read_docx`
+printed (`b12`, `t1.r3.c3`); `set_cell` sets one cell (`Mar!B2`), a number as
+a number and text starting `=` as text (blocks.py). Both work only on a
+version of the file this chat attached or read, and re-ingest it after. A PDF
+cannot be edited in place. `create_document` never replaces a file: an
+existing name gets `-2`, so a failed edit cannot turn into a regenerated copy
+over the original.
+
+**These tools come with skills** (`runtime/skill_tools.py`): loading the pdf,
+docx or xlsx skill registers its writing tools (`SKILL_TOOLS`), effective from
+the next model call. The skills plugin keeps the loaded skills in the agent's
+state, saved with each snapshot, so later turns are built with the same tools,
+always in `SKILL_TOOLS` order (the list is part of llama.cpp's cached prefix).
+A call to one before its skill is loaded is answered "load the docx skill".
 
 The policy's documents step refuses the plain `write`/`edit` tools on
 .docx/.xlsx/.pdf/.pptx (writing text into one is how corrupt documents
@@ -245,7 +256,7 @@ workspace (always), `access.folders` (Settings > Access, subfolders included),
 and, read-only, the skills folder and Python install so scripts can be read.
 What is checked:
 
-- `read_text`, `read_image`, `write`, `edit`, `create_document`, `edit_document`: an absolute
+- the read tools, `write`, `edit`, `create_document`, `edit_docx`, `set_cell`: an absolute
   `path` argument. A relative path is placed by `safety/placement.locate`: the
   workspace first, then each allowed folder (an existing file wins; a new
   one goes where its folder exists). The filesystem MCP server, the skill

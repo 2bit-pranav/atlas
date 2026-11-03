@@ -26,6 +26,7 @@ from agent.recovery.model_retry import LocalModelRetry
 from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
 from agent.runtime.restore import _restore
+from agent.runtime.skill_tools import SkillTools
 from agent.safety.approvals import Approver
 from agent.safety.limits import RunLimits
 from agent.safety.policy import TaintTracker, ToolPolicy
@@ -125,10 +126,11 @@ def build_agent(
     store = store_for(paths.data_dir(settings))
     atlas_tools = [t for t in (*read_tools(resolve, model_path, settings.model.supports_vision),
                                *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
-                               *document_tools(workspace_dir, model_path, folders,
-                                               lambda ref: store.asset(chat_id, ref)),
                                *maths_tools())
                    if t.tool_name in enabled]
+    # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
+    skill_tools = SkillTools({name: t for name, t in document_tools(
+        workspace_dir, model_path, resolve, store, chat_id).items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
@@ -166,6 +168,7 @@ def build_agent(
                ToolPolicy(_scope(settings, workspace_dir), approver=approver,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted),
                ToolFailureRecovery(settings.resilience, notify=observer),
+               skill_tools,
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )
 
@@ -173,6 +176,7 @@ def build_agent(
         agent.sandbox.cancel_signal = agent.cancel_signal  # Stop ends a running command too
     if restore_snapshot_id:
         _restore(agent, session_manager, restore_snapshot_id, instructions)
+    skill_tools.sync(agent)  # the skills earlier turns loaded bring their tools again
 
     return agent
 

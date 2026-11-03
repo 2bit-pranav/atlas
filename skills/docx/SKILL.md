@@ -1,6 +1,6 @@
 ---
 name: docx
-description: Convert Word documents (.docx) to PDF, write new ones from Markdown, and change text in existing ones. Use this to turn a .docx into a PDF, produce a new Word document, or edit one. To read or search a .docx, use the read_docx tool; no skill is needed.
+description: Convert Word documents (.docx) to PDF, write new ones from Markdown, and change paragraphs or table cells in existing ones. Use this to turn a .docx into a PDF, produce a new Word document, or edit one. To read or search a .docx, use the read_docx tool; no skill is needed.
 ---
 
 # Word documents
@@ -38,9 +38,17 @@ with the whole document as **Markdown**:
 To keep a source document's images, copy the `![...](asset:...)` lines its
 reader printed, exactly.
 
-To change part of an existing file, call **`edit_document`** with the exact
-text to `find` and its `replace`ment, within one paragraph or one table cell:
-for a table row `| Brightline | 9.85 | 23 days |`, `find` is the one cell,
-`23 days`.
+To change an existing document, read it with `read_docx`, then call
+**`edit_docx`** with the id it printed and the new text. A paragraph is `b12`;
+a table cell is `t1.r3.c3` (table 1, row 3, column 3), read off the row
+numbers `read_docx` shows:
+
+```
+edit_docx(path="report.docx", block="t1.r3.c3", text="18 days")
+```
+
+Change one paragraph or cell per call. Do not rebuild the whole document
+with `create_document` to change part of it: it is saved as a new file and
+everything you did not copy exactly is lost.
 
 Legacy `.doc` is not supported: ask the user to save it as `.docx`.

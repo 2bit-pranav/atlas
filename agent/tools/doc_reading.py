@@ -91,6 +91,12 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
 
     def _open(path: str, kind: str) -> tuple[Path, dict[str, Any]] | dict[str, Any]:
         """The file's ready entry, or an error result."""
+        if not path.strip():
+            # The model searched without naming the file; with one such file there is no doubt.
+            only = [p for p in workspace.glob("*") if p.is_file() and kind_of(p) == kind]
+            if len(only) != 1:
+                return _failed(f"say which file: path is empty and the workspace has {len(only)} .{kind} files.")
+            path = only[0].name
         if kind == "pdf" and path.lower().startswith(("http://", "https://")):
             from skills._shared import LinkError, save_link
 
@@ -123,7 +129,7 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
         return target, e
 
     @tool(name="read_pdf")
-    def read_pdf(path: str, pages: str = "", search: str = "") -> Any:
+    def read_pdf(path: str = "", pages: str = "", search: str = "") -> Any:
         """Read a PDF (scanned pages included): by pages, or find something with search.
 
         A long PDF read without pages shows its outline and first page. To find something,
@@ -192,7 +198,7 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
                 + "\n\n" + outline + "\n\n".join(shown))
 
     @tool(name="read_docx")
-    def read_docx(path: str, section: str = "", search: str = "") -> Any:
+    def read_docx(path: str = "", section: str = "", search: str = "") -> Any:
         """Read a Word document (.docx): by section number from its outline, or find something with search.
 
         Each paragraph shows its id ([b12]); a table shows its id (t1) and the form of a cell's (t1.r2.c3).
@@ -241,7 +247,7 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
         return head + "\n\n" + "\n\n".join(parts)
 
     @tool(name="read_xlsx")
-    def read_xlsx(path: str, sheet: str = "", range: str = "", sql: str = "") -> Any:  # noqa: A002
+    def read_xlsx(path: str = "", sheet: str = "", range: str = "", sql: str = "") -> Any:  # noqa: A002
         """Read an Excel workbook (.xlsx): its sheets, a sheet's rows, a range, or a SQL query.
 
         No arguments lists the sheets and shows the first rows. For totals and counts use sql, with
@@ -263,7 +269,7 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
         names = [s["name"] for s in sheets]
         listing = "Sheets: " + "; ".join(f"{s['name']} ({s['rows']} rows x {s['cols']} cols)" for s in sheets)
         if sql.strip():
-            return _query(target, sql, names)
+            return _query(target, sql, names, sheet)
         if "!" in range:
             sheet, range = range.split("!", 1)
             sheet = sheet.strip("'\"")
@@ -280,8 +286,12 @@ def _docx_block(b: dict[str, Any]) -> str:
         number = f"{b['section']} " if b["section"] else ""
         return f"{'#' * min(6, b.get('level') or 1)} {number}{b['text']} [{b['id']}]"
     if b["kind"] == "table":
-        return (f"[{b['id']}: table, {b.get('rows')} rows x {b.get('cols')} cols; "
-                f"a cell is {b['id']}.rROW.cCOL]\n{b['text']}")
+        # Rows numbered as edit_docx counts them, so a cell's id is read off, not worked out:
+        # shown as a pipe row, the model passed the whole row to the edit tool (2026-11-03).
+        lines = [ln for i, ln in enumerate(b["text"].splitlines()) if i != 1]   # drop |---|
+        rows = "\n".join(f"r{n}: {ln.strip().strip('|').strip()}" for n, ln in enumerate(lines, 1))
+        return (f"[{b['id']}: table, {b.get('rows')} rows x {b.get('cols')} cols. A cell is "
+                f"{b['id']}.rROW.cCOL, columns counted from the left: c1, c2, ...]\n{rows}")
     if b["kind"] == "image":
         return b["text"]
     return f"[{b['id']}] {b['text']}"
@@ -332,15 +342,23 @@ def _grid(path: Path, sheet: str, spec: str) -> str:
     return out
 
 
-def _query(path: Path, sql: str, names: list[str]) -> Any:
-    """One SELECT over the workbook's sheets, each loaded as a table (first row = column names)."""
+def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
+    """One SELECT over the workbook's sheets, each loaded as a table (first row = column names).
+
+    A bare expression with a sheet (`SUM("revenue")`, sheet Mar) is completed to
+    `SELECT ... FROM "Mar"`: the model wrote the expression and stopped there.
+    """
     import duckdb
     import openpyxl
+
+    if sheet and not re.match(r"\s*(select|with)\b", sql, re.I):
+        sql = f'SELECT {sql} FROM "' + sheet.replace('"', '""') + '"'
 
     if FORBIDDEN.search(sql) or ";" in sql.strip().rstrip(";"):
         return _failed("only one SELECT query is allowed.")
     con = duckdb.connect(":memory:")
     coerced = 0
+    columns: dict[str, list[str]] = {}
     book = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
     try:
         for ws in book.worksheets:
@@ -353,6 +371,7 @@ def _query(path: Path, sql: str, names: list[str]) -> Any:
                 c = str(c).strip() if c is not None else f"column_{i + 1}"
                 seen[c] = seen.get(c, -1) + 1
                 cols.append(f"{c}_{seen[c]}" if seen[c] else c)
+            columns[ws.title] = cols
             body = [tuple(r) + (None,) * (len(cols) - len(r)) for r in rows[1:]]
             numeric = [_numeric([r[i] for r in body]) for i in range(len(cols))]
             coerced += sum(1 for r in body for i, n in enumerate(numeric)
@@ -370,7 +389,9 @@ def _query(path: Path, sql: str, names: list[str]) -> Any:
         msg = str(exc).split("\n")[0]
         hint = (" Text values go in single quotes ('North'); double quotes name a column or sheet."
                 if "column" in msg.lower() and '"' in sql else "")
-        return _failed(f"the query failed: {msg}.{hint} Sheets: {', '.join(names)}.")
+        tables = "; ".join(f'"{t}" columns: ' + ", ".join(f'"{c}"' for c in cs) for t, cs in columns.items())
+        return _failed(f"the query failed: {msg}.{hint} Tables (sheets) and their columns: {tables}. "
+                       'Columns are named by the header row, not by letter.')
     finally:
         book.close()
         con.close()

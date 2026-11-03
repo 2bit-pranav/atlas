@@ -43,7 +43,7 @@ def layout(tmp_path):
 
 def _run(scope: Scope, name: str, args: dict, approver=None):
     event = SimpleNamespace(tool_use={"name": name, "toolUseId": "t", "input": args},
-                            selected_tool=None, cancel_tool=False)
+                            selected_tool=SimpleNamespace(tool_name=name), cancel_tool=False)
     asyncio.run(ToolPolicy(scope, approver=approver or _Asked())._before(event))
     return event
 

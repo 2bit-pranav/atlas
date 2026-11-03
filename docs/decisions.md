@@ -687,3 +687,27 @@ was the model regenerating the whole workbook with `create_document` after
 five failed edits, with February's numbers replaced by January's. Overwriting
 an attached file with a regenerated copy is a data-loss risk to settle in
 Phase 3.
+
+**Writing tools come with their skill; edits are by address** (2026-11-03,
+plan Phase 3). `create_document`, `edit_docx` and `set_cell` are registered
+when the pdf, docx or xlsx skill is loaded (`runtime/skill_tools.py`); a chat
+that only reads never carries them. Strands takes the tool list from the
+registry before every model call, so a tool registered after `skills` runs is
+offered on the next call; the skills plugin keeps loaded skills in the
+agent's state, which the snapshot saves, so later turns rebuild the same list,
+always in one order (it is part of llama.cpp's cached prefix). A call before
+the skill is loaded is answered "load the docx skill". `edit_document` is
+gone: `edit_docx` takes the id `read_docx` printed (`b12`, `t1.r3.c3`, rows
+now printed numbered) and `set_cell` a cell (`Mar!B2`), only on a version of
+the file the chat attached or read. The old tool could not change a number in
+a spreadsheet at all: it matched text cells only. `create_document` never
+replaces a file (an existing name gets `-2`), after a regenerated workbook
+replaced one month's figures with another's.
+
+`tests/bench_docs.py`, cold store, edit checks requiring the rest of the file
+unchanged: 16/16 (Phase 2: 13/16, baseline 8/16). Fixes the runs forced: a
+read with no `path` takes the only document of its type; a bare SQL
+expression with a sheet becomes `SELECT ... FROM "sheet"`, and a failed query
+lists each sheet's columns (the model wrote `SUM(B)`, then tried pandas and
+`pip install`); `edit` called with `edit_docx`'s arguments is answered with the
+exact `edit_docx(...)` call (it was refused generically and gave up).
