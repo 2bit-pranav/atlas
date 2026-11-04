@@ -25,8 +25,6 @@ from agent.prompt.system import _compose_instructions, _tool_sources
 from agent.recovery.model_retry import LocalModelRetry
 from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
-from agent.runtime.plan import GUIDANCE as PLAN_GUIDANCE
-from agent.runtime.plan import PlanCheck
 from agent.runtime.restore import _restore
 from agent.runtime.skill_tools import SkillTools
 from agent.safety.approvals import Approver
@@ -136,38 +134,22 @@ def build_agent(
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
-    hooks = [RunLimits(settings.limits, notify=observer),
-             ToolPolicy(_scope(settings, workspace_dir), approver=approver,
-                        ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted),
-             ToolFailureRecovery(settings.resilience, notify=observer),
-             skill_tools,
-             *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])]
-    sandbox = sandbox if sandbox is not None else default_environment(
-        cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
-        folders=_scope(settings, workspace_dir).folders)
-    consumer = [*tool_manager.extra_tools(), *atlas_tools, *(tools or [])]
-    harness_off = memory_manager.harness_args()
-    if settings.tools.builtin.todos:
-        # The plan: todo_write, re-shown before every call; PlanCheck sends the model back
-        # once if it ends with steps open (runtime/plan.py).
-        harness_off["builtin_plugins"] = ["todos"]
-        hooks.append(PlanCheck(notify=observer))
-        instructions = f"{instructions}\n\n{PLAN_GUIDANCE}" if instructions else PLAN_GUIDANCE
-
     agent = create_harness(
         model=model,
         # The stock environment shells out to `sh`, which does not exist on
         # Windows. `sandbox=` is the documented seam; the shell tool picks it
         # up from `agent.sandbox` with no other change.
-        sandbox=sandbox,
+        sandbox=sandbox if sandbox is not None else default_environment(
+            cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
+            folders=_scope(settings, workspace_dir).folders),
         instructions=instructions or None,
         session=session_manager,
         skills=[s["path"] for s in skills] or False,
         interventions=tool_manager.interventions(),
-        tools=consumer,
+        tools=[*tool_manager.extra_tools(), *atlas_tools, *(tools or [])],
         builtin_tools={"*": False, **{name: True for name in builtin}},
         # The four off-switches, together. Any one of them alone is not enough.
-        **harness_off,
+        **memory_manager.harness_args(),
         conversation_manager=build_conversation_manager(settings),
         caching=False,
         # Strands' default handler prints every streamed token to stdout. Under
@@ -179,7 +161,12 @@ def build_agent(
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
         # Before a tool runs: the run's limits, then one ordered policy
         # (policy.py), so a refused repeat never shows a card. After: recovery.
-        hooks=hooks,
+        hooks=[RunLimits(settings.limits, notify=observer),
+               ToolPolicy(_scope(settings, workspace_dir), approver=approver,
+                          ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted),
+               ToolFailureRecovery(settings.resilience, notify=observer),
+               skill_tools,
+               *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )
 
     if isinstance(agent.sandbox, WindowsLocalEnvironment):

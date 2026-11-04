@@ -213,8 +213,7 @@ TASKS = {
               "to, and leave out anything that is not about the project.", ["notes.txt"], "section", grade_draft),
 }
 
-MODES = {"A": {"tools.builtin.todos": False},
-         "B": {"tools.builtin.todos": True}}
+MODES: dict[str, dict[str, object]] = {"A": {}}
 
 
 def metrics(llama: str, key: str | None) -> dict[str, float]:
@@ -242,7 +241,7 @@ def main() -> int:
     serve()
     client = httpx.Client(base_url=f"{args.url}/api", timeout=1800)
     settings = client.get("/settings").json()
-    before = {k: settings["values"].get(k) for k in MODES["B"]}
+    before = {k: settings["values"].get(k) for m in MODES.values() for k in m}
     data_dir = Path(settings["paths"]["data"])
     out = data_dir / "bench" / ("multi-" + time.strftime("%Y%m%d-%H%M%S"))
     out.mkdir(parents=True, exist_ok=True)
@@ -253,7 +252,7 @@ def main() -> int:
             for name in args.tasks:
                 prompt, uploads, unit, grade = TASKS[name]
                 for thinking in modes_thinking:
-                    for mode in ("A", "B"):        # interleaved, so neither mode gets a warmer cache
+                    for mode in MODES:             # interleaved, so neither mode gets a warmer cache
                         client.put("/settings", json=MODES[mode]).raise_for_status()
                         text = prompt
                         m0 = metrics(args.llama, args.llama_key)

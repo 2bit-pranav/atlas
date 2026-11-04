@@ -59,8 +59,6 @@ export const SECTIONS: Section[] = [
           { key: "tools.builtin.edit", label: "edit", control: toggle, help: "Replace exact text in a file." },
           { key: "tools.builtin.shell", label: "shell", control: toggle,
             help: "Run commands. Every skill script runs through this, so skills need it." },
-          { key: "tools.builtin.todos", label: "todo_write", control: toggle,
-            help: "A plan the agent writes and keeps in view for multi-step work." },
           { key: "tools.atlas.read_text", label: "read_text", control: toggle,
             help: "Read a text file by lines, or search it. Capped, so a long file cannot fill the context." },
           { key: "tools.atlas.read_image", label: "read_image", control: toggle, help: "Look at an image file." },
