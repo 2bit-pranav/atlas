@@ -25,6 +25,8 @@ from agent.prompt.system import _compose_instructions, _tool_sources
 from agent.recovery.model_retry import LocalModelRetry
 from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
+from agent.runtime.plan import GUIDANCE as PLAN_GUIDANCE
+from agent.runtime.plan import PlanCheck
 from agent.runtime.restore import _restore
 from agent.runtime.skill_tools import SkillTools
 from agent.safety.approvals import Approver
@@ -146,7 +148,11 @@ def build_agent(
     consumer = [*tool_manager.extra_tools(), *atlas_tools, *(tools or [])]
     harness_off = memory_manager.harness_args()
     if settings.tools.builtin.todos:
-        harness_off["builtin_plugins"] = ["todos"]   # the plan tool, todo_write
+        # The plan: todo_write, re-shown before every call; PlanCheck sends the model back
+        # once if it ends with steps open (runtime/plan.py).
+        harness_off["builtin_plugins"] = ["todos"]
+        hooks.append(PlanCheck(notify=observer))
+        instructions = f"{instructions}\n\n{PLAN_GUIDANCE}" if instructions else PLAN_GUIDANCE
 
     agent = create_harness(
         model=model,

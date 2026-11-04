@@ -786,3 +786,30 @@ Origin) and send what came back out in a second fetch. Web pages come through
 MCP fetch servers, which refuse private addresses; PDFs by link come through
 `read_pdf`, which takes only a PDF (`open_link` checks the bytes) and taints
 the chat. The summariser model `web_fetch` needed went with it.
+
+**The plan tool does not help this model either** (2026-11-04,
+`tests/bench_multi.py`, same tasks and setup as plan plus workers). Mode B:
+the harness's `todo_write` (rewrites the list, so it can check off, reorder,
+reword, add and drop), re-shown before every call, guidance in the system
+prompt, and `PlanCheck` (runtime/plan.py), which sends the model back once
+when it ends with steps open; a finished plan is cleared at the next message.
+The message is the same in both modes. 36 runs:
+
+| | complete | errors/run | perfect runs | avg time | prompt tokens in |
+|---|---|---|---|---|---|
+| A, no plan | 97% | 0.0 | 13/18 | 16 s | 6.7k |
+| B, plan | 63% | 0.2 | 10/18 | 28 s | 8.5k |
+
+B lost on every task (draft 100% vs 48%, comparison 86% vs 75%, research 100%
+vs 83%), worst with thinking off (96% vs 45%). The plan competed with the
+work: the model wrote its plan, then read the same PDF three times without
+checking anything off until the repeat limit stopped it; or it spent four
+`todo_write` calls on the comparison and then never wrote the differences
+down; or it tried the plain `write` tool on report.docx. Mode A scored higher
+than in the workers run (97% against 88%) because its research sources are
+now PDFs read by link, not pages fetched through a tool that refused them.
+
+`tools.builtin.todos` stays, off by default, with `PlanCheck`; worth re-running
+on a larger model. In both modes the docx skill not being loaded sometimes
+sent the model to `write` or `python -c` for a .docx: refused or lost, not
+corrupt.

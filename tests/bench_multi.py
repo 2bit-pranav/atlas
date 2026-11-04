@@ -1,19 +1,22 @@
-"""Multi-part tasks, two ways: one agent turn, or a plan plus workers.
+"""Multi-part tasks, two ways: without and with the plan.
 
     python tests/bench_multi.py --url http://127.0.0.1:8000 --repeats 3
 
 Three tasks with facts planted in their inputs, so a script can grade
 completeness (how many required facts the result has) and correctness (what
 it got wrong): a three-source summary from PDFs on a local web server (read
-by link, as from the web), a
-two-file comparison, and a five-section report. Each runs in mode A (today's
-agent) and mode B (the plan tool and the subagent tool switched on, and the
-prompt asks to plan and hand each part to a worker). Model work is measured
-from llama-server's own counters (`--metrics`), which include the workers'
-calls; the turn's stats count the parent's only.
+by link, as from the web), a two-file comparison, and a five-section report.
+Each runs in mode A (no plan tool) and mode B (`tools.builtin.todos`: the plan
+tool, its guidance in the system prompt, and the check that sends the model
+back once if it ends with steps open; runtime/plan.py). The message is the
+same in both. Model work is measured from llama-server's own counters
+(`--metrics`).
 
-Needs: an Atlas whose llama-server runs with `--metrics` (and, for workers
-that run side by side, two slots). The settings it changes are restored.
+Needs: an Atlas whose llama-server runs with `--metrics`. The settings it
+changes are restored.
+
+(2026-11-04: mode B was plan plus workers, `subagent`, removed after 41%
+complete against 88%; see decisions.md.)
 """
 
 from __future__ import annotations
@@ -36,10 +39,6 @@ from bench import FIXTURES, Case, Run, run_case, trace  # noqa: E402
 
 WEB = FIXTURES / "web"
 WEB_PORT = 18090
-PLAN = ("\n\nWork in steps: first write a plan with todo_write, one item per part. Then hand each "
-        "part to a subagent with a clear, self-contained task (one subagent per {unit}). Then "
-        "combine their results into the final answer yourself.")
-
 # ------------------------------------------------------------- fixtures --
 
 SOURCES = {
@@ -256,20 +255,20 @@ def main() -> int:
                 for thinking in modes_thinking:
                     for mode in ("A", "B"):        # interleaved, so neither mode gets a warmer cache
                         client.put("/settings", json=MODES[mode]).raise_for_status()
-                        text = prompt + (PLAN.format(unit=unit) if mode == "B" else "")
+                        text = prompt
                         m0 = metrics(args.llama, args.llama_key)
                         run, summary = run_case(client, Case(f"{name}-{mode}", text, uploads), thinking, data_dir)
                         m1 = metrics(args.llama, args.llama_key)
                         g = grade(run)
                         summary.update({"task": name, "mode": mode, "rep": rep, "grade": g,
-                                        "subagents": len(run.tools("subagent")), "plans": len(run.tools("todo_write")),
+                                        "plans": len(run.tools("todo_write")),
                                         "prompt_tokens": m1["prompt_tokens_total"] - m0["prompt_tokens_total"],
                                         "gen_tokens": m1["tokens_predicted_total"] - m0["tokens_predicted_total"]})
                         (out / f"{name}-{mode}-think{int(thinking)}-r{rep}.md").write_text(trace(run, summary), encoding="utf-8")
                         results.append(summary)
                         print(f"{name:<9} {mode} think={'on ' if thinking else 'off'} r{rep} "
                               f"complete {g['complete']}/{g['of']} errors {g['errors']} | {summary['seconds']:>6}s "
-                              f"workers={summary['subagents']} plan={summary['plans']} status={summary['status']} "
+                              f"plan calls={summary['plans']} status={summary['status']} "
                               f"tokens in/out {summary['prompt_tokens']:.0f}/{summary['gen_tokens']:.0f}", flush=True)
                         (out / "results.json").write_text(json.dumps(results, indent=1, default=str), encoding="utf-8")
     finally:
