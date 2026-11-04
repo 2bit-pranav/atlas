@@ -777,3 +777,12 @@ cannot delegate further (the harness's own wiring forwarded none of the
 printing, retry or recovery settings and shared the failure budget).
 `tools.builtin.todos` switches the plan tool. Worth re-running
 `bench_multi.py` on a larger model.
+
+**`subagent` and `web_fetch` are removed, not switched off** (2026-11-04).
+`subagent`: one turn beat plan plus workers 88% to 41% (above). `web_fetch`:
+it fetched any address, so a page with instructions in it could have the
+model fetch Atlas's own API on 127.0.0.1 (which trusts requests without an
+Origin) and send what came back out in a second fetch. Web pages come through
+MCP fetch servers, which refuse private addresses; PDFs by link come through
+`read_pdf`, which takes only a PDF (`open_link` checks the bytes) and taints
+the chat. The summariser model `web_fetch` needed went with it.

@@ -119,7 +119,6 @@ class BuiltinToolSettings(StrictModel):
     write: bool = True
     edit: bool = True
     shell: bool = True
-    web_fetch: bool = False # prone to give bad results
     todos: bool = False # the plan tool, todo_write (the harness's todos plugin)
 
 
@@ -389,7 +388,6 @@ TIERS: dict[str, Tier] = {
     "tools.builtin.write": Tier.LIVE,
     "tools.builtin.edit": Tier.LIVE,
     "tools.builtin.shell": Tier.LIVE,
-    "tools.builtin.web_fetch": Tier.LIVE,
     "tools.builtin.todos": Tier.LIVE,
     "tools.atlas.read_text": Tier.LIVE,
     "tools.atlas.read_image": Tier.LIVE,
