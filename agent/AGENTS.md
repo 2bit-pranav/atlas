@@ -356,5 +356,5 @@ keep it, and its tools, out of the request.
 
 `python tests/check.py` runs every offline check (ruff, pyright, pytest, and
 the TypeScript checks); CI runs the same on every push. The real-model checks
-(`tests/bench.py`, `tests/live/`) need the GPU and are run by hand at every
+(`tests/live/suite.py`, `tests/live/check_demo.py`) need the GPU and are run by hand at every
 checkpoint. See [tests/README.md](../tests/README.md).

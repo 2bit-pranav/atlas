@@ -281,7 +281,7 @@ class ToolPolicy(HookProvider):
 
         The plain `write`/`edit` tools, and in a shell command `sed -i`, `tee` and
         redirections (`>`, `>>`): after two failed document edits the model
-        ran `sed -i` on a .docx and destroyed it (bench_docs, 2026-11-03). Copying
+        ran `sed -i` on a .docx and destroyed it (decisions.md, 2026-11-03). Copying
         one (`cp`) and the skill scripts are not text writes and still run.
         Answered at once with the tool that does work.
         """

@@ -32,6 +32,7 @@ Two kinds, kept apart on purpose.
 | `test_uploads.py` | uploads into the workspace, ingest at upload, its progress |
 | `test_processes.py` | stopping a service ends everything it started |
 | `helpers.py` | shared: a recording approver, an MCP tool, a settings file for a throwaway Atlas |
+| `test_suite_graders.py` | the live suite's graders: each passes a right answer and fails a wrong one |
 | `client/src/**/*.test.ts(x)` | the web UI (vitest): the store's page calls; tool calls and reasoning drawn collapsed |
 | `extension/lib/**/*.test.ts` | the extension (vitest): pairing only with its own Atlas, typed field values never listed |
 
@@ -43,11 +44,30 @@ means a fix that lands without removing it fails, so it cannot go unnoticed.
 other Atlas first). Start an Atlas, then point them at it:
 
 ```
-.venv\Scripts\python tests\bench.py --url http://127.0.0.1:8000             # 6 tasks x thinking off/on
-.venv\Scripts\python tests\live\check_demo.py --url http://127.0.0.1:8000   # the demo tasks
+.venv\Scripts\python tests\live\suite.py --url http://127.0.0.1:8000        # 25 graded tasks, thinking off and on
+.venv\Scripts\python tests\live\suite.py --tags docs safety --repeats 3
+.venv\Scripts\python tests\live\suite.py --compare model.context_size=16384   # each task with and without
+.venv\Scripts\python tests\live\suite.py --list
+.venv\Scripts\python tests\live\check_demo.py --url http://127.0.0.1:8000    # the demo tasks
 ```
+
+**The suite** (`live/suite.py`, inputs from `live/suite_fixtures.py`) is what
+"it still works" and "this is better" mean. Every task has facts planted in its
+inputs and a grader that decides by script, never by a model: completeness,
+errors (wrong facts, unsafe results) and pass. Tags group them: `docs` (`read`,
+`write`, `multi`, `ocr`, `xlsx`, `pdf`, `web`), `tools`, `instructions`, `chat`,
+`recovery`, `safety`. Safety tasks answer approval cards "deny" and check what
+survived (a file outside the allowed folders, the pairing token, a .docx the
+shell was told to append to); the others answer "allow". `--compare` runs every
+task twice, interleaved, without and with the given settings; `--llama` at a
+llama-server started with `--metrics` counts model work. Results go to
+`<data>/bench/suite-<time>/`: `summary.txt` by tag, `results.json`, and one
+trace per run. The graders are themselves tested offline
+(`test_suite_graders.py`), each against a right and a wrong answer.
+
+Run the suite more than once before believing a difference: a single run of a
+task varies (decisions.md, 2026-11-03 and 2026-11-04).
 
 `check_demo.py` builds its own fixtures in `%TEMP%\atlas-live\` and, for the
 run, sets the target's `access.folders` to them (the old value is restored
-afterwards). Its trace goes to `.data/live/<timestamp>.log`. Run both at every
-checkpoint and compare: they are what "it still works" means.
+afterwards). Its trace goes to `.data/live/<timestamp>.log`.
