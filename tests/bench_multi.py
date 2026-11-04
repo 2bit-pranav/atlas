@@ -4,7 +4,8 @@
 
 Three tasks with facts planted in their inputs, so a script can grade
 completeness (how many required facts the result has) and correctness (what
-it got wrong): a three-source summary from pages on a local web server, a
+it got wrong): a three-source summary from PDFs on a local web server (read
+by link, as from the web), a
 two-file comparison, and a five-section report. Each runs in mode A (today's
 agent) and mode B (the plan tool and the subagent tool switched on, and the
 prompt asks to plan and hand each part to a worker). Model work is measured
@@ -42,15 +43,15 @@ PLAN = ("\n\nWork in steps: first write a plan with todo_write, one item per par
 # ------------------------------------------------------------- fixtures --
 
 SOURCES = {
-    "courier.html": ("Corvane Courier", "City council confirms river project",
+    "courier.pdf": ("Corvane Courier", "City council confirms river project",
                      ["The Corvane river cleanup began in March 2023.",
                       "The project is led by engineer Mira Okafor of the city water board.",
                       "The council approved a budget of 4.2 million for the work."]),
-    "riverwatch.html": ("RiverWatch", "Volunteers pull waste from the Corvane",
+    "riverwatch.pdf": ("RiverWatch", "Volunteers pull waste from the Corvane",
                         ["Since the start, crews have removed 38 tonnes of waste from the riverbed.",
                          "About 120 volunteers join the cleanup every month.",
                          "RiverWatch puts the total budget at 4.6 million once the new pumps are counted."]),
-    "halden.html": ("Halden University", "Water quality study, Corvane river",
+    "halden.pdf": ("Halden University", "Water quality study, Corvane river",
                     ["Dissolved oxygen in the water has risen 18 percent since the cleanup began.",
                      "Seven fish species absent for a decade have returned, the study found.",
                      "Samples were taken at nine points along the river."]),
@@ -86,11 +87,14 @@ NOTES = """Lumen app, project meeting notes, 3 April
 
 
 def make_fixtures() -> None:
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+
     WEB.mkdir(parents=True, exist_ok=True)
+    s = getSampleStyleSheet()
     for name, (site, title, paras) in SOURCES.items():
-        body = "".join(f"<p>{p}</p>" for p in paras)
-        (WEB / name).write_text(f"<html><head><title>{title} - {site}</title></head><body><h1>{title}</h1>"
-                                f"<p><em>Published by {site}</em></p>{body}</body></html>", encoding="utf-8")
+        story = [Paragraph(title, s["Title"]), Paragraph(f"Published by {site}", s["Italic"])]
+        SimpleDocTemplate(str(WEB / name)).build(story + [Paragraph(p, s["BodyText"]) for p in paras])
     from docx import Document
 
     for name, clauses in (("supply_v1.docx", V1), ("supply_v2.docx", V2)):
@@ -198,10 +202,10 @@ def _url(name: str) -> str:
 
 
 TASKS = {
-    "research": (("Read these three pages and write a summary of the Corvane river cleanup: when it started, "
+    "research": (("Read these three reports and write a summary of the Corvane river cleanup: when it started, "
                   "who leads it, the budget, how much waste was removed, how many volunteers take part, and "
                   "what it has done for the river. Where the sources disagree, say so and name which source "
-                  f"says what. Pages: {_url('courier.html')} {_url('riverwatch.html')} {_url('halden.html')}"),
+                  f"says what. Reports: {_url('courier.pdf')} {_url('riverwatch.pdf')} {_url('halden.pdf')}"),
                  [], "source", grade_research),
     "compare": ("Compare supply_v1.docx and supply_v2.docx and list every difference between them, with the "
                 "old and the new wording.", ["supply_v1.docx", "supply_v2.docx"], "file", grade_compare),
@@ -239,14 +243,13 @@ def main() -> int:
     serve()
     client = httpx.Client(base_url=f"{args.url}/api", timeout=1800)
     settings = client.get("/settings").json()
-    before = {k: settings["values"].get(k) for k in [*MODES["B"], "tools.builtin.web_fetch"]}
+    before = {k: settings["values"].get(k) for k in MODES["B"]}
     data_dir = Path(settings["paths"]["data"])
     out = data_dir / "bench" / ("multi-" + time.strftime("%Y%m%d-%H%M%S"))
     out.mkdir(parents=True, exist_ok=True)
     modes_thinking = {"off": [False], "on": [True], "both": [False, True]}[args.thinking]
     results = []
     try:
-        client.put("/settings", json={"tools.builtin.web_fetch": True}).raise_for_status()
         for rep in range(args.repeats):
             for name in args.tasks:
                 prompt, uploads, unit, grade = TASKS[name]

@@ -18,10 +18,11 @@ from agent.config.settings import Settings
 #: provider's search or Exa, a third party that would see every query),
 #: `programmatic_tool_caller` (lets the model run tools without asking),
 #: `read` (uncapped, and its name drew it onto PDFs: Atlas's `read_text` and
-#: `read_image` replace it, agent/tools/reading.py) and `subagent` (a 2B model
+#: `read_image` replace it, agent/tools/reading.py), `subagent` (a 2B model
 #: cannot orchestrate workers: 41% complete against 88% for one turn,
-#: decisions.md 2026-11-04).
-SWITCHABLE: tuple[str, ...] = ("write", "edit", "shell", "web_fetch")
+#: decisions.md 2026-11-04) and `web_fetch` (it fetched any address, Atlas's own
+#: API on 127.0.0.1 included; pages come through MCP fetch servers instead).
+SWITCHABLE: tuple[str, ...] = ("write", "edit", "shell")
 
 
 #: Atlas's own tools, given to the agent directly (not a skill, not MCP).

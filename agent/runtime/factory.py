@@ -18,7 +18,7 @@ from agent.config import paths
 from agent.config.settings import Settings
 from agent.ingest.store import store_for
 from agent.integrations.skills.catalog import SkillManager
-from agent.model.sampling import RetryPlan, build_model, build_summarizer
+from agent.model.sampling import RetryPlan, build_model
 from agent.platform.windows_shell import WindowsLocalEnvironment, default_environment
 from agent.platform.winpaths import model_path
 from agent.prompt.system import _compose_instructions, _tool_sources
@@ -143,7 +143,6 @@ def build_agent(
     sandbox = sandbox if sandbox is not None else default_environment(
         cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
         folders=_scope(settings, workspace_dir).folders)
-    builtin_extra = {"web_fetch": {"model": build_summarizer(settings)}} if "web_fetch" in builtin else {}
     consumer = [*tool_manager.extra_tools(), *atlas_tools, *(tools or [])]
     harness_off = memory_manager.harness_args()
     if settings.tools.builtin.todos:
@@ -160,8 +159,7 @@ def build_agent(
         skills=[s["path"] for s in skills] or False,
         interventions=tool_manager.interventions(),
         tools=consumer,
-        # A mapping rather than a list, so web_fetch gets its own summarizer.
-        builtin_tools={"*": False, **{name: True for name in builtin}, **builtin_extra},
+        builtin_tools={"*": False, **{name: True for name in builtin}},
         # The four off-switches, together. Any one of them alone is not enough.
         **harness_off,
         conversation_manager=build_conversation_manager(settings),

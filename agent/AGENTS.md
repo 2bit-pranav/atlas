@@ -8,7 +8,7 @@ agent/
   config/       settings.py      settings.json schema, LIVE vs RESTART tiers. The only schema.
                 paths.py         every path, anchored to the app root (ATLAS_ROOT)
   model/        llamacpp.py      AtlasLlamaCppModel: thinking switch, streaming, timings
-                sampling.py      build_model, build_summarizer, RetryPlan (sampling for a turn)
+                sampling.py      build_model, RetryPlan (sampling for a turn)
                 server.py        llama-server: its API key, the models folder
   prompt/       system.py        the system prompt: instructions, runtime facts, tool sources
                 notes.py         notes for the model only: the clock, a retry's hint
@@ -238,7 +238,7 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 3. **access**: a path outside the scope asks the user (kind `access`).
 3. **install**: a `shell` command that installs asks (kind `install`).
 4. **page taint**: once outside content is in the **chat** (the extension's page
-   tools, `web_fetch`, an MCP tool from an untrusted server), shell commands and
+   tools, a PDF `read_pdf` downloads, an MCP tool from an untrusted server), shell commands and
    writes outside the workspace ask (kind `page`), in that turn and every later
    one: the content stays in the history. Stored on the chat (`chats.tainted`);
    `TaintTracker` marks it after such a tool returns. An MCP server is trusted
@@ -312,7 +312,7 @@ That click is the approval; the model never has to.
   works unquoted in bash, as an argument to `python.exe` (MSYS converts it),
   and in the harness file tools, which reject any path not starting with `/`.
   `_resolve_path` turns it back into `C:/Users/...` for Python's file calls.
-  Other POSIX paths (`/tmp/...`, which `web_fetch` writes through curl) are
+  Other POSIX paths (`/tmp/...`) are
   resolved with Git's `cygpath`.
 - Strands' default callback handler printed every token to the console; under
   a cp1252 console an emoji failed the run. It is off (`callback_handler=None`)

@@ -50,9 +50,8 @@ def windows_path(path: str) -> str:
             return f"{m.group(1).upper()}:/{m.group(2)}"
     if path.startswith("/") and not path.startswith("//"):
         # Any other POSIX path (`/tmp/...`, `/usr/...`) means what Git Bash
-        # says it means. web_fetch has curl write to `/tmp/strands-web-fetch-*`
-        # and then reads it back; resolved naively that became `C:\tmp\...`,
-        # which does not exist, and every fetch failed.
+        # says it means: resolved naively, `/tmp/x` became `C:\tmp\x`, which
+        # does not exist.
         if (mapped := _cygpath(path)) is not None:
             return mapped
     return path if os.path.isabs(path) else os.path.join(os.getcwd(), path)

@@ -68,23 +68,4 @@ def build_model(
     )
 
 
-def build_summarizer(settings: Settings) -> AtlasLlamaCppModel:
-    """The model `web_fetch` uses to answer a question over a fetched page.
-
-    The harness would otherwise reuse the main model object: with thinking on
-    it reasoned before summarising a whole page, which is where most of a
-    10-15 second fetch went, and its timings were counted as the turn's.
-    Summarising needs no reasoning and only a short answer.
-    """
-    return AtlasLlamaCppModel(
-        base_url=f"http://127.0.0.1:{settings.ports.llama}",
-        model_id=settings.model.name,
-        enable_thinking=False,
-        context_window_limit=settings.context.window or settings.model.context_size,
-        # 600 was too few: asked for a results table, the summariser hit the
-        # cap and web_fetch failed with MaxTokensReachedException.
-        params={"cache_prompt": True, "temperature": 0.2, "top_p": 0.9, "max_tokens": 2048},
-    )
-
-
-__all__ = ["RetryPlan", "build_model", "build_summarizer"]
+__all__ = ["RetryPlan", "build_model"]

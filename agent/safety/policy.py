@@ -333,8 +333,8 @@ class TaintTracker(HookProvider):
 
     The policy's taint step then asks before shell commands and writes outside
     the workspace, for the rest of the chat (the content stays in the history).
-    Sources: `web_fetch`, and MCP tools whose server is not trusted
-    (`McpManager.is_untrusted`). The extension's page tools mark it themselves.
+    Sources: MCP tools whose server is not trusted (`McpManager.is_untrusted`)
+    and a PDF `read_pdf` downloads; the extension's page tools mark it themselves.
     """
 
     def __init__(self, untrusted: Callable[[str], bool], on_taint: Callable[[], None]) -> None:
@@ -346,7 +346,7 @@ class TaintTracker(HookProvider):
 
     def _after_tool(self, event: AfterToolCallEvent) -> None:
         name = str(event.tool_use.get("name", ""))
-        if name == "web_fetch" or (isinstance(event.selected_tool, MCPAgentTool) and self.untrusted(name)):
+        if isinstance(event.selected_tool, MCPAgentTool) and self.untrusted(name):
             self.on_taint()
 
 
