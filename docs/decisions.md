@@ -725,3 +725,23 @@ could be embedded into a document. `_paths_of` now returns each image source
 as a read, so the floor refuses Atlas's files and the access step asks outside
 the workspace and the allowed folders. `asset:` images resolve only for the
 chat that owns them; links are not files.
+
+**Two llama.cpp slots: measured before planning parallel work** (2026-11-04,
+RTX 3050 Laptop 4 GB, Gemma E2B, Atlas's own llama-server arguments). Each
+request: a distinct ~4.5k-token prompt, 300 tokens out, thinking off.
+
+| setup | VRAM | one request alone | two at once, both done | per request while paired |
+|---|---|---|---|---|
+| 1 slot, 32k | 2.75 GB | 5.6 s (84 tok/s out, 2,340 tok/s in) | 11.0 s (queued) | unchanged |
+| 2 slots, shared 32k (`--kv-unified`) | 2.75 GB | 5.5 s | 8.9 s | 56-62 tok/s out, ~1,200 tok/s in |
+| 2 slots, 32k each (`-c 65536`) | 2.97 GB | 5.5 s | 8.7 s | 57-63 tok/s out, ~1,340 tok/s in |
+
+Two slots finish two jobs 20% sooner (combined output 120 tok/s against 84),
+not twice as fast: prompt reading is compute-bound and is simply shared. A
+second 32k slot costs 0.22 GB. One request alone is as fast with 2 slots as
+with 1.
+
+Gemma E2B already puts two tool calls in one reply some of the time: asked to
+read two files, 2 calls in 3 of 6 replies with thinking off, 1-2 of 6 with it
+on; llama.cpp's `parallel_tool_calls` flag made no difference. Strands runs
+the calls of one reply concurrently (`ConcurrentToolExecutor`, its default).
