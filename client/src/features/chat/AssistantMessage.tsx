@@ -8,7 +8,7 @@ import { answerText } from "@/features/chat/transcript"
 import { cn } from "@/lib/cn"
 import { Markdown } from "@/features/chat/Markdown"
 import { formatBytes } from "@/lib/format"
-import { ToolBlock } from "@/features/chat/ToolBlock"
+import { ToolGroup, type ToolPart } from "@/features/chat/ToolBlock"
 import { Tip } from "@/components/ui/tip"
 import { AnswerExtras } from "@/state/slots"
 import { Reasoning } from "@/features/chat/Reasoning"
@@ -57,6 +57,20 @@ function ProducedFiles({ files, chatId }: { files: ChangedFile[]; chatId: string
   )
 }
 
+/** Parts as they are drawn: a run of consecutive tool calls is one item. */
+type Item = { tools: ToolPart[]; index: number } | { part: Exclude<Part, ToolPart>; index: number }
+
+function items(parts: Part[]): Item[] {
+  const out: Item[] = []
+  parts.forEach((part, index) => {
+    const last = out[out.length - 1]
+    if (part.kind !== "tool") out.push({ part, index })
+    else if (last && "tools" in last) last.tools.push(part)
+    else out.push({ tools: [part], index })
+  })
+  return out
+}
+
 // ------------------------------------------------------------- assistant --
 
 export function AssistantMessage({ turn, chatId, parts, stats, running, isLast }: {
@@ -76,12 +90,13 @@ export function AssistantMessage({ turn, chatId, parts, stats, running, isLast }
     <div className="mt-6 w-full text-[15px] leading-[1.875rem]">
       {running && empty && <span className="shimmer-text text-sm">Processing...</span>}
 
-      {parts.map((part, i) => {
+      {items(parts).map((item) => {
+        if ("tools" in item)
+          return <ToolGroup key={item.tools[0].id || item.index} parts={item.tools} defaultOpen={prefs.expandTools} />
+        const { part, index: i } = item
         if (part.kind === "reasoning")
           return <Reasoning key={i} text={part.text} streaming={running && i === lastIndex}
                             interrupted={!running && turn.status !== "completed"} defaultOpen={prefs.expandReasoning} />
-        if (part.kind === "tool")
-          return <ToolBlock key={part.id || i} part={part} defaultOpen={prefs.expandTools} />
         if (part.kind === "approval")
           return <ApprovalCard key={part.id} part={part} live={running} />
         if (part.kind === "superseded")

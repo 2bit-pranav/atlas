@@ -74,7 +74,10 @@ Taken from llama.cpp's source, not screenshots:
   - user bubble `bg-primary/5`;
   - assistant answers without a bubble;
   - always-visible action icons;
-  - "Reasoning..." shimmer while streaming, collapsed when done;
+  - "Reasoning..." shimmer while streaming, collapsed until clicked (also while it streams);
+  - tool calls as compact lines (status, name, what it acted on), a run of them folded
+    under one summary line ("3 tool calls · read_pdf, read_docx · 1 failed"); a click opens
+    the arguments and output (`ToolBlock.tsx`);
   - stats badges ("N tokens", time, "X.XX t/s").
 - **Inline edit:** the composer replaces the message in place. Escape cancels.
 - **Settings search** filters every field across all sections.
