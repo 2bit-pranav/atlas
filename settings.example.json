@@ -41,8 +41,7 @@
       "write": true,
       "edit": true,
       "shell": true,
-      "web_fetch": false,
-      "subagent": false
+      "web_fetch": false
     }
   },
   "skills": {

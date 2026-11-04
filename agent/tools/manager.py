@@ -16,10 +16,12 @@ from agent.config.settings import Settings
 #: must exist in `BUILTIN_TOOL_NAMES`; a typo would otherwise be a tool that
 #: silently never appears. Deliberately absent: `web_search` (needs a cloud
 #: provider's search or Exa, a third party that would see every query),
-#: `programmatic_tool_caller` (lets the model run tools without asking) and
+#: `programmatic_tool_caller` (lets the model run tools without asking),
 #: `read` (uncapped, and its name drew it onto PDFs: Atlas's `read_text` and
-#: `read_image` replace it, agent/tools/reading.py).
-SWITCHABLE: tuple[str, ...] = ("write", "edit", "shell", "web_fetch", "subagent")
+#: `read_image` replace it, agent/tools/reading.py) and `subagent` (a 2B model
+#: cannot orchestrate workers: 41% complete against 88% for one turn,
+#: decisions.md 2026-11-04).
+SWITCHABLE: tuple[str, ...] = ("write", "edit", "shell", "web_fetch")
 
 
 #: Atlas's own tools, given to the agent directly (not a skill, not MCP).

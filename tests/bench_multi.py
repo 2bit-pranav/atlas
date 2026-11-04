@@ -210,8 +210,8 @@ TASKS = {
               "to, and leave out anything that is not about the project.", ["notes.txt"], "section", grade_draft),
 }
 
-MODES = {"A": {"tools.builtin.subagent": False, "tools.builtin.todos": False},
-         "B": {"tools.builtin.subagent": True, "tools.builtin.todos": True}}
+MODES = {"A": {"tools.builtin.todos": False},
+         "B": {"tools.builtin.todos": True}}
 
 
 def metrics(llama: str, key: str | None) -> dict[str, float]:

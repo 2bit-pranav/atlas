@@ -27,7 +27,6 @@ from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
 from agent.runtime.restore import _restore
 from agent.runtime.skill_tools import SkillTools
-from agent.runtime.workers import worker_tool
 from agent.safety.approvals import Approver
 from agent.safety.limits import RunLimits
 from agent.safety.policy import TaintTracker, ToolPolicy
@@ -146,13 +145,6 @@ def build_agent(
         folders=_scope(settings, workspace_dir).folders)
     builtin_extra = {"web_fetch": {"model": build_summarizer(settings)}} if "web_fetch" in builtin else {}
     consumer = [*tool_manager.extra_tools(), *atlas_tools, *(tools or [])]
-    if "subagent" in builtin:
-        # Atlas's own worker tool, not the harness's (runtime/workers.py says why).
-        consumer.append(worker_tool(
-            settings, model=build_model(settings, thinking=thinking, retry=retry, observer=None),
-            builtin=builtin, builtin_extra=builtin_extra, skills=[s["path"] for s in skills] or False,
-            interventions=tool_manager.interventions(), tools=list(consumer), hooks=hooks, sandbox=sandbox,
-            conversation_manager=lambda: build_conversation_manager(settings)))
     harness_off = memory_manager.harness_args()
     if settings.tools.builtin.todos:
         harness_off["builtin_plugins"] = ["todos"]   # the plan tool, todo_write
@@ -169,7 +161,7 @@ def build_agent(
         interventions=tool_manager.interventions(),
         tools=consumer,
         # A mapping rather than a list, so web_fetch gets its own summarizer.
-        builtin_tools={"*": False, **{name: True for name in builtin if name != "subagent"}, **builtin_extra},
+        builtin_tools={"*": False, **{name: True for name in builtin}, **builtin_extra},
         # The four off-switches, together. Any one of them alone is not enough.
         **harness_off,
         conversation_manager=build_conversation_manager(settings),
