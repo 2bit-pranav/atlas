@@ -4,16 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from helpers import text_of
+
 from agent.tools.reading import MAX_CHARS, read_tools
 
 
 def _tools(ws: Path, vision: bool = True):
     text, image = read_tools(lambda p: ws / p, lambda p: p.name, vision)
     return text, image
-
-
-def _text(result) -> str:
-    return result if isinstance(result, str) else result["content"][0]["text"]
 
 
 def test_a_long_file_is_capped_and_says_how_to_go_on(tmp_path) -> None:
@@ -56,7 +54,7 @@ def test_wrong_file_types_name_the_right_tool(tmp_path) -> None:
                            (text(path="blob.bin"), "binary"),
                            (text(path="gone.txt"), "no file gone.txt"),
                            (image(path="report.pdf"), "read_text")):
-        assert result["status"] == "error" and needle in _text(result), needle
+        assert result["status"] == "error" and needle in text_of(result), needle
 
 
 def test_read_image_returns_the_image(tmp_path) -> None:

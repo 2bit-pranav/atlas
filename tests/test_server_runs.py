@@ -1,26 +1,19 @@
-"""Offline tests for the backend's run lifecycle (server/app.py `Atlas`):
+"""The backend's run lifecycle (server/app.py `Atlas`):
 however a run ends, its slot is freed and its turn is recorded."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 
 import pytest
+from helpers import settings_file
 
 from server.state import Atlas
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
 def atlas(tmp_path):
-    settings = json.loads((ROOT / "settings.example.json").read_text(encoding="utf-8"))
-    settings["paths"] = {"data_dir": str(tmp_path / "data")}
-    settings["mcp"]["config"] = str(tmp_path / "mcp.json")
-    path = tmp_path / "settings.json"
-    path.write_text(json.dumps(settings), encoding="utf-8")
+    path = settings_file(tmp_path)
     state = Atlas(path)
     yield state
     state.close()

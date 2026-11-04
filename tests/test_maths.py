@@ -1,4 +1,4 @@
-"""Offline tests for `calculate` and `dates` (agent/tools/maths/)."""
+"""`calculate` and `dates` (agent/tools/maths/)."""
 
 from __future__ import annotations
 

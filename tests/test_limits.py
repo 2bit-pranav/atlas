@@ -1,4 +1,4 @@
-"""Plan item 6: every run has cheap limits (agent/safety/limits.py).
+"""Every run has cheap limits (agent/safety/limits.py).
 
 A small model can loop: the same call again and again, or model calls that
 never end. Nothing stopped either but the user. Needed before anything runs

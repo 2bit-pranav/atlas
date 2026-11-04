@@ -13,19 +13,11 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from helpers import Asked
 
 from agent.safety.policy import ToolPolicy
 from agent.safety.protected import Protected
 from agent.safety.scope import Scope
-
-
-class _Asked:
-    def __init__(self, answer: str = "allowed") -> None:
-        self.answer, self.calls = answer, []
-
-    async def __call__(self, kind: str, detail: dict) -> str:
-        self.calls.append(kind)
-        return self.answer
 
 
 @pytest.fixture
@@ -44,7 +36,7 @@ def layout(tmp_path):
 def _run(scope: Scope, name: str, args: dict, approver=None):
     event = SimpleNamespace(tool_use={"name": name, "toolUseId": "t", "input": args},
                             selected_tool=SimpleNamespace(tool_name=name), cancel_tool=False)
-    asyncio.run(ToolPolicy(scope, approver=approver or _Asked())._before(event))
+    asyncio.run(ToolPolicy(scope, approver=approver or Asked())._before(event))
     return event
 
 
@@ -57,7 +49,7 @@ def _run(scope: Scope, name: str, args: dict, approver=None):
     ("write", ".data/atlas.db", "x"),
 ])
 def test_atlas_itself_is_never_written(layout, name, rel, content) -> None:
-    asked = _Asked()
+    asked = Asked()
     args = {"path": (layout.root / rel).as_posix(), "content": content or "x"}
     if name == "edit":
         args = {"path": args["path"], "old_string": "a", "new_string": "b"}
@@ -107,7 +99,7 @@ def test_without_protection_nothing_changes(tmp_path) -> None:
 def test_shell_commands_cannot_reach_atlas_or_other_chats(layout, command) -> None:
     """The workspace is .data/chats/<id>: a relative path in a shell command
     reached the data folder and other chats, and no check saw it."""
-    asked = _Asked()
+    asked = Asked()
     event = _run(layout.scope, "shell", {"command": command}, asked)
     assert event.cancel_tool and asked.calls == [], command
 

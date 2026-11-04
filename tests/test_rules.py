@@ -1,4 +1,4 @@
-"""Plan item 5: the floor, shell commands refused in every tier with no card
+"""The floor: shell commands refused in every tier with no card
 (agent/safety/rules.toml, agent/safety/rules.py)."""
 
 from __future__ import annotations

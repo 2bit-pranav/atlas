@@ -1,5 +1,5 @@
-"""Offline tests for the chat tree (agent/store/chats.py): send, retry, edit,
-version switching and crash recovery."""
+"""The chat tree (agent/store/chats.py): send, retry, edit, version switching
+and crash recovery."""
 
 from __future__ import annotations
 

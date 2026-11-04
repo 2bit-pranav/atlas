@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import pytest
+from helpers import text_of
 
 from agent.ingest.store import Store
 from agent.tools.doc_reading import doc_read_tools, parse_pages
@@ -94,13 +95,6 @@ def _tools(store: Store, ws: Path, chat: str = "c1", tainted: list | None = None
     pdf, docx, xlsx = doc_read_tools(store, chat, lambda p: ws / p, ws,
                                      (lambda: tainted.append(1)) if tainted is not None else None)
     return pdf, docx, xlsx
-
-
-def _text(result) -> str:
-    return result if isinstance(result, str) else result["content"][0]["text"]
-
-
-# ----------------------------------------------------------------- store --
 
 
 def test_ingest_is_idempotent_and_keyed_by_content(store, ws) -> None:
@@ -204,9 +198,9 @@ def test_read_pdf_long_document_shows_page_one_and_says_what_is_left(store, ws) 
 def test_read_tools_name_the_right_tool_for_the_wrong_type(store, ws) -> None:
     _docx(ws / "r.docx")
     read_pdf, read_docx, read_xlsx = _tools(store, ws)
-    assert 'read_docx(path="r.docx")' in _text(read_pdf(path="r.docx"))
-    assert "Files in your workspace: r.docx" in _text(read_docx(path="gone.docx"))
-    assert "not a link" in _text(read_pdf(path="file:///C:/Windows/x.pdf"))   # would bypass the access check
+    assert 'read_docx(path="r.docx")' in text_of(read_pdf(path="r.docx"))
+    assert "Files in your workspace: r.docx" in text_of(read_docx(path="gone.docx"))
+    assert "not a link" in text_of(read_pdf(path="file:///C:/Windows/x.pdf"))   # would bypass the access check
 
 
 def test_read_docx_sections_and_ids(store, ws) -> None:
@@ -217,7 +211,7 @@ def test_read_docx_sections_and_ids(store, ws) -> None:
     assert "## 2.1 Prices" in whole
     part = read_docx(path="r.docx", section="2")
     assert "Prices" in part and "We reviewed" not in part
-    assert "Sections: 1, 2, 2.1" in _text(read_docx(path="r.docx", section="9"))
+    assert "Sections: 1, 2, 2.1" in text_of(read_docx(path="r.docx", section="9"))
 
 
 def test_read_xlsx_grid_and_sql(store, ws) -> None:
@@ -228,9 +222,9 @@ def test_read_xlsx_grid_and_sql(store, ws) -> None:
     assert "3 | South | 2950.25" in read_xlsx(path="sales.xlsx", range="Mar!A3:B3")
     total = read_xlsx(path="sales.xlsx", sql='SELECT SUM("revenue") FROM "Mar"')
     assert "7950.75" in total and "1 cell in number columns held text" in total   # "n/a" is NULL, and said
-    bad = _text(read_xlsx(path="sales.xlsx", sql='SELECT * FROM "Mar" WHERE "region" = "North"'))
+    bad = text_of(read_xlsx(path="sales.xlsx", sql='SELECT * FROM "Mar" WHERE "region" = "North"'))
     assert "single quotes" in bad
-    assert "only one SELECT" in _text(read_xlsx(path="sales.xlsx", sql='DROP TABLE "Mar"'))
+    assert "only one SELECT" in text_of(read_xlsx(path="sales.xlsx", sql='DROP TABLE "Mar"'))
 
 
 def test_a_scan_read_waits_for_the_page_it_asks_for(store, ws) -> None:
@@ -247,7 +241,7 @@ def test_a_file_that_cannot_be_parsed_reads_as_failed(store, ws) -> None:
     bad = ws / "broken.docx"
     bad.write_text("| Brightline | 9.85 | 18 days |\n")      # what `sed -i` left of a .docx
     _, read_docx, _ = _tools(store, ws)
-    out = _text(read_docx(path="broken.docx"))
+    out = text_of(read_docx(path="broken.docx"))
     assert "could not be read" in out
 
 
@@ -257,12 +251,12 @@ def test_a_lone_document_needs_no_path(store, ws) -> None:
     read_pdf, _, _ = _tools(store, ws)
     assert "4.183" in read_pdf(search="calibration constant")
     _pdf(ws / "second.pdf", ["Other."])
-    assert "say which file" in _text(read_pdf(search="calibration"))
+    assert "say which file" in text_of(read_pdf(search="calibration"))
 
 
 def test_sql_expression_alone_is_completed_and_errors_name_the_columns(store, ws) -> None:
     _xlsx(ws / "sales.xlsx")
     _, _, read_xlsx = _tools(store, ws)
     assert "7950.75" in read_xlsx(path="sales.xlsx", sheet="Mar", sql='SUM("revenue")')
-    bad = _text(read_xlsx(path="sales.xlsx", sheet="Mar", sql="SUM(B)"))
+    bad = text_of(read_xlsx(path="sales.xlsx", sheet="Mar", sql="SUM(B)"))
     assert '"Mar" columns: "region", "revenue"' in bad and "not by letter" in bad

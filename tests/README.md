@@ -12,16 +12,31 @@ Two kinds, kept apart on purpose.
 
 | File | What it pins down |
 |---|---|
-| `test_policy.py` | the tool policy: access scope, approvals, installs, page taint, path normalising, the document redirect; skill requirements |
+| `test_policy.py` | the tool policy: access, approvals, installs, taint, the documents step, path rewrites; skill requirements |
+| `test_protected.py` | Atlas's own files are refused to every tool, the shell and relative paths included |
+| `test_rules.py` | the floor: shell commands refused in every tier, and the rule file checking its own examples |
+| `test_shell_classify.py` | shell commands parsed into read, write, delete, install, other |
+| `test_installs.py` | install commands recognised by parsing |
+| `test_taint.py` | outside content taints the chat, and which MCP servers are trusted |
+| `test_limits.py` | run limits: model calls, minutes, repeated calls |
+| `test_security.py`, `test_extension_scope.py` | who may call the API, and what the extension's token opens |
+| `test_mcp_secrets.py`, `test_redact_logs.py` | secrets never reach the UI |
+| `test_skill_installer.py` | installing a skill stays inside its download |
+| `test_reading.py` | `read_text` and `read_image`: caps, footers, wrong-type errors |
+| `test_ingest.py` | the ingest store and `read_pdf` / `read_docx` / `read_xlsx`: OCR, search, ownership, cleanup |
+| `test_edit_tools.py` | `create_document`, `edit_docx`, `set_cell`, and tools that arrive with their skill |
+| `test_formula_injection.py`, `test_combine_xlsx.py` | spreadsheets: `=` text stays text; the combine script |
 | `test_maths.py` | `calculate` and `dates`: results, the forms people write, what is refused |
 | `test_chats.py` | the chat tree: send, retry, edit, version switching, crash recovery |
-| `test_runs.py` | runs: one at a time, approvals and their timeout, client calls, cancel, stream replay |
-| `test_server_runs.py` | the backend's run lifecycle: however a run ends, its slot is freed |
-| `client/src/**/*.test.ts` | the web UI store (vitest): who answers the extension's page calls |
+| `test_runs.py`, `test_server_runs.py` | runs: approvals, cancel, replay; however a run ends, its slot is freed |
+| `test_uploads.py` | uploads into the workspace, ingest at upload, its progress |
+| `test_processes.py` | stopping a service ends everything it started |
+| `helpers.py` | shared: a recording approver, an MCP tool, a settings file for a throwaway Atlas |
+| `client/src/**/*.test.ts(x)` | the web UI (vitest): the store's page calls; tool calls and reasoning drawn collapsed |
 | `extension/lib/**/*.test.ts` | the extension (vitest): pairing only with its own Atlas, typed field values never listed |
 
-A test for a known, not yet fixed bug is marked `xfail(strict=True)` with the
-bug's id from `docs/restructure-plan.md`. The fix removes the marker; strict
+A test for a known, not yet fixed bug is marked `xfail(strict=True)`, its
+reason saying what is wrong. The fix removes the marker; strict
 means a fix that lands without removing it fails, so it cannot go unnoticed.
 
 **Live checks** use the real model and need the GPU to themselves (stop any

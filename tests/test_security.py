@@ -1,4 +1,4 @@
-"""Offline tests for the request guard (server/security.py): who may call the API."""
+"""The request guard (server/security.py): who may call the API."""
 
 from __future__ import annotations
 

@@ -2,24 +2,18 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from helpers import settings_file
 
 from server.app import create_app
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
 def client(tmp_path):
-    settings = json.loads((ROOT / "settings.example.json").read_text(encoding="utf-8"))
-    settings["paths"] = {"data_dir": str(tmp_path / "data")}
-    settings["mcp"]["config"] = str(tmp_path / "mcp.json")
-    path = tmp_path / "settings.json"
-    path.write_text(json.dumps(settings), encoding="utf-8")
+    path = settings_file(tmp_path)
     app = create_app(path)                    # no lifespan: nothing is started
     c = TestClient(app, base_url="http://127.0.0.1:8000")
     c.chat = c.post("/api/chats", json={"title": ""}).json()["id"]

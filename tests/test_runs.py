@@ -1,4 +1,4 @@
-"""Offline tests for runs (server/runs.py): one active run, approvals, client
+"""Runs (server/runs.py): one active run, approvals, client
 calls, cancel, and replaying the event stream from a sequence number."""
 
 from __future__ import annotations

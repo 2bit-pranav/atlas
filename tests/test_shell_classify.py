@@ -1,4 +1,4 @@
-"""Plan item 4: shell commands are parsed (tree-sitter-bash) and each simple
+"""Shell commands are parsed (tree-sitter-bash) and each simple
 command is placed as read, write, delete, install or other (agent/safety/shell.py).
 
 The tiers decide what each class does; this only has to be right about which

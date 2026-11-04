@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from helpers import text_of
 
 from agent.ingest.store import Store
 from agent.runtime.skill_tools import SkillTools
@@ -41,10 +42,6 @@ def _xlsx(path: Path) -> Path:
     wb.remove(wb["Sheet"])
     wb.save(str(path))
     return path
-
-
-def _text(result) -> str:
-    return result if isinstance(result, str) else result["content"][0]["text"]
 
 
 @pytest.fixture
@@ -97,21 +94,21 @@ def test_reader_ids_are_the_edit_addresses(env) -> None:
 def test_bad_addresses_say_what_exists(env) -> None:
     path = _docx(env.ws / "s.docx")
     _owned(env, path)
-    assert "rows are r1-r3" in _text(env.edit_docx(path="s.docx", block="t1.r9.c1", text="x"))
-    assert "paragraphs are b1-b" in _text(env.edit_docx(path="s.docx", block="b99", text="x"))
-    assert "not a block id" in _text(env.edit_docx(path="s.docx", block="| Brightline | 9.85 |", text="x"))
+    assert "rows are r1-r3" in text_of(env.edit_docx(path="s.docx", block="t1.r9.c1", text="x"))
+    assert "paragraphs are b1-b" in text_of(env.edit_docx(path="s.docx", block="b99", text="x"))
+    assert "not a block id" in text_of(env.edit_docx(path="s.docx", block="| Brightline | 9.85 |", text="x"))
 
 
 def test_an_unread_or_changed_file_is_not_edited_by_address(env) -> None:
     path = _docx(env.ws / "s.docx")
-    assert "Read it first" in _text(env.edit_docx(path="s.docx", block="b1", text="x"))   # never read here
+    assert "Read it first" in text_of(env.edit_docx(path="s.docx", block="b1", text="x"))   # never read here
     _owned(env, path)
     from docx import Document
 
     d = Document(str(path))
     d.add_paragraph("added elsewhere")
     d.save(str(path))                                                                    # changed since
-    assert "Read it first" in _text(env.edit_docx(path="s.docx", block="b1", text="x"))
+    assert "Read it first" in text_of(env.edit_docx(path="s.docx", block="b1", text="x"))
 
 
 def test_set_cell_sets_a_number_and_keeps_the_rest(env) -> None:
@@ -124,8 +121,8 @@ def test_set_cell_sets_a_number_and_keeps_the_rest(env) -> None:
     wb = load_workbook(str(path))
     assert wb["Mar"]["B2"].value == 5000 and wb["Mar"]["B3"].value == 2950.25
     assert wb["Jan"]["B2"].value == 1200 and wb["Jan"]["B3"].value == 3400.5
-    assert "Sheets: Jan, Mar" in _text(env.set_cell(path="sales.xlsx", cell="Apr!B2", value="1"))
-    assert "not a cell" in _text(env.set_cell(path="sales.xlsx", cell="North", value="1"))
+    assert "Sheets: Jan, Mar" in text_of(env.set_cell(path="sales.xlsx", cell="Apr!B2", value="1"))
+    assert "not a cell" in text_of(env.set_cell(path="sales.xlsx", cell="North", value="1"))
 
 
 def test_create_document_never_replaces_a_file(env) -> None:
