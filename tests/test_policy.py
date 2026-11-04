@@ -328,3 +328,16 @@ def test_edit_with_edit_docx_arguments_names_the_exact_call(tmp_path) -> None:
     event = _run(_policy(tmp_path, approver=_Asked()),
                  _event("edit", {"path": "suppliers.docx", "block": "t1.r3.c3", "text": "18 days"}))
     assert 'edit_docx(path="suppliers.docx", block="t1.r3.c3"' in event.cancel_tool
+
+
+def test_create_document_images_are_reads_like_any_other(tmp_path) -> None:
+    """An image line could embed any picture on the disk into a document unchecked."""
+    outside = tmp_path / "Private"
+    outside.mkdir()
+    asked = _Asked("denied")
+    content = f"# Doc\n\n![x]({(outside / 'photo.png').as_posix()})\n"
+    event = _run(_policy(tmp_path, approver=asked), _event("create_document", {"path": "out.docx", "content": content}))
+    assert asked.calls and asked.calls[0][1]["access"] == "read" and "did not allow" in event.cancel_tool
+    fine = "# Doc\n\n![a](chart.png)\n\n![b](asset:0123456789ab/p1-1.png)\n"
+    assert _run(_policy(tmp_path, approver=_Asked()),
+                _event("create_document", {"path": "out.docx", "content": fine})).cancel_tool is False

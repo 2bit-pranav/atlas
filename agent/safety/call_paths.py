@@ -78,6 +78,15 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     out: list[tuple[Path, bool]] = []
     if name in FILE_TOOLS and isinstance(args.get("path"), str) and args["path"]:
         out.append((scope.place(args["path"]), name not in READ_TOOLS))
+    if name == "create_document":
+        # Images in the Markdown are files it reads and embeds: checked like any read,
+        # or a document could carry any picture on the disk (or Atlas's own files).
+        for src in _IMAGE.findall(str(args.get("content", ""))):
+            src = src.strip().strip("<>")
+            if src.startswith(("asset:", "http://", "https://", "data:")):
+                continue  # asset: resolves only for the chat that owns it (ingest/store.py)
+            p = Path(windows_path(src)) if src.startswith("/") else Path(src)
+            out.append((p if p.is_absolute() else scope.workspace / p, False))  # as create() places it
     elif name == "shell":
         for raw in _shell_paths(str(args.get("command", ""))):
             out.append((Path(windows_path(_trim(raw))), False))
@@ -86,6 +95,10 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
             if re.match(r"^(?:[A-Za-z]:[/\\]|/[A-Za-z]/)", raw):
                 out.append((Path(windows_path(drive_path(raw))), True))
     return out
+
+
+#: A Markdown image's source: `![caption](source)`.
+_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
 
 def _trim(raw: str) -> str:

@@ -717,3 +717,11 @@ exact `edit_docx(...)` call (it was refused generically and gave up).
 pages done; the composer polls it once a second until ready or failed.
 Checked live on the 12-page scan: 0 to 12 pages, then ready. Web UI only, not
 in the extension's routes.
+
+**Image lines in `create_document` are access-checked** (2026-11-04). An
+image's source in the Markdown is a file the tool reads and embeds, but only
+the output `path` was checked: any picture on the disk, or Atlas's own files,
+could be embedded into a document. `_paths_of` now returns each image source
+as a read, so the floor refuses Atlas's files and the access step asks outside
+the workspace and the allowed folders. `asset:` images resolve only for the
+chat that owns them; links are not files.

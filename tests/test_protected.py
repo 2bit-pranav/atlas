@@ -115,3 +115,9 @@ def test_shell_commands_cannot_reach_atlas_or_other_chats(layout, command) -> No
 @pytest.mark.parametrize("command", ["rm -rf build", "echo x > out/notes.txt", "rm -rf ./old", "ls .."])
 def test_shell_commands_in_the_workspace_pass(layout, command) -> None:
     assert not _run(layout.scope, "shell", {"command": command}).cancel_tool, command
+
+
+def test_an_image_line_cannot_embed_atlas_files(layout) -> None:
+    token = (layout.data / "pairing-token").as_posix()
+    event = _run(layout.scope, "create_document", {"path": "x.docx", "content": f"![t]({token})"})
+    assert event.cancel_tool and "Atlas's own" in event.cancel_tool
