@@ -120,7 +120,8 @@ class BuiltinToolSettings(StrictModel):
     edit: bool = True
     shell: bool = True
     web_fetch: bool = False # prone to give bad results
-    subagent: bool = False # untested
+    subagent: bool = False # workers under the same policy (agent/runtime/workers.py)
+    todos: bool = False # the plan tool, todo_write (the harness's todos plugin)
 
 
 class AtlasToolSettings(StrictModel):
@@ -391,6 +392,7 @@ TIERS: dict[str, Tier] = {
     "tools.builtin.shell": Tier.LIVE,
     "tools.builtin.web_fetch": Tier.LIVE,
     "tools.builtin.subagent": Tier.LIVE,
+    "tools.builtin.todos": Tier.LIVE,
     "tools.atlas.read_text": Tier.LIVE,
     "tools.atlas.read_image": Tier.LIVE,
     "tools.atlas.read_pdf": Tier.LIVE,

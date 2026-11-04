@@ -745,3 +745,35 @@ Gemma E2B already puts two tool calls in one reply some of the time: asked to
 read two files, 2 calls in 3 of 6 replies with thinking off, 1-2 of 6 with it
 on; llama.cpp's `parallel_tool_calls` flag made no difference. Strands runs
 the calls of one reply concurrently (`ConcurrentToolExecutor`, its default).
+
+**Plan plus workers does not help this model: one turn stays** (2026-11-04,
+`tests/bench_multi.py`). Three multi-part tasks with planted facts, graded by
+script: a three-source summary from local web pages, a two-file comparison
+(6 planted differences), a five-section report from notes. Mode A is today's
+agent; mode B adds the plan tool (`todo_write`) and workers (`subagent`), and
+asks to plan and hand each part to a worker. Same 2-slot llama-server
+(`--kv-unified`), modes interleaved, thinking off and on, 3 repeats: 36 runs.
+Model work from llama-server's counters, workers included.
+
+| | complete | errors/run | perfect runs | avg time | prompt tokens in |
+|---|---|---|---|---|---|
+| A, one turn | 88% | 0.1 | 10/18 | 17 s | 6.7k |
+| B, plan + workers | 41% | 0.6 | 3/18 | 49 s | 15.8k |
+
+B lost on every task (draft 100% vs 32%, comparison 83% vs 58%, research 67%
+vs 45%) and worst with thinking on (96% vs 14%). The workers did their parts
+well; the parent orchestrated badly: it delegated one file twice and the
+other once, then stopped without comparing; it tried the plain `write` tool
+on a .docx, never loaded the docx skill, and said the report was done; it
+passed workers' summaries on with figures dropped. A 2B model cannot hold a
+plan, track workers and merge their results; one turn with everything in
+view does better. Two of A's research misses were the model choosing an MCP
+fetch tool that refuses private addresses, not the task; they count against A.
+
+Kept, off by default: `tools.builtin.subagent` is now Atlas's own worker tool
+(`runtime/workers.py`): workers share the parent's policy, limits and taint
+tracking, get their own failure budget, no session, no printing callback, and
+cannot delegate further (the harness's own wiring forwarded none of the
+printing, retry or recovery settings and shared the failure budget).
+`tools.builtin.todos` switches the plan tool. Worth re-running
+`bench_multi.py` on a larger model.

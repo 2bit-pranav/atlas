@@ -27,6 +27,7 @@ from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
 from agent.runtime.restore import _restore
 from agent.runtime.skill_tools import SkillTools
+from agent.runtime.workers import worker_tool
 from agent.safety.approvals import Approver
 from agent.safety.limits import RunLimits
 from agent.safety.policy import TaintTracker, ToolPolicy
@@ -134,25 +135,43 @@ def build_agent(
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
+    hooks = [RunLimits(settings.limits, notify=observer),
+             ToolPolicy(_scope(settings, workspace_dir), approver=approver,
+                        ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted),
+             ToolFailureRecovery(settings.resilience, notify=observer),
+             skill_tools,
+             *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])]
+    sandbox = sandbox if sandbox is not None else default_environment(
+        cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
+        folders=_scope(settings, workspace_dir).folders)
+    builtin_extra = {"web_fetch": {"model": build_summarizer(settings)}} if "web_fetch" in builtin else {}
+    consumer = [*tool_manager.extra_tools(), *atlas_tools, *(tools or [])]
+    if "subagent" in builtin:
+        # Atlas's own worker tool, not the harness's (runtime/workers.py says why).
+        consumer.append(worker_tool(
+            settings, model=build_model(settings, thinking=thinking, retry=retry, observer=None),
+            builtin=builtin, builtin_extra=builtin_extra, skills=[s["path"] for s in skills] or False,
+            interventions=tool_manager.interventions(), tools=list(consumer), hooks=hooks, sandbox=sandbox,
+            conversation_manager=lambda: build_conversation_manager(settings)))
+    harness_off = memory_manager.harness_args()
+    if settings.tools.builtin.todos:
+        harness_off["builtin_plugins"] = ["todos"]   # the plan tool, todo_write
+
     agent = create_harness(
         model=model,
         # The stock environment shells out to `sh`, which does not exist on
         # Windows. `sandbox=` is the documented seam; the shell tool picks it
         # up from `agent.sandbox` with no other change.
-        sandbox=sandbox if sandbox is not None else default_environment(
-            cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
-            folders=_scope(settings, workspace_dir).folders),
+        sandbox=sandbox,
         instructions=instructions or None,
         session=session_manager,
         skills=[s["path"] for s in skills] or False,
         interventions=tool_manager.interventions(),
-        tools=[*tool_manager.extra_tools(), *atlas_tools, *(tools or [])],
+        tools=consumer,
         # A mapping rather than a list, so web_fetch gets its own summarizer.
-        builtin_tools={"*": False, **{name: True for name in builtin},
-                       **({"web_fetch": {"model": build_summarizer(settings)}}
-                          if "web_fetch" in builtin else {})},
+        builtin_tools={"*": False, **{name: True for name in builtin if name != "subagent"}, **builtin_extra},
         # The four off-switches, together. Any one of them alone is not enough.
-        **memory_manager.harness_args(),
+        **harness_off,
         conversation_manager=build_conversation_manager(settings),
         caching=False,
         # Strands' default handler prints every streamed token to stdout. Under
@@ -164,12 +183,7 @@ def build_agent(
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
         # Before a tool runs: the run's limits, then one ordered policy
         # (policy.py), so a refused repeat never shows a card. After: recovery.
-        hooks=[RunLimits(settings.limits, notify=observer),
-               ToolPolicy(_scope(settings, workspace_dir), approver=approver,
-                          ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted),
-               ToolFailureRecovery(settings.resilience, notify=observer),
-               skill_tools,
-               *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
+        hooks=hooks,
     )
 
     if isinstance(agent.sandbox, WindowsLocalEnvironment):
