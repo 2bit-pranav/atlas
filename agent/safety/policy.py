@@ -10,7 +10,7 @@ place a tool call is inspected before it runs, as ordered steps:
                    grid (grid.py): runs, asks, or is refused. Outside content
                    in the chat makes runs, changes and deletes ask
     4. install     a shell command that installs anything asks the user
-    5. sensitive   an MCP tool the user marked "ask" asks the user
+    5. sensitive   a tool set to Ask (MCP tools by default, `tools.ask`) asks
     6. documents   `write`/`edit` on a .docx/.pdf/.xlsx is redirected to the
                    document tools
 
@@ -21,7 +21,8 @@ failure, pushing back when the model gives up) is recovery and lives in
 
 Asking is the run's job: steps call `approver(kind, detail)`, which emits an
 `approval_request` the UI shows as Allow / Deny and returns "allowed",
-"denied" or "expired" (no answer within `approvals.timeout`).
+"allowed_chat" (offered when the card's `chat` is true), "denied" or
+"expired" (no answer within `approvals.timeout`).
 """
 
 from __future__ import annotations
@@ -80,6 +81,7 @@ class ToolPolicy(HookProvider):
         sensitive: Callable[[str], bool] | None = None,
         tainted: Callable[[], bool] | None = None,
         mode: str = "ask",
+        chat_grants: list[tuple[Path | str, int]] | None = None,
     ) -> None:
         self.scope = scope
         self.mode = mode if mode in MODES else "ask"
@@ -91,6 +93,11 @@ class ToolPolicy(HookProvider):
         #: it is allowed). A read grant is not a change grant (B9); for running a
         #: command, "run:<program>" instead of a folder.
         self._granted: list[tuple[Path | str, int]] = []
+        #: The same, allowed for the whole chat ("Allow for this chat"): the chat's
+        #: list, kept by the server across turns. Not used once outside content is in.
+        self.chat_grants = chat_grants if chat_grants is not None else []
+        #: Calls the grid already asked about, so the tool step does not ask twice.
+        self._approved: set[str] = set()
         self.steps: list[Callable[[BeforeToolCallEvent], Awaitable[Decision | None]]] = [
             self._normalise, self._floor, self._grid, self._install, self._sensitive, self._documents,
         ]
@@ -230,10 +237,11 @@ class ToolPolicy(HookProvider):
         if self.approver is None:
             return Decision(refuse="This needs the user's approval, and no one can be asked here.")
         decision = await self.approver(*self._card(name, asks, tainted))
-        if decision != "allowed":
+        if decision not in ("allowed", "allowed_chat"):
             return Decision(refuse=self._declined(tainted))
-        for effect, _where in asks:
-            self._granted.append(self._grant(effect))
+        grants = self.chat_grants if decision == "allowed_chat" else self._granted
+        grants.extend(self._grant(effect) for effect, _where in asks)
+        self._approved.add(str(event.tool_use.get("toolUseId", "")))
         return None
 
     def _card(self, name: str, asks: list[tuple[Effect, str]], tainted: bool) -> tuple[str, dict[str, Any]]:
@@ -242,7 +250,10 @@ class ToolPolicy(HookProvider):
         first, where = asks[0]
         kind = "page" if tainted else "tool" if first.path is None else "access"
         detail: dict[str, Any] = {"tool": name, "command": "\n".join(dict.fromkeys(lines)),
-                                  "action": first.action, "zone": where}
+                                  "action": first.action, "zone": where,
+                                  # Never for the whole chat after outside content, for a delete,
+                                  # or for a command ("run:python" for a chat is any code at all).
+                                  "chat": not tainted and all(e.action not in ("delete", "run") for e, _w in asks)}
         if first.path is not None:
             target = _absolute(first.path)
             detail.update(path=str(target), folder=str(_grant_scope(target)),
@@ -251,11 +262,16 @@ class ToolPolicy(HookProvider):
 
     def _covered(self, effect: Effect) -> bool:
         key, rank = self._grant(effect)
+        return self._held(key, rank, None if effect.path is None else _absolute(effect.path))
+
+    def _held(self, key: Path | str, rank: int, target: Path | None = None) -> bool:
+        """Whether this turn's grants, or the chat's (not after outside content), cover it."""
+        granted = self._granted + ([] if self.tainted() else self.chat_grants)
         if isinstance(key, str):
-            return any(k == key for k, _ in self._granted)
-        target = _absolute(effect.path) if effect.path is not None else key
+            return any(k == key for k, _ in granted)
+        target = target or key
         return any(isinstance(k, Path) and (k == target or k in target.parents) and r >= rank
-                   for k, r in self._granted)
+                   for k, r in granted)
 
     def _grant(self, effect: Effect) -> tuple[Path | str, int]:
         if effect.path is None:
@@ -305,17 +321,27 @@ class ToolPolicy(HookProvider):
                                 "needed for."))
 
     async def _sensitive(self, event: BeforeToolCallEvent) -> Decision | None:
-        tool = event.selected_tool
-        if not isinstance(tool, MCPAgentTool) or not self.sensitive(tool.tool_name):
+        """A tool set to Ask (an MCP tool unless set On, or one in `tools.ask`) asks first.
+
+        Skipped when the grid already asked about this call. "Allow for this
+        chat" covers the tool until outside content enters the chat.
+        """
+        name = str(event.tool_use.get("name", ""))
+        if not self.sensitive(name) or str(event.tool_use.get("toolUseId", "")) in self._approved:
+            return None
+        key = f"tool:{name}"
+        if self._held(key, 0):
             return None
         if self.approver is None:
             return Decision(refuse="This tool needs the user's approval and no one can be asked here.")
         args = event.tool_use.get("input") or {}
         decision = await self.approver("tool", {
-            "tool": tool.tool_name, "command": f"{tool.tool_name} {_brief(args)}"})
-        if decision == "allowed":
+            "tool": name, "command": f"{name} {_brief(args)}", "chat": not self.tainted()})
+        if decision == "allowed_chat":
+            self.chat_grants.append((key, 0))
+        if decision in ("allowed", "allowed_chat"):
             return None
-        return Decision(refuse=(f"The user did not allow {tool.tool_name} this time, so it was not "
+        return Decision(refuse=(f"The user did not allow {name} this time, so it was not "
                                 "run. Do not call it again for this; tell the user what you meant to do."))
 
     async def _documents(self, event: BeforeToolCallEvent) -> Decision | None:

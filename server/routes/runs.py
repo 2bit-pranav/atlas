@@ -45,9 +45,10 @@ def register(api: Any, state: Any) -> None:
         run = state.runs.get(run_id)
         if run is None:
             raise HTTPException(404, f"no run {run_id}")
-        if not run.answer(approval_id, body.allow):
+        decision = run.answer(approval_id, body.allow, body.scope)
+        if decision is None:
             raise HTTPException(409, "that question was already answered or has expired")
-        return {"id": approval_id, "decision": "allowed" if body.allow else "denied"}
+        return {"id": approval_id, "decision": decision}
 
     @api.post("/runs/{run_id}/calls/{call_id}")
     async def answer_call(run_id: str, call_id: str, body: CallResult) -> dict[str, Any]:

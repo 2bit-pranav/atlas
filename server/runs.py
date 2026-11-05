@@ -50,6 +50,8 @@ class Run:
     _last_stats: float = 0.0
     #: Questions waiting for the user: approval id -> future of the decision.
     approvals: dict[str, asyncio.Future] = field(default_factory=dict)
+    #: The approvals whose card offered "Allow for this chat".
+    chat_offered: set[str] = field(default_factory=set)
     #: Work waiting on the client (the extension's page operations): call id -> future.
     calls: dict[str, asyncio.Future] = field(default_factory=dict)
     #: The page the extension attached to this turn ({"url", "title"}), if any.
@@ -97,7 +99,7 @@ class Run:
             self.emit({"type": "text_delta", "text": event["text"]})
 
     async def request_approval(self, kind: str, detail: dict[str, Any], timeout: float) -> str:
-        """Ask the user, and wait. Returns "allowed", "denied" or "expired".
+        """Ask the user, and wait. Returns "allowed", "allowed_chat", "denied" or "expired".
 
         The question and its answer are both events, so a reloaded page shows
         the pending card, and the transcript keeps what was decided.
@@ -105,6 +107,8 @@ class Run:
         approval_id = uuid.uuid4().hex[:12]
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self.approvals[approval_id] = future
+        if detail.get("chat"):
+            self.chat_offered.add(approval_id)
         self.emit({"type": "approval_request", "id": approval_id, "kind": kind, **detail,
                    "timeout": timeout, "expires_at": int((time.time() + timeout) * 1000)})
         try:
@@ -113,15 +117,22 @@ class Run:
             decision = "expired"
         finally:
             self.approvals.pop(approval_id, None)
+            self.chat_offered.discard(approval_id)
         self.emit({"type": "approval_result", "id": approval_id, "decision": decision})
         return decision
 
-    def answer(self, approval_id: str, allow: bool) -> bool:
+    def answer(self, approval_id: str, allow: bool, scope: str = "once") -> str | None:
+        """The decision recorded, or None when there was nothing to answer.
+
+        "For this chat" only where the card offered it; anything else is once.
+        """
         future = self.approvals.get(approval_id)
         if future is None or future.done():
-            return False
-        future.set_result("allowed" if allow else "denied")
-        return True
+            return None
+        chat = scope == "chat" and approval_id in self.chat_offered
+        decision = ("allowed_chat" if chat else "allowed") if allow else "denied"
+        future.set_result(decision)
+        return decision
 
     async def client_call(self, op: str, args: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
         """Ask the client to do something and wait for its result.

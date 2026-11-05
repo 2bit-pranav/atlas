@@ -415,11 +415,11 @@ class Store {
     }
   }
 
-  async answerApproval(approvalId: string, allow: boolean) {
+  async answerApproval(approvalId: string, allow: boolean, scope: "once" | "chat" = "once") {
     const run = this.state.run
     if (!run) return
     try {
-      await api.answerApproval(run.id, approvalId, allow)
+      await api.answerApproval(run.id, approvalId, allow, scope)
     } catch (error) {
       this.fail(error)
     }

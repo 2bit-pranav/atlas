@@ -63,8 +63,10 @@ export type Part =
       folder?: string | null
       /** For a folder request: what Allow grants, reading only or also changing. */
       access?: "read" | "write" | null
+      /** Whether "Allow for this chat" is offered (never after outside content, for a delete or a command). */
+      chat?: boolean
       command: string
-      status: "pending" | "allowed" | "denied" | "expired"
+      status: "pending" | "allowed" | "allowed_chat" | "denied" | "expired"
       expires_at: number
     }
 
@@ -145,8 +147,8 @@ export type RunEvent = { seq: number } & (
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
   | { type: "tool_end"; id: string; name: string; status: string; text: string }
   | { type: "approval_request"; id: string; kind: "install" | "access" | "tool" | "page"; command: string; folder?: string; access?: "read" | "write";
-      timeout: number; expires_at: number }
-  | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
+      chat?: boolean; timeout: number; expires_at: number }
+  | { type: "approval_result"; id: string; decision: "allowed" | "allowed_chat" | "denied" | "expired" }
   | { type: "tainted" }
   /** The backend asks the client to do something (the extension: a page operation). */
   | { type: "client_call"; id: string; op: string; args: Record<string, unknown> }

@@ -6,8 +6,8 @@ import { cn } from "@/lib/cn"
 
 const ASK_TITLE = {
   install: "Atlas wants to install something",
-  access: "Atlas wants to use a folder outside its allowed ones",
-  tool: "Atlas wants to use a tool that needs your approval",
+  access: "Atlas wants to use your files",
+  tool: "Atlas wants to do something that needs your approval",
   page: "Atlas read a web page and now wants to run this",
 } as const
 const DONE_TITLE = { install: "Install request", access: "Folder access request", tool: "Tool approval",
@@ -32,6 +32,7 @@ export function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "appr
   const outcome = {
     pending: live ? null : "Not answered",
     allowed: "Allowed",
+    allowed_chat: "Allowed for this chat",
     denied: "Declined: not run",
     expired: "No answer in time: not run",
   }[part.status]
@@ -43,18 +44,24 @@ export function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "appr
         {(pending ? ASK_TITLE : DONE_TITLE)[part.request ?? "install"]}
         {pending && <span className="ml-auto font-mono text-xs text-muted-foreground">{left}s</span>}
         {outcome && (
-          <span className={cn("ml-auto text-xs", part.status === "allowed" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+          <span className={cn("ml-auto text-xs", part.status.startsWith("allowed") ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
             {outcome}
           </span>
         )}
       </div>
       <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-code p-2.5 font-mono text-xs text-code-foreground">{part.command}</pre>
       {pending && (
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, true) }}
                   className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
-            Allow
+            {part.chat ? "Allow once" : "Allow"}
           </button>
+          {part.chat && (
+            <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, true, "chat") }}
+                    className="rounded-lg border border-primary/40 px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
+              Allow for this chat
+            </button>
+          )}
           <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, false) }}
                   className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
             Deny
@@ -62,7 +69,8 @@ export function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "appr
           <span className="text-[11px] text-muted-foreground">
             {part.request === "access" && part.folder
               ? <>Allows {part.access === "write" ? "changing" : "reading"} {part.folder} for the rest of this
-                  answer. To allow it always, add it under Settings &gt; Access.</>
+                  answer{part.chat ? ", or this chat" : ""}. To allow it always, add it under Settings &gt; Access.</>
+              : part.chat ? "For this chat: until the chat reads a web page or other outside content."
               : "Runs on this computer with your permissions."}
           </span>
         </div>

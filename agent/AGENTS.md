@@ -268,7 +268,9 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    An MCP server is trusted when Atlas points it only at the allowed folders
    (`{atlas:folders}`) or it is marked `"atlas": {"trusted": true}` in mcp.json.
 4. **install**: a `shell` command that installs asks (kind `install`).
-5. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
+5. **sensitive**: a tool set to Ask asks (kind `tool`): every MCP tool unless
+   set On on the MCP page (stored as `atlas.on` in mcp.json), and any tool
+   named in `tools.ask`. Skipped when the grid already asked about the call.
 6. **documents**: `write`/`edit` on a binary document is redirected.
 
 Recovery after a tool runs stays in `recovery/`.
@@ -307,7 +309,12 @@ any path it builds itself.
 
 Steps call `approver(kind, detail)`. The run emits `approval_request`, the UI
 shows Allow / Deny, and no answer within `approvals.timeout` seconds (60)
-counts as Deny, as does cancelling the run. The model is then told not to try
+counts as Deny, as does cancelling the run. Where the card's `chat` is true it
+also offers **Allow for this chat** (`allowed_chat`): the grant goes into the
+chat's list (`Atlas.chat_grants`, in memory, so a restart asks again) and
+covers later turns too, until outside content enters the chat. Never offered
+after outside content, for a delete, for a command (`run:python` for a whole
+chat would be any code at all) or for an install. The model is then told not to try
 another way. Python packages are installed with `python -m pip`, so they land
 in Atlas's own venv.
 

@@ -61,6 +61,8 @@ class Atlas:
         #: MCP connections live as long as the process, not as long as a turn.
         self.mcp = McpManager(self.settings)
         self._modalities: dict[str, bool] | None = None
+        # "Allow for this chat" answers, per chat. In memory: a restart asks again.
+        self.chat_grants: dict[str, list] = {}
         if n := self.store.mark_interrupted():
             logger.info("%d turn(s) left running by a previous process are now interrupted", n)
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)
@@ -206,7 +208,8 @@ class Atlas:
                 retry=retry, observer=run.observe, tools=self.mcp.agent_tools() + self._page_tools(run),
                 approver=lambda kind, detail: run.request_approval(
                     kind, detail, settings.approvals.timeout),
-                sensitive=self.mcp.is_sensitive,
+                sensitive=lambda name: name in settings.tools.ask or self.mcp.is_sensitive(name),
+                chat_grants=self.chat_grants.setdefault(run.chat_id, []),
                 tainted=lambda: run.tainted,
                 untrusted=self.mcp.is_untrusted,
                 on_taint=lambda: self.taint(run),

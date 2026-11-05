@@ -478,6 +478,18 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 
 ## Safety
 
+**Allow for this chat; MCP tools ask unless set On** (2026-11-05). A card
+can be answered for the whole chat, so a web search does not ask on every
+call. The grant is kept per chat in the backend's memory (a restart asks
+again) and stops counting once outside content enters the chat. It is never
+offered for a delete, a command (allowing `python` for a chat would allow
+any code) or an install, and the server honours it only on a card that
+offered it. MCP tools now default to Ask (mcp.json `atlas.on` lists the ones
+set On; the old `atlas.ask` list is dropped when a mode is next set), and
+`tools.ask` makes any of Atlas's own tools ask on every call. When the grid
+and a tool's Ask both apply, the user gets one card. Tested offline; turning
+off the taint check or the "offered" check fails a test each.
+
 **One permission grid for every tool: where, what, and whether it asks**
 (2026-11-05, `agent/safety/grid.py`). Every call, Atlas's own tools, the
 harness's, the shell's and MCP's, is described as (place, action) pairs:

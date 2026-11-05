@@ -54,8 +54,8 @@ Server-sent events, each `{"seq": n, "type": ...}`:
 | `tool_start` | `id`, `name`, `args` | a tool call |
 | `tool_args_delta` | `id`, `name`, `args` | arguments still arriving |
 | `tool_end` | `id`, `name`, `status`, `text` | the result |
-| `approval_request` | `id`, `kind` (`install`, `access`, `tool`, `page`), `command`, `folder?`, `access?` (`read`/`write`), `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
-| `approval_result` | `id`, `decision` (`allowed`, `denied`, `expired`) | the answer, or the timeout |
+| `approval_request` | `id`, `kind` (`install`, `access`, `tool`, `page`), `command`, `folder?`, `access?` (`read`/`write`), `chat` (Allow for this chat offered), `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
+| `approval_result` | `id`, `decision` (`allowed`, `allowed_chat`, `denied`, `expired`) | the answer, or the timeout |
 | `stats` | `context_used`, `context_size`, `prompt_tokens`, `completion_tokens`, `tokens_per_second`, `prompt_per_second`, `model_calls`, `duration_ms` | at most 4/s while generating, and once at the end |
 | `usage` | `input`, `output`, `total` | per model call, from Strands |
 | `done` / `error` | `status`, `message` | always last |
@@ -84,7 +84,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `POST /turns/{id}/edit` | `{text, files?, thinking}`, destructive → `{run, chat}` |
 | `POST /turns/{id}/select` | `{delta}` → the chat view |
 | `GET /runs/{id}`, `GET /runs/{id}/events`, `POST /runs/{id}/cancel` | |
-| `POST /runs/{id}/approvals/{approval_id}` | `{allow}`: answer an approval request |
+| `POST /runs/{id}/approvals/{approval_id}` | `{allow, scope}`: answer an approval request; `scope: "chat"` counts only where the card offered it |
 | `GET /pairing`, `POST /pairing/reset` | the browser extension's pairing token (not readable by the extension) |
 | `POST /runs/{id}/calls/{call_id}` | the client's result for a `client_call` (a page operation) |
 | `GET /profile`, `PUT /profile` | the user's details for fill suggestions (web UI only; the extension cannot read them) |

@@ -86,6 +86,7 @@ def build_agent(
     observer: Callable[[dict[str, Any]], None] | None = None,
     approver: Approver | None = None,
     sensitive: Callable[[str], bool] | None = None,
+    chat_grants: list | None = None,
     tainted: Callable[[], bool] | None = None,
     untrusted: Callable[[str], bool] | None = None,
     on_taint: Callable[[], None] | None = None,
@@ -102,7 +103,8 @@ def build_agent(
         approver: asks the user (installs, paths outside the allowed folders,
             sensitive MCP tools). Without one, those calls are refused with an
             explanation.
-        sensitive: whether an MCP tool, by its agent-facing name, must ask first.
+        sensitive: whether a tool, by its agent-facing name, must ask first.
+        chat_grants: the chat's "Allow for this chat" answers, kept across turns.
         tainted: whether outside content (a web page, a fetch) has entered the chat.
         untrusted: whether an MCP tool, by its agent-facing name, returns outside content.
         on_taint: called when a tool brings outside content in (`TaintTracker`).
@@ -166,7 +168,7 @@ def build_agent(
         hooks=[RunLimits(settings.limits, notify=observer),
                ToolPolicy(_scope(settings, workspace_dir), approver=approver,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
-                          mode=settings.access.mode),
+                          mode=settings.access.mode, chat_grants=chat_grants),
                ToolFailureRecovery(settings.resilience, notify=observer),
                skill_tools,
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],

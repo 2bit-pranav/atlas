@@ -141,6 +141,7 @@ class ToolsSettings(StrictModel):
     builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
     atlas: AtlasToolSettings = Field(default_factory=AtlasToolSettings)
     interventions: bool = False # the UI cannot answer harness interventions (ToolManager.interventions)
+    ask: list[str] = Field(default_factory=list) # tools that ask before every call, whatever the grid allows
 
     @model_validator(mode="before")
     @classmethod
@@ -403,6 +404,7 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.calculate": Tier.LIVE,
     "tools.atlas.dates": Tier.LIVE,
     "tools.interventions": Tier.LIVE,
+    "tools.ask": Tier.LIVE,
     "skills.dir": Tier.LIVE,
     "skills.disabled": Tier.LIVE,
     "mcp.config": Tier.RESTART,

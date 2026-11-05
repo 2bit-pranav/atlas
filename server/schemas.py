@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -57,6 +57,7 @@ class SelectTurn(BaseModel):
 
 class Answer(BaseModel):
     allow: bool
+    scope: Literal["once", "chat"] = "once"
 
 
 class ProfileBody(BaseModel):

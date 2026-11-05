@@ -71,3 +71,8 @@ def test_describe_and_upsert_round_trip(tmp_path) -> None:
     manager.upsert("gh", shown)
     stored = json.loads(path.read_text(encoding="utf-8"))["mcpServers"]["gh"]
     assert stored["env"]["GITHUB_TOKEN"] == "ghp_secret"
+
+
+def test_mcp_tools_ask_unless_set_on() -> None:
+    server = _Server("s", {"command": "x", "atlas": {"on": ["search"]}, "tool_filters": {"rejected": ["rm"]}})
+    assert (server.mode("search"), server.mode("other"), server.mode("rm")) == ("on", "ask", "off")

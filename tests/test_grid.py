@@ -143,6 +143,45 @@ def test_mcp_tools_by_their_servers_labels(home) -> None:
     assert asked.calls[-1][1]["action"] == "change"
 
 
+def test_allow_for_this_chat_carries_to_the_next_turn_until_outside_content(home) -> None:
+    grants: list = []
+    notes = {"path": (home / "Docs" / "notes.txt").as_posix(), "old_string": "a", "new_string": "b"}
+    asked = Asked("allowed_chat")
+    first = ToolPolicy(_policy(home)[0].scope, approver=asked, chat_grants=grants)
+    assert _call(first, "edit", notes) is False and len(asked.calls) == 1 and asked.calls[0][1]["chat"]
+    later = ToolPolicy(first.scope, approver=asked, chat_grants=grants)       # the next turn, same chat
+    assert _call(later, "edit", notes) is False and len(asked.calls) == 1
+    tainted = ToolPolicy(first.scope, approver=Asked("denied"), chat_grants=grants, tainted=lambda: True)
+    assert _call(tainted, "edit", notes)                                     # outside content: asks again
+
+
+@pytest.mark.parametrize("name, args", [
+    ("delete_file", {"path": "Docs/notes.txt"}), ("shell", {"command": "python -c \"print(1)\""}),
+])
+def test_deletes_and_commands_are_never_allowed_for_a_whole_chat(home, name, args) -> None:
+    policy, asked = _policy(home, answer="denied")
+    args = {k: (home / v).as_posix() if k == "path" else v for k, v in args.items()}
+    _call(policy, name, args)
+    assert asked.calls and asked.calls[0][1]["chat"] is False
+
+
+def test_a_tool_set_to_ask_asks_once_per_chat_when_allowed_for_it(home) -> None:
+    grants: list = []
+    asked = Asked("allowed_chat")
+    scope = _policy(home)[0].scope
+    for _turn in range(2):
+        policy = ToolPolicy(scope, approver=asked, chat_grants=grants, sensitive=lambda n: n == "web_search")
+        assert _call(policy, "web_search", {"query": "x"}, mcp_tool("web_search", read_only=True)) is False
+    assert len(asked.calls) == 1 and asked.calls[0][1]["chat"]
+
+
+def test_one_card_when_the_grid_and_the_tool_both_ask(home) -> None:
+    asked = Asked("allowed")
+    policy = ToolPolicy(_policy(home)[0].scope, approver=asked, sensitive=lambda n: True)
+    _call(policy, "edit", {"path": (home / "Docs" / "notes.txt").as_posix(), "old_string": "a", "new_string": "b"})
+    assert len(asked.calls) == 1
+
+
 def test_recycle_moves_a_file_to_the_recycle_bin(tmp_path) -> None:
     target = tmp_path / "atlas-test-recycle.txt"
     target.write_text("restore me")

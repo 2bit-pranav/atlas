@@ -48,6 +48,7 @@ def register(api: Any, state: Any) -> None:
         if state.runs.active_for_chat(chat_id):
             raise HTTPException(409, "cannot delete a chat with an active run")
         state.store.delete_chat(chat_id)
+        state.chat_grants.pop(chat_id, None)
         await SessionManager(state.settings, chat_id).delete_all()
         shutil.rmtree(paths.chat_dir(state.settings, chat_id), ignore_errors=True)
         # Its parsed documents too, unless another chat has the same file.

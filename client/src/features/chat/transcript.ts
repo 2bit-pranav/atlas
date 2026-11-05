@@ -61,7 +61,7 @@ export function fold(live: LiveTurn, event: RunEvent): void {
       return
     case "approval_request":
       parts.push({ kind: "approval", id: event.id, request: event.kind, folder: event.folder ?? null,
-                   access: event.access ?? null, command: event.command, status: "pending", expires_at: event.expires_at })
+                   access: event.access ?? null, chat: event.chat ?? false, command: event.command, status: "pending", expires_at: event.expires_at })
       return
     case "approval_result":
       for (let i = 0; i < parts.length; i++) {
