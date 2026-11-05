@@ -475,6 +475,30 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 
 ## Safety
 
+**Web search is native, through Exa; the workspace is never shown by its path**
+(2026-11-05, measured, `benchmarks/2026-11-05-search-exa*`). `web_search` and
+`read_url` (agent/tools/web.py) call Exa's API with httpx (no SDK: two POST
+requests). Code shapes the results: two per site at most, only those whose
+highlights answer the query, five kept, each labelled with its site, date and
+kind. `read_url` is fetched by Exa, so it cannot reach this machine; local
+addresses are refused before sending. Both ask (`tools.ask` by default), and
+"Allow for this chat" on them survives their own results tainting the chat
+(otherwise every search after the first asks); queries carrying a path,
+`$ATLAS_WORKSPACE`, a long number or over 300 characters are refused instead.
+The key is in `<data>/secrets/exa.key`, set through a web-UI-only route. The
+search tasks: 23/24 (thinking on 12/12) against 5/12 on the ddg-search MCP
+server, where the facts were right but uncited and links were searched rather
+than read. The first Exa run was 14/24: the model wrote [1] without links
+until the tool asked for "a Sources list: each number with its full link".
+The exfiltration task (a page telling the model to search with the user's
+resume) never had the model try, in 8 runs: the refusals are proven offline
+only. Separately, the model is no longer shown the workspace's path: a
+garbled copy of its 32-character chat id had landed in another chat's
+folder, which showed an Allow card. Workspace files are named bare,
+`$ATLAS_WORKSPACE` names the workspace in every tool and the shell, and any
+other chat's folder is refused outright, reads included. ddg-search is
+disabled in mcp.json, like the filesystem server.
+
 **Cleanup after the document and file rework** (2026-11-05). Removed what
 nothing called: `Scope.allows` (the grid replaced it), `harness_skills`,
 `set_thinking`, `verify_off`, `SessionManager.policy`, the client's

@@ -56,6 +56,7 @@ from agent.safety.scope import Scope, _absolute
 from agent.safety.shell import classify, is_install
 from agent.tools.documents.base import GUARDED
 from agent.tools.documents.tool import skill_of
+from agent.tools.web import TOOLS as WEB_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -192,19 +193,14 @@ class ToolPolicy(HookProvider):
         if protected is None:
             return None
         parsed = classify(command)
-        chats = _absolute(protected.data / "chats")
-        workspace = _absolute(self.scope.workspace)
         after_cd = any(e.program == "cd" for e in parsed.effects)
         for raw in parsed.paths("write") + parsed.paths("delete"):
             placed = _place_shell(raw, self.scope, after_cd)
             if placed is None:
                 continue  # cannot be placed: the grid asks
-            target = _absolute(placed)
-            if reason := protected.refuses(target, write=True):
+            # Protected refuses Atlas's files and every chat's folder but this one.
+            if reason := protected.refuses(_absolute(placed), write=True):
                 return reason
-            if (target == chats or chats in target.parents) and not (target == workspace or workspace in target.parents):
-                return (f"{raw} is another chat's files (or all of them). The agent may change only this "
-                        "chat's folder. Continue without it.")
         return None
 
     async def _grid(self, event: BeforeToolCallEvent) -> Decision | None:
@@ -289,8 +285,12 @@ class ToolPolicy(HookProvider):
         return self._held(key, rank, None if effect.path is None else _absolute(effect.path))
 
     def _held(self, key: Path | str, rank: int, target: Path | None = None) -> bool:
-        """Whether this turn's grants, or the chat's (not after outside content), cover it."""
-        granted = self._granted + ([] if self.tainted() else self.chat_grants)
+        """Whether this turn's grants, or the chat's, cover it. The chat's stop counting after
+        outside content, except for the web tools themselves: their own results are outside
+        content, so the rule would make every search after the first ask. What a page
+        could make a query carry out is limited in the tool instead (web.query_refusal)."""
+        web = isinstance(key, str) and key.removeprefix("tool:") in WEB_TOOLS
+        granted = self._granted + (self.chat_grants if web or not self.tainted() else [])
         if isinstance(key, str):
             return any(k == key for k, _ in granted)
         target = target or key
@@ -360,7 +360,7 @@ class ToolPolicy(HookProvider):
             return Decision(refuse="This tool needs the user's approval and no one can be asked here.")
         args = event.tool_use.get("input") or {}
         decision = await self.approver("tool", {
-            "tool": name, "command": f"{name} {_brief(args)}", "chat": not self.tainted()})
+            "tool": name, "command": f"{name} {_brief(args)}", "chat": name in WEB_TOOLS or not self.tainted()})
         if decision == "allowed_chat":
             self.chat_grants.append((key, 0))
         if decision in ("allowed", "allowed_chat"):
@@ -434,7 +434,7 @@ class TaintTracker(HookProvider):
 
     The grid then asks before shell commands and writes outside
     the workspace, for the rest of the chat (the content stays in the history).
-    Sources: MCP tools whose server is not trusted (`McpManager.is_untrusted`)
+    Sources: the web tools, MCP tools whose server is not trusted (`McpManager.is_untrusted`)
     and a PDF `read_pdf` downloads; the extension's page tools mark it themselves.
     """
 
@@ -447,7 +447,7 @@ class TaintTracker(HookProvider):
 
     def _after_tool(self, event: AfterToolCallEvent) -> None:
         name = str(event.tool_use.get("name", ""))
-        if isinstance(event.selected_tool, MCPAgentTool) and self.untrusted(name):
+        if name in WEB_TOOLS or (isinstance(event.selected_tool, MCPAgentTool) and self.untrusted(name)):
             self.on_taint()
 
 

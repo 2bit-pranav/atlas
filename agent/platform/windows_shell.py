@@ -80,6 +80,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         #: The agent's cancel signal (`runtime/factory.py` sets it): Stop ends a
         #: running command too, not only the model's turn.
         self.cancel_signal: threading.Event | None = None
+        if self.cwd:   # set per turn: the environment is built for each turn's chat
+            self.extra_env["ATLAS_WORKSPACE"] = model_path(self.cwd)
         if self.folders:
             self.extra_env["ATLAS_FOLDERS"] = os.pathsep.join(str(f) for f in self.folders)
 

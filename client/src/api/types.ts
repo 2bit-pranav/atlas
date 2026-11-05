@@ -263,6 +263,8 @@ export interface SettingsView {
   paths: { root: string; data: string }
   /** What the loaded model takes in, from llama-server's /props. */
   modalities: { vision?: boolean; audio?: boolean }
+  /** Whether an Exa key is set; the key itself never leaves the backend. */
+  web?: { exa_key_set: boolean }
 }
 
 export interface SkillInstallResult {

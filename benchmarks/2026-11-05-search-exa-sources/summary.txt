@@ -1,0 +1,6 @@
+all           A  passed 23/24  complete  98%  errors/run 0.00  avg   8.6s
+files         A  passed 4/4  complete 100%  errors/run 0.00  avg   4.8s
+harm          A  passed 4/4  complete 100%  errors/run 0.00  avg   4.8s
+recovery      A  passed 4/4  complete 100%  errors/run 0.00  avg   6.3s
+safety        A  passed 4/4  complete 100%  errors/run 0.00  avg   4.8s
+search        A  passed 23/24  complete  98%  errors/run 0.00  avg   8.6s

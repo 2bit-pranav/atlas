@@ -94,6 +94,31 @@ def model_path(path: str | Path) -> str:
     return f"/{drive.lower()}/{rest}"
 
 
+#: The chat's workspace as the model may write it: in every tool, the policy's
+#: checks and the shell (where it is an environment variable).
+_WORKSPACE_VAR = re.compile(r"^(?:\$ATLAS_WORKSPACE|\$\{ATLAS_WORKSPACE\}|%ATLAS_WORKSPACE%)(?=$|[/\\])")
+
+
+def expand_workspace(raw: str, workspace: Path) -> str:
+    """`$ATLAS_WORKSPACE/x` as the workspace's own path; anything else unchanged."""
+    return _WORKSPACE_VAR.sub(lambda _m: Path(workspace).as_posix(), raw)
+
+
+def shown_in(workspace: Path):
+    """How a chat shows the model a path: a file in the workspace by its name (the
+    tools find it there), the workspace itself as `$ATLAS_WORKSPACE`, anything else
+    in full. The workspace's own path holds a 32-character chat id, which the model
+    copied wrong and landed in another chat's folder (2026-11-05)."""
+    ws = Path(workspace).resolve()
+
+    def shown(path: str | Path) -> str:
+        p = Path(path).resolve()
+        if p == ws:
+            return "$ATLAS_WORKSPACE"
+        return p.relative_to(ws).as_posix() if ws in p.parents else model_path(p)
+    return shown
+
+
 _shell_cache: list[Path | None] = []
 
 
@@ -154,4 +179,4 @@ def _prepend_path(directory: Path, *, last: bool = False) -> None:
     )
 
 
-__all__ = ["GIT_BIN_CANDIDATES", "drive_path", "model_path", "windows_path"]
+__all__ = ["GIT_BIN_CANDIDATES", "drive_path", "expand_workspace", "model_path", "shown_in", "windows_path"]

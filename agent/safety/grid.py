@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agent.platform.winpaths import windows_path
+from agent.platform.winpaths import expand_workspace, windows_path
 from agent.safety.call_paths import (
     _IMAGE,
     DESTINATION_TOOLS,
@@ -146,7 +146,7 @@ def _shell(command: str, scope: Scope) -> list[Effect]:
 
 def _place_shell(raw: str, scope: Scope, after_cd: bool) -> Path | None:
     """A shell target as a path, or None when it cannot be placed (asks)."""
-    raw = raw.strip("\"'")
+    raw = expand_workspace(raw.strip("\"'"), scope.workspace)
     raw = _HOME_FORMS.sub(lambda _m: Path.home().as_posix(), raw)
     if "$" in raw or "%" in raw or raw.startswith("~"):
         return None

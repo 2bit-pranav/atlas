@@ -94,6 +94,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `GET /models` | the models in the models folder, which one is running, which is selected |
 | `POST /restart`, `GET /restart` | ask `atlas start` to restart llama-server and the backend; how the last restart went |
 | `GET /settings`, `PUT /settings` | flat dotted keys; any key can be written (RESTART keys are saved, applied at the next start) |
+| `PUT /secrets/exa` | `{key}`: the Exa key for web search (empty clears it). Write-only; `GET /settings` says only `web.exa_key_set` |
 | `GET /skills`, `POST /skills/install`, `POST /skills/upload`, `PUT /skills/{folder}`, `DELETE /skills/{folder}`, `POST /skills/{folder}/requirements` | |
 | `GET /mcp`, `POST /mcp`, `DELETE /mcp/{name}`, `PUT /mcp/{name}`, `POST /mcp/{name}/reconnect`, `PUT /mcp/{name}/tools/{tool}`, `GET /mcp/registry?q=` | a tool's `{mode}` is `on`, `ask` (approve each call) or `off` |
 

@@ -61,3 +61,11 @@ Numbers from different harnesses are not comparable: compare within a block.
 | Run | Passed | |
 |---|---|---|
 | 2026-11-05-full-after-cleanup | 142/156 | after the cleanup; 11 of the 14 failures are thinking off. docs 53/56, files 51/56, harm 20/20, read 28/28 |
+| 2026-11-05-full-workspace-paths-ddg-search | 74/90 | once each: the workspace never shown by its path, other chats refused; the 6 search tasks on the ddg-search MCP server (5/12 on them) |
+
+## Web search (6 `search` tasks, thinking off and on, twice: 24 runs)
+
+| Run | Passed | |
+|---|---|---|
+| 2026-11-05-search-exa | 14/24 | `web_search` / `read_url` through Exa: every fact right; 7 answers cited [1] without the links |
+| 2026-11-05-search-exa-sources | 23/24 | the tool asks for a Sources list with full links; "a link the user gives: read_url". Thinking on 12/12 |

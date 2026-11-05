@@ -96,9 +96,9 @@ def _mention_guidance(user_text: str, settings: Settings, mcp: Any,
     lines = []
     for name in names:
         if name in files:
-            shown = model_path(str(workspace / name))  # type: ignore[operator]
             call = _reader(name)
-            lines.append(f"- `{name}` is the file at {shown}" + (f"; read it with {call}" if call else "."))
+            lines.append(f"- `{name}` is the file `{name}` in your workspace"
+                         + (f"; read it with {call}" if call else "."))
         elif name in servers:
             lines.append(f"- Use the tools of the MCP server `{name}` "
                          f"({', '.join(servers[name]) or 'none enabled'}), not built-in tools that "
@@ -133,12 +133,12 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
     for f in files:
         if not isinstance(f, dict) or not f.get("path"):
             continue
-        shown = model_path(f["path"])
-        line = f"- {f.get('name')} at {shown} ({f.get('size', 0)} bytes)"
-        # The exact call for each file. A file in the workspace is named bare
-        # (the tools place it there).
+        # The exact call for each file. A file in the workspace is named bare (the tools
+        # place it there), never by the workspace's path: the model copied its chat id
+        # wrong and landed in another chat's folder (2026-11-05).
         here = workspace is not None and Path(str(f["path"])).parent == workspace
-        name = f["name"] if here else shown
+        name = f["name"] if here else model_path(f["path"])
+        line = f"- {name} ({f.get('size', 0)} bytes{', in your workspace' if here else ''})"
         if call := _reader(name):
             line += f". Read it with {call}"
             # Without this the model read the file and rewrote it with

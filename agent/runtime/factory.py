@@ -20,7 +20,7 @@ from agent.ingest.store import store_for
 from agent.integrations.skills.catalog import SkillManager
 from agent.model.sampling import RetryPlan, build_model
 from agent.platform.windows_shell import WindowsLocalEnvironment, default_environment
-from agent.platform.winpaths import model_path
+from agent.platform.winpaths import shown_in
 from agent.prompt.system import _compose_instructions, _tool_sources
 from agent.recovery.model_retry import LocalModelRetry
 from agent.recovery.tool_recovery import ToolFailureRecovery
@@ -40,6 +40,7 @@ from agent.tools.finding import finding_tools
 from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
 from agent.tools.reading import read_tools
+from agent.tools.web import read_key, web_tools
 
 CONVERSATION_MANAGERS = {
     "null": "NullConversationManager",
@@ -128,16 +129,19 @@ def build_agent(
     scope = _scope(settings, workspace_dir)
     # The tools place a path exactly as the policy checks it: one rule (Scope.place).
     resolve = scope.place
+    shown = shown_in(workspace_dir)
     store = store_for(paths.data_dir(settings))
-    atlas_tools = [t for t in (*finding_tools(scope, resolve, model_path, store),
-                               *read_tools(resolve, model_path, settings.model.supports_vision),
+    atlas_tools = [t for t in (*finding_tools(scope, resolve, shown, store),
+                               *read_tools(resolve, shown, settings.model.supports_vision),
                                *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
-                               *file_tools(resolve, model_path),
+                               *file_tools(resolve, shown),
+                               # Not offered without a key: a tool that only fails wastes a turn.
+                               *(web_tools(paths.data_dir(settings)) if read_key(paths.data_dir(settings)) else []),
                                *maths_tools())
                    if t.tool_name in enabled]
     # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
     skill_tools = SkillTools({name: t for name, t in document_tools(
-        workspace_dir, model_path, resolve, store, chat_id).items() if name in enabled})
+        workspace_dir, shown, resolve, store, chat_id).items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
@@ -200,7 +204,7 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
         readable=[paths.skills_dir(settings), Path(sys.executable).resolve().parents[1]],
         protected=Protected(root=paths.ROOT, data=paths.data_dir(settings),
                             mcp_config=paths.mcp_config(settings), venv=Path(sys.prefix),
-                            skills=paths.skills_dir(settings)),
+                            skills=paths.skills_dir(settings), workspace=workspace),
     )
 
 

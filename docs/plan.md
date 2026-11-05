@@ -9,6 +9,12 @@ the way native tools replaced the filesystem one.
 (The file discovery plan before this one is done: decisions.md, 2026-11-05,
 and `benchmarks/2026-11-05-files-*`.)
 
+**Status (2026-11-05): built and measured.** Search tasks 23/24 (thinking on
+12/12), `benchmarks/2026-11-05-search-exa-sources`; ddg-search disabled. Left:
+the cost total in run stats; a stronger exfiltration task (the model has not
+yet tried in any run); official-site labels miss an organisation's own site
+(nobelprize.org shows as `other`).
+
 ## 1. Provider: Exa
 
 Exa's search is built for agents. One call returns ranked pages, each with

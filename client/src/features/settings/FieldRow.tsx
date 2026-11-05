@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/Switch"
 import type { ModelList } from "@/api/types"
 import { cn } from "@/lib/cn"
 import { Group, Row } from "@/features/settings/layout"
+import { atlas, useAtlas } from "@/state/store"
 
 const inputClass = "h-8 rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
 
@@ -52,6 +53,9 @@ export function FieldRow({ field, value, restart, changed, onChange }: {
     case "model":
       control = <ModelSelect value={String(value ?? "")} onChange={onChange} />
       break
+    case "exaKey":
+      control = <ExaKey />
+      break
     case "list":
       control = <textarea rows={3} value={((value as string[]) ?? []).join("\n")}
                           onChange={(e) => onChange(e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
@@ -66,6 +70,32 @@ export function FieldRow({ field, value, restart, changed, onChange }: {
     }
   }
   return <Row label={field.label} help={field.help} badge={badge} wide={wide}>{control}</Row>
+}
+
+/** The Exa key: typed once and saved on its own; only "set" or "not set" ever comes back. */
+function ExaKey() {
+  const isSet = useAtlas((s) => Boolean(s.settings?.web?.exa_key_set))
+  const [draft, setDraft] = useState("")
+  const save = async (key: string) => {
+    try {
+      await api.putExaKey(key)
+      setDraft("")
+      await atlas.refreshSettings()
+    } catch (error) {
+      atlas.fail(error)
+    }
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-muted-foreground">{isSet ? "Set" : "Not set"}</span>
+      <input type="password" autoComplete="off" value={draft} placeholder={isSet ? "Replace key" : "Paste key"}
+             onChange={(e) => setDraft(e.target.value)} className={cn(inputClass, "w-48 font-mono text-xs")} />
+      <button type="button" disabled={!draft.trim()} onClick={() => void save(draft)}
+              className="rounded-md border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50">Save</button>
+      {isSet && <button type="button" onClick={() => void save("")}
+                        className="rounded-md border px-2 py-1 text-xs hover:bg-accent">Remove</button>}
+    </div>
+  )
 }
 
 /** The models in the models folder, with the one llama-server is running marked. */

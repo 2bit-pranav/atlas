@@ -189,6 +189,8 @@ export const putProfile = (text: string) => request<{ text: string }>("/profile"
 export const suggestFill = (fields: { id: string; label: string }[], title: string) =>
   request<{ values: Record<string, string>; missing: string[] }>("/extension/fill", json("POST", { fields, title }))
 export const resetPairing = () => request<{ token: string }>("/pairing/reset", json("POST"))
+/** Set (or, empty, clear) the Exa key for web search. Write-only: it is never read back. */
+export const putExaKey = (key: string) => request<{ exa_key_set: boolean }>("/secrets/exa", json("PUT", { key }))
 export const listModels = () => request<ModelList>("/models")
 export const restartStatus = () => request<RestartStatus>("/restart")
 export const restart = () => request<{ ok: boolean }>("/restart", json("POST"))

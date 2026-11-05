@@ -6,8 +6,9 @@ raise its own limits in `settings.json`. And the data folder holds what other
 chats said, the extension's pairing token and the user's details. So:
 
 - nothing in Atlas's folder, its venv or its data folder is ever **written**;
-- nothing in the data folder is ever **read**, except the chats folder (every
-  chat's workspace lives there), and `mcp.json` is never read (it holds keys).
+- nothing in the data folder is ever **read**, except this chat's workspace;
+  another chat's folder is refused like the rest, so chats stay apart, and
+  `mcp.json` is never read (it holds keys).
 
 Refused outright, never asked: the user allowing a folder that happens to
 contain Atlas (their Desktop) does not allow this.
@@ -27,12 +28,20 @@ class Protected:
     mcp_config: Path
     venv: Path | None = None
     skills: Path | None = None
+    #: This chat's workspace: the one folder under `data/chats` the agent may use.
+    workspace: Path | None = None
 
     def refuses(self, path: Path, *, write: bool) -> str | None:
         """Why `path` is off limits for this access, or None."""
         target = _norm(path)
-        if _inside(target, _norm(self.data / "chats")):
-            return None  # every chat's workspace: the agent's own place to work
+        chats = _norm(self.data / "chats")
+        if _inside(target, chats):
+            if self.workspace is None or _inside(target, _norm(self.workspace)):
+                return None  # this chat's workspace: the agent's own place to work
+            # A garbled copy of the workspace's path lands here too: say how to name it.
+            return (f"{path} is not this chat's workspace (another chat's files, or a mistyped path). "
+                    "Name a file in your workspace by its name alone, e.g. path=\"report.docx\", or as "
+                    "$ATLAS_WORKSPACE/report.docx.")
         if target == _norm(self.mcp_config) or _inside(target, _norm(self.data)):
             return (f"{path} is Atlas's own data (its settings, keys or other chats). The agent may not read "
                     "or change it, and the user cannot allow it. Continue without it.")

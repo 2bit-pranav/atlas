@@ -17,6 +17,8 @@ export type Control =
   | { type: "list" }
   /** The models in the models folder, from GET /models. */
   | { type: "model" }
+  /** The Exa key: write-only, saved on its own (not a settings.json value). */
+  | { type: "exaKey" }
 
 export interface Field {
   key: string
@@ -83,6 +85,12 @@ export const SECTIONS: Section[] = [
           { key: "tools.atlas.copy_file", label: "copy_file", control: toggle, help: "Copy a file or folder. Never replaces a file." },
           { key: "tools.atlas.move_file", label: "move_file", control: toggle,
             help: "Move or rename. Never replaces a file; moving your files asks first." },
+          { key: "tools.atlas.web_search", label: "web_search", control: toggle,
+            help: "Search the web through Exa: a few relevant passages, each with its source. Needs the key below." },
+          { key: "tools.atlas.read_url", label: "read_url", control: toggle,
+            help: "Read a web page by its address. Fetched by Exa, never from this computer." },
+          { key: "web.exa_key", label: "Exa key", control: { type: "exaKey" },
+            help: "For web_search and read_url. Kept in Atlas's data folder; the agent can never read it. Get one at exa.ai." },
           { key: "tools.atlas.delete_file", label: "delete_file", control: toggle,
             help: "Delete by moving to the Recycle Bin. Deleting your files always asks first." },
           { key: "tools.ask", label: "Always ask before", control: { type: "list" },

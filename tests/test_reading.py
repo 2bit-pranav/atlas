@@ -74,6 +74,7 @@ def test_a_long_text_attachment_is_announced_with_its_search_form(tmp_path) -> N
     (tmp_path / "long.log").write_text("a\n" * 400)
     files = [{"path": str(tmp_path / n), "name": n, "size": 1} for n in ("short.txt", "long.log", "pic.png")]
     text = _agent_text("q", files, workspace=tmp_path)
-    assert 'short.txt at' in text and 'read_text(path="short.txt")' in text
+    assert "- short.txt (" in text and 'read_text(path="short.txt")' in text
+    assert tmp_path.as_posix() not in text and tmp_path.name not in text   # no workspace path to mistype
     assert 'it has 400 lines, so to find something use read_text(path="long.log", search="words")' in text
     assert "pic.png" in text and 'read_text(path="pic.png")' not in text   # images go to the model as they are

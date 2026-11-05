@@ -39,6 +39,7 @@ agent/
                 files.py         delete_file (to the Recycle Bin, the agent's only way to delete),
                                  copy_file, move_file (never over an existing file)
                 finding.py       find_files (words in name, folder or contents), list_folder (a tree)
+                web.py           web_search / read_url through Exa: shaped, labelled, cited results
                 page.py          page_read / page_find for the browser extension, via client calls
   ingest/       store.py         the ingest store: parse at upload, one worker, SQLite + FTS5, per-chat ownership
                 parse.py         a pdf/docx/xlsx into blocks whose ids the edit tools address
@@ -278,7 +279,8 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 5. **install**: a `shell` command that installs asks (kind `install`).
 6. **sensitive**: a tool set to Ask asks (kind `tool`): every MCP tool unless
    set On on the MCP page (stored as `atlas.on` in mcp.json), and any tool
-   named in `tools.ask`. Skipped when the grid already asked about the call.
+   named in `tools.ask` (by default the web tools). Skipped when the grid
+   already asked about the call.
 
 Recovery after a tool runs stays in `recovery/`.
 
@@ -332,9 +334,33 @@ in SKILL.md code fences (`npm install -g x`, `pip install y`), each with its
 installed status. The Skills page lists them and installs the missing ones.
 That click is the approval; the model never has to.
 
+## The web (`tools/web.py`)
+
+`web_search(query, recent)` and `read_url(url, question)`, through Exa's API
+(httpx, no SDK). Code shapes what the model sees: two results per site at
+most, only results whose highlights (Exa's query-relevant sentences) answer
+the query, five kept, each labelled with its site, date and kind (official,
+reference, news, forum, other), with "cite as [1]" and "prefer official
+sources". `read_url` is fetched by Exa, never from this machine; addresses
+that are not public are refused before sending, a PDF goes to `read_pdf`.
+
+Both send the user's words to a third party: they ask (`tools.ask`), and
+"Allow for this chat" covers them for the whole chat, even after their own
+results taint it (otherwise every search after the first would ask). What a
+page could make a query carry out is limited instead: queries over 300
+characters, holding a file path or `$ATLAS_WORKSPACE`, or a long number are
+refused. Their results taint the chat, like an untrusted MCP server's.
+
+The key is in `<data>/secrets/exa.key` (`PUT /api/secrets/exa`, the web UI's
+alone): never in settings.json, never an environment variable (every shell
+command would inherit it), and the agent can never read the data folder.
+Without a key the tools are not offered.
+
 ## Windows (`platform/`)
 
-- Every shell command starts in the **chat's workspace**, `$ATLAS_SKILLS`
+- Every shell command starts in the **chat's workspace** (`$ATLAS_WORKSPACE`,
+  set per turn; the model is never shown the workspace's own path, whose chat id
+  it copied wrong into another chat's folder, now refused), `$ATLAS_SKILLS`
   points at the skills folder and `$ATLAS_FOLDERS` lists the allowed folders. An attached file is named by its name alone
   (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
   `python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" ...`. The attachment

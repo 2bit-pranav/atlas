@@ -46,7 +46,6 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
     """
     import sys
 
-    workspace = paths.chat_dir(settings, chat_id)
     today = datetime.now().astimezone()
     return (
         f"Today is {today:%A, %d %B %Y}. Read \"last\", \"latest\", \"this year\" and "
@@ -58,9 +57,10 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
         "Running things on this machine:\n"
         f"- Python: `{sys.executable}`, and a bare `python` resolves to the "
         f"same interpreter. Either works.\n"
-        f"- Your workspace for this chat is `{model_path(workspace)}`, and every shell "
+        "- Your workspace for this chat is `$ATLAS_WORKSPACE`, and every shell "
         "command starts there, so a file in it is named by its name alone "
-        "(\"exp4.pdf\"). Uploaded files are there, and files you create go "
+        "(\"exp4.pdf\"), or as `$ATLAS_WORKSPACE/exp4.pdf` when a folder of the same name "
+        "exists elsewhere. Uploaded files are there, and files you create go "
         "there unless the user names another place.\n"
         + _folders_line(settings)
         + f"- Skill scripts are under `$ATLAS_SKILLS` ({model_path(paths.skills_dir(settings))}), "
@@ -97,6 +97,10 @@ def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> st
     if "find_files" in builtin:
         lines.append("- Find files with find_files (by words) and list_folder (a folder's tree), not with shell "
                      "commands. Copy, move or rename with copy_file and move_file, delete with delete_file.")
+    if "web_search" in builtin:
+        lines.append("- Search the web with web_search. A link the user gives: read it with read_url, not a "
+                     "search. End an answer from the web with its Sources: each link in full. Your own "
+                     "knowledge may be out of date: search for anything recent.")
     if skills:
         lines.append(f"- Skills (instructions, loaded with the `skills` tool; not tools themselves): "
                      f"{', '.join(skills)}.")

@@ -134,6 +134,8 @@ class AtlasToolSettings(StrictModel):
     delete_file: bool = True  # agent/tools/files.py: to the Recycle Bin, after the grid
     copy_file: bool = True
     move_file: bool = True
+    web_search: bool = True  # agent/tools/web.py; offered only once an Exa key is set
+    read_url: bool = True
     create_document: bool = True  # agent/tools/documents/
     edit_docx: bool = True  # with the docx skill
     set_cell: bool = True  # with the xlsx skill
@@ -145,7 +147,9 @@ class ToolsSettings(StrictModel):
     builtin: BuiltinToolSettings = Field(default_factory=BuiltinToolSettings)
     atlas: AtlasToolSettings = Field(default_factory=AtlasToolSettings)
     interventions: bool = False # the UI cannot answer harness interventions (ToolManager.interventions)
-    ask: list[str] = Field(default_factory=list) # tools that ask before every call, whatever the grid allows
+    # Tools that ask before every call, whatever the grid allows. The web tools send the user's
+    # words to a third party (Exa), so they ask: "Allow for this chat" covers a whole chat.
+    ask: list[str] = Field(default_factory=lambda: ["web_search", "read_url"])
 
     @model_validator(mode="before")
     @classmethod
@@ -406,6 +410,8 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.delete_file": Tier.LIVE,
     "tools.atlas.copy_file": Tier.LIVE,
     "tools.atlas.move_file": Tier.LIVE,
+    "tools.atlas.web_search": Tier.LIVE,
+    "tools.atlas.read_url": Tier.LIVE,
     "tools.atlas.create_document": Tier.LIVE,
     "tools.atlas.edit_docx": Tier.LIVE,
     "tools.atlas.set_cell": Tier.LIVE,

@@ -98,3 +98,17 @@ def test_copy_and_move_never_replace_a_file(tmp_path) -> None:
     move(path="a.txt", destination="renamed.txt")
     assert (tmp_path / "sub" / "a.txt").exists() and (tmp_path / "renamed.txt").exists()
     assert not (tmp_path / "a.txt").exists()
+
+
+def test_workspace_files_are_shown_by_name_and_the_variable_places_them(tmp_path) -> None:
+    """The workspace's path holds a chat id the model copied wrong (2026-11-05)."""
+    from agent.platform.winpaths import shown_in
+
+    ws = tmp_path / "chats" / "e2adf397c87948ee8d241c8d62546a"
+    (ws / "sub").mkdir(parents=True)
+    shown = shown_in(ws)
+    assert shown(ws / "report.docx") == "report.docx" and shown(ws / "sub" / "a.txt") == "sub/a.txt"
+    assert shown(ws) == "$ATLAS_WORKSPACE" and "e2adf" not in shown(ws / "x")
+    scope = Scope(ws, folders=[tmp_path / "home"])
+    for form in ("$ATLAS_WORKSPACE/report.docx", "${ATLAS_WORKSPACE}/report.docx", "%ATLAS_WORKSPACE%/report.docx"):
+        assert scope.place(form) == ws / "report.docx", form

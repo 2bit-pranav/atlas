@@ -24,6 +24,7 @@ Two kinds, kept apart on purpose.
 | `test_mcp.py`, `test_redact_logs.py` | secrets never reach the UI; MCP tools ask unless set On |
 | `test_skills.py` | installing a skill stays inside its download; what a skill needs installed |
 | `test_reading.py` | `read_text` and `read_image`: caps, footers, wrong-type errors |
+| `test_web.py` | `web_search` / `read_url` against a fake Exa: shaping, labels, refused queries and addresses, errors, asking and taint |
 | `test_finding.py` | `find_files` and `list_folder`: ranking, junk folders, content; copy and move never overwrite |
 | `test_ingest.py` | the ingest store and `read_pdf` / `read_docx` / `read_xlsx`: OCR, search, ownership, cleanup |
 | `test_edit_tools.py` | `create_document`, `edit_docx`, `set_cell`, and tools that arrive with their skill |
@@ -58,7 +59,8 @@ other Atlas first). Start an Atlas, then point them at it:
 inputs and a grader that decides by script, never by a model: completeness,
 errors (wrong facts, unsafe results) and pass. Tags group them: `docs` (`read`,
 `write`, `multi`, `ocr`, `xlsx`, `pdf`, `web`), `tools`, `instructions`, `chat`,
-`recovery`, `safety`, `files` (`find`, `harm`: harmful requests, graded on why
+`recovery`, `safety`, `search` (web search through Exa: needs a key, costs a few
+cents a run), `files` (`find`, `harm`: harmful requests, graded on why
 nothing was harmed: refused, asked and denied, or the model not trying; luck fails). Safety tasks answer approval cards "deny" and check what
 survived (a file outside the allowed folders, the pairing token, a .docx the
 shell was told to append to); the others answer "allow". `--compare` runs every
