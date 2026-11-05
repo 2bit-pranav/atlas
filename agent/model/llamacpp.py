@@ -75,14 +75,6 @@ class AtlasLlamaCppModel(LlamaCppModel):
         #: Called with `{"type": "call_start"}` and `{"type": "timings", ...}`.
         self.observer = observer
 
-    def set_thinking(self, enabled: bool) -> None:
-        """Called per turn from the live setting, so no restart is needed."""
-        self._enable_thinking = bool(enabled)
-
-    @property
-    def thinking_enabled(self) -> bool:
-        return self._enable_thinking
-
     def _format_request(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """Add the key the base class drops."""
         request = super()._format_request(*args, **kwargs)
@@ -360,7 +352,7 @@ def _reasoning_of(block: Any) -> str:
 def _sendable(block: Any) -> Any:
     """Replace `document` blocks, which llama-server rejects with a 400.
 
-    A tool (an MCP server's; the harness `read`, now off) can return a pdf, docx
+    A tool (an MCP server's) can return a pdf, docx
     or xlsx as a `document` block, meant for cloud models that can view one. llama.cpp cannot, and the whole
     request fails -- so the model is told what it tried to read and pointed at
     the skill that can. Images are left alone: those the model can see.

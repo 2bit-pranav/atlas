@@ -65,8 +65,7 @@ def _npx(folder: str, *args: str) -> tuple[bool, str]:
 CHECKS = {
     "py": [("ruff", ruff), ("pyright", pyright), ("pytest", pytest)],
     "ts": [("client tsc", lambda: _npx("client", "tsc", "-b", "--noEmit")),
-           # Errors only for now: five warnings remain (three go with the client
-           # restructure, two are setState-in-effect in the Skills and MCP pages).
+           # Errors only: the remaining warnings are known (see oxlint's output).
            ("client oxlint", lambda: _npx("client", "oxlint")),
            ("client vitest", lambda: _npx("client", "vitest", "run")),
            ("extension tsc", lambda: _npx("extension", "tsc", "--noEmit")),

@@ -1,5 +1,5 @@
-"""B31: the UI never receives an MCP server's secrets, and editing a server in
-the UI keeps them (agent/integrations/mcp/secrets.py)."""
+"""MCP servers (agent/integrations/mcp/): secrets kept out of what the UI sees, and
+per-tool modes (a tool asks unless set On)."""
 
 from __future__ import annotations
 

@@ -85,7 +85,7 @@ class Atlas:
 
     def put_settings(self, patch: dict[str, Any]) -> None:
         """Save settings, then wait for MCP servers to settle: changing the
-        allowed folders reconnects the filesystem server."""
+        allowed folders reconnects the servers given them."""
         self.c.put("/settings", json=patch).raise_for_status()
         deadline = time.time() + 90
         while time.time() < deadline:

@@ -78,7 +78,7 @@ def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> st
     """Where each tool comes from, so "use the MCP one" has something to match.
 
     A small model sees a flat list of tool names. Asked to use an MCP server's
-    fetch tool it kept calling the built-in `web_fetch`, and asked for "MCP
+    fetch tool it kept calling a built-in tool with the same purpose, and asked for "MCP
     tools" it went looking for a skill.
     """
     from agent.integrations.mcp.pool import mcp_server_of

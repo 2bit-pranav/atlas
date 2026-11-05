@@ -99,7 +99,7 @@ function state(el: Element): string {
 const SECRET = /^(?:.*\s)?(?:one-time-code|cc-|current-password|new-password)/
 
 /**
- * B29: a text field's state for the model. What the user typed (an OTP, a card
+ * A text field's state for the model. What the user typed (an OTP, a card
  * number) is never sent; the list only says the field is filled. A value the
  * page itself put there (its default) is shown, so a prefilled form reads right.
  */

@@ -20,12 +20,7 @@ def _restore(
     function: assigning our text raw dropped the harness guidance, leaving only
     our text on the first restored turn.
     """
-    async def _do() -> bool:
-        return await session_manager.restore_snapshot(
-            agent, snapshot_id=snapshot_id
-        )
-
-    ok = _run(_do())
+    ok = _run(session_manager.restore_snapshot(agent, snapshot_id=snapshot_id))
     if not ok:
         raise ValueError(
             f"restore_snapshot({snapshot_id}) failed. The id is unknown, or the "

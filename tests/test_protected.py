@@ -1,4 +1,4 @@
-"""B32: Atlas's own files are on the floor (agent/safety/protected.py).
+"""Atlas's own files are on the floor (agent/safety/protected.py).
 
 The agent can never change Atlas itself (its code, settings.json, mcp.json,
 the venv, the skills), never read the data folder (the chat database,

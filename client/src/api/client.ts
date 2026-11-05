@@ -189,9 +189,6 @@ export const putProfile = (text: string) => request<{ text: string }>("/profile"
 export const suggestFill = (fields: { id: string; label: string }[], title: string) =>
   request<{ values: Record<string, string>; missing: string[] }>("/extension/fill", json("POST", { fields, title }))
 export const resetPairing = () => request<{ token: string }>("/pairing/reset", json("POST"))
-/** A web page's table saved as xlsx/csv by the backend; no model involved. */
-export const saveTable = (body: { rows: string[][]; title: string; url: string; format: "xlsx" | "csv"; folder?: string }) =>
-  request<{ path: string; rows: number }>("/extension/table", json("POST", body))
 export const listModels = () => request<ModelList>("/models")
 export const restartStatus = () => request<RestartStatus>("/restart")
 export const restart = () => request<{ ok: boolean }>("/restart", json("POST"))

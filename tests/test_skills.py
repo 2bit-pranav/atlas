@@ -1,15 +1,18 @@
-"""B30: installing a skill never reaches outside its download, and an archive
-cannot unpack to more than the caps (agent/integrations/skills/installer.py)."""
+"""Skills: installing one never reaches outside its download, and an archive
+cannot unpack to more than the caps (installer.py); what a skill needs
+installed (requirements.py)."""
 
 from __future__ import annotations
 
 import io
 import tarfile
 import zipfile
+from pathlib import Path
 
 import pytest
 
 from agent.integrations.skills import installer
+from agent.integrations.skills import requirements as skill_requirements
 from agent.integrations.skills.catalog import SkillError
 from agent.integrations.skills.installer import install_zip, preview_or_install
 
@@ -50,7 +53,7 @@ def test_a_folder_inside_the_repository_installs(tmp_path, repo) -> None:
     "https://github.com/o/repo/tree/main/skills/../../../outside",
 ])
 def test_a_path_outside_the_repository_is_refused(tmp_path, repo, url) -> None:
-    """B30: `..` in the URL's folder pointed the installer outside its download."""
+    """`..` in the URL's folder pointed the installer outside its download."""
     (tmp_path / "outside").mkdir()
     (tmp_path / "outside" / "SKILL.md").write_bytes(SKILL)
     with pytest.raises(SkillError, match="outside the repository"):
@@ -86,3 +89,21 @@ def test_a_zip_path_outside_is_still_refused(tmp_path) -> None:
     data = _zip({"../evil/SKILL.md": SKILL})
     with pytest.raises(SkillError, match="unsafe path"):
         install_zip(tmp_path / "skills", data, "evil.zip")
+
+
+def test_requirements_detected_from_all_three_sources(tmp_path) -> None:
+    (tmp_path / "requirements.txt").write_text("pypdf>=4  # pdfs\n# comment\n-r other.txt\n")
+    (tmp_path / "package.json").write_text('{"dependencies": {"left-pad": "^1"}}')
+    (tmp_path / "SKILL.md").write_text(
+        "Install:\n```bash\nnpm install -g agent-browser\npip install pypdf rich\n```\n"
+        "Not in a fence: pip install ignored\n")
+    found = {(r["manager"], r["package"], r["scope"]) for r in skill_requirements.detect(tmp_path)}
+    assert found == {("pip", "pypdf>=4", "env"), ("npm", "left-pad", "skill"),
+                     ("npm", "agent-browser", "global"), ("pip", "pypdf", "env"), ("pip", "rich", "env")}
+
+
+def test_requirement_status_for_pip() -> None:
+    status = skill_requirements.with_status(Path("."), [
+        {"manager": "pip", "package": "pytest>=1", "scope": "env"},
+        {"manager": "pip", "package": "surely-not-installed-xyz", "scope": "env"}])
+    assert [r["installed"] for r in status] == [True, False]

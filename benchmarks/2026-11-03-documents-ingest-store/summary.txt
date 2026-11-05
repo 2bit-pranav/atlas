@@ -1,0 +1,18 @@
+PASS pdf-long    think=off    6.4s calls=3 ctx=6216 tools=2 failed=0 wrong_tool=0
+PASS pdf-long    think=on    15.6s calls=3 ctx=7025 tools=2 failed=0 wrong_tool=0
+FAIL pdf-scan    think=off    5.0s calls=4 ctx=5676 tools=3 failed=0 wrong_tool=0  missing: ['INV-58213']
+PASS pdf-scan    think=on    17.6s calls=4 ctx=6957 tools=3 failed=0 wrong_tool=0
+PASS pdf-short   think=off    3.3s calls=2 ctx=5436 tools=1 failed=0 wrong_tool=0
+PASS pdf-short   think=on     5.4s calls=2 ctx=5617 tools=1 failed=0 wrong_tool=0
+PASS docx-table  think=off    5.1s calls=3 ctx=6605 tools=2 failed=0 wrong_tool=0
+PASS docx-table  think=on     8.2s calls=2 ctx=6428 tools=1 failed=0 wrong_tool=0
+PASS xlsx-sum    think=off    4.4s calls=4 ctx=5971 tools=3 failed=0 wrong_tool=0
+PASS xlsx-sum    think=on    18.9s calls=5 ctx=7285 tools=4 failed=1 wrong_tool=0
+PASS text-long   think=off    3.9s calls=2 ctx=5421 tools=1 failed=0 wrong_tool=0
+PASS text-long   think=on     7.8s calls=2 ctx=5755 tools=1 failed=0 wrong_tool=0
+FAIL docx-edit   think=off   16.4s calls=7 ctx=7886 tools=5 failed=3 wrong_tool=0  missing: ['18 days present', '23 days gone']
+PASS docx-edit   think=on    22.2s calls=6 ctx=8866 tools=5 failed=1 wrong_tool=1
+FAIL xlsx-edit   think=off    8.0s calls=7 ctx=6572 tools=6 failed=3 wrong_tool=0  missing: ['Mar North = 5000']
+FAIL xlsx-edit   think=on    50.3s calls=6 ctx=9819 tools=4 failed=2 wrong_tool=0  missing: ['Mar North = 5000']
+
+12/16 passed. Traces: C:\Users\prana\AppData\Local\Temp\ab\bench\docs-20261103-211721

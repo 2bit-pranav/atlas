@@ -1,9 +1,4 @@
-"""Recognising installs, and the shape of the function that asks the user.
-
-A shell command that installs anything (pip, npm, npx, uv, winget, ...) is
-never run without the user's Allow. The asking itself is a step of the tool
-policy (`policy.py`); this module only decides what counts as an install.
-"""
+"""The shape of the function that asks the user (the run's `request_approval`)."""
 
 from __future__ import annotations
 

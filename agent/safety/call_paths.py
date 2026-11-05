@@ -12,14 +12,16 @@ from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 from agent.platform.winpaths import drive_path, windows_path
 from agent.safety.scope import Scope
 
-#: Tools whose `path` argument is a file path, and those of them that only read.
-#: `copy_file` only reads its `path`; its `destination` is a write (below).
-READ_TOOLS = {"read_text", "read_image", "read_pdf", "read_docx", "read_xlsx", "find_files", "list_folder",
-              "copy_file"}
-#: Tools that write their `path`: the access step asks for write access, the taint step
-#: asks outside the workspace.
-WRITE_TOOLS = {"write", "edit", "create_document", "edit_docx", "set_cell", "delete_file", "move_file"}
-FILE_TOOLS = READ_TOOLS | WRITE_TOOLS
+#: What each of Atlas's file tools does to its `path`, for the floor and the grid. The
+#: harness `write` is not here: it creates or changes, by whether the file exists.
+TOOL_ACTIONS = {
+    **{name: "read" for name in ("read_text", "read_image", "read_pdf", "read_docx", "read_xlsx",
+                                 "find_files", "list_folder", "copy_file")},
+    "create_document": "create", "edit_docx": "change", "set_cell": "change", "edit": "change",
+    "move_file": "change", "delete_file": "delete",
+}
+#: Tools that also create their `destination` (copy_file reads its `path`, move_file changes it).
+DESTINATION_TOOLS = {"copy_file", "move_file"}
 
 
 #: Absolute Windows paths inside a shell command: `/c/...`, `C:/...` or `C:\\...`,
@@ -78,9 +80,9 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     """The paths a call touches, and whether it writes. Relative paths too: they
     are placed as the tool will place them (`Scope.place`), so `../x` is checked."""
     out: list[tuple[Path, bool]] = []
-    if name in FILE_TOOLS and isinstance(args.get("path"), str) and args["path"]:
-        out.append((scope.place(args["path"]), name not in READ_TOOLS))
-    if name in ("copy_file", "move_file") and isinstance(args.get("destination"), str) and args["destination"]:
+    if (name in TOOL_ACTIONS or name == "write") and isinstance(args.get("path"), str) and args["path"]:
+        out.append((scope.place(args["path"]), TOOL_ACTIONS.get(name) != "read"))
+    if name in DESTINATION_TOOLS and isinstance(args.get("destination"), str) and args["destination"]:
         out.append((scope.place(args["destination"]), True))
     if name == "create_document":
         # Images in the Markdown are files it reads and embeds: checked like any read,
@@ -122,4 +124,4 @@ def _strings(value: Any) -> list[str]:
     return []
 
 
-__all__ = ["FILE_TOOLS"]
+__all__ = ["DESTINATION_TOOLS", "TOOL_ACTIONS"]

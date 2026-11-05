@@ -1,4 +1,4 @@
-"""B7: stopping a service ends everything it started (agent/cli/procs.py).
+"""Stopping a service ends everything it started (agent/cli/procs.py).
 
 Before: on Windows the graceful stop killed the child only, so the tree kill
 that followed found it gone and returned; and the job object let grandchildren

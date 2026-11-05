@@ -1,4 +1,4 @@
-"""The llama.cpp model for a turn, with its sampling settings; the summarizer model."""
+"""The llama.cpp model for a turn, with its sampling settings (wider on a retry)."""
 
 from __future__ import annotations
 

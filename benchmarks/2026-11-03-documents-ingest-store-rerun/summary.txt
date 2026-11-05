@@ -1,0 +1,18 @@
+PASS pdf-long    think=off    4.0s calls=3 ctx=4995 tools=2 failed=0 wrong_tool=0
+PASS pdf-long    think=on    14.7s calls=3 ctx=7938 tools=2 failed=0 wrong_tool=0
+PASS pdf-scan    think=off   20.2s calls=4 ctx=7348 tools=3 failed=0 wrong_tool=0
+PASS pdf-scan    think=on     6.5s calls=2 ctx=6739 tools=1 failed=0 wrong_tool=0
+PASS pdf-short   think=off    3.7s calls=2 ctx=6457 tools=1 failed=0 wrong_tool=0
+PASS pdf-short   think=on     6.6s calls=2 ctx=6710 tools=1 failed=0 wrong_tool=0
+PASS docx-table  think=off    6.0s calls=3 ctx=7674 tools=2 failed=0 wrong_tool=0
+PASS docx-table  think=on     9.7s calls=3 ctx=8000 tools=2 failed=0 wrong_tool=0
+PASS xlsx-sum    think=off    6.5s calls=5 ctx=7247 tools=4 failed=0 wrong_tool=0
+PASS xlsx-sum    think=on    31.5s calls=5 ctx=9335 tools=4 failed=1 wrong_tool=0
+PASS text-long   think=off    4.3s calls=2 ctx=6453 tools=1 failed=0 wrong_tool=0
+PASS text-long   think=on    10.5s calls=2 ctx=6975 tools=1 failed=0 wrong_tool=0
+FAIL docx-edit   think=off   10.2s calls=6 ctx=7523 tools=4 failed=2 wrong_tool=0  missing: ['18 days present', '23 days gone']
+PASS docx-edit   think=on    14.9s calls=3 ctx=8049 tools=2 failed=0 wrong_tool=0
+PASS xlsx-edit   think=off   27.7s calls=13 ctx=9561 tools=12 failed=5 wrong_tool=0
+FAIL xlsx-edit   think=on    41.5s calls=6 ctx=10274 tools=5 failed=3 wrong_tool=0  missing: ['Mar North = 5000']
+
+14/16 passed. Traces: C:\Users\prana\AppData\Local\Temp\ab\bench\docs-20261103-212832

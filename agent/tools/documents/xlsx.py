@@ -30,7 +30,7 @@ def _cell_value(text: str) -> Any:
 
 
 def _as_text(cell: Any) -> None:
-    """B19: text starting with `=` stays text. A formula runs when the user opens
+    """Text starting with `=` stays text. A formula runs when the user opens
     the file, and the text may come from a web page (formula injection)."""
     if cell.data_type == "f":
         cell.data_type = "s"

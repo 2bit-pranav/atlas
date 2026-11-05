@@ -20,7 +20,7 @@ def atlas(tmp_path):
 
 
 def test_a_run_that_fails_before_the_model_frees_its_slot(atlas) -> None:
-    """B3: preparing the prompt ran before the `try`, so an exception there left
+    """Preparing the prompt ran before the `try`, so an exception there left
     the run active forever: every later message got 409 until a restart."""
     chat = atlas.store.create_chat()["id"]
     turn = atlas.store.insert_turn(chat, "hello", parent_turn_id=None, before_snap=None)

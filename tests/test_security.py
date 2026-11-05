@@ -24,7 +24,7 @@ def _client(tmp_path, *, dev: bool) -> TestClient:
 
 
 def test_vite_port_is_trusted_only_in_dev(tmp_path) -> None:
-    """B6: any page on localhost:5173 (Vite's default for every project) could
+    """Any page on localhost:5173 (Vite's default for every project) could
     call the API, POST /api/mcp included, while the backend served the UI."""
     vite = {"Origin": "http://localhost:5173"}
     assert _client(tmp_path, dev=False).post("/api/mcp", headers=vite).status_code == 403

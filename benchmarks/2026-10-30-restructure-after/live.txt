@@ -1,0 +1,84 @@
+-- invoices #1
+   invoices 1/2: completed, 35s, tools: filesystem_list_directory, skills, read, shell, shell, shell, shell, shell, create_document
+   invoices 2/2: completed, 12s, tools: calculate, create_document
+-- invoices #2
+   invoices 1/2: completed, 42s, tools: filesystem_list_directory, skills, shell, shell, shell, shell, shell, create_document
+   invoices 2/2: completed, 14s, tools: calculate, create_document
+-- merge #1
+   merge 1/2: completed, 15s, tools: skills, shell, shell
+   merge 2/2: completed, 3s, tools: edit_document
+-- merge #2
+   merge 1/2: completed, 19s, tools: skills, shell, shell
+   merge 2/2: completed, 3s, tools: edit_document
+-- maths #1
+   gst: completed, 8s, tools: calculate, calculate
+   days: completed, 5s, tools: dates
+   weekday: completed, 6s, tools: dates
+-- maths #2
+   gst: completed, 12s, tools: calculate, calculate
+   days: completed, 5s, tools: dates
+   weekday: completed, 4s, tools: dates
+-- access #1
+   access deny: completed, 7s, tools: read
+   access after allowing: completed, 4s, tools: read
+-- access #2
+   access deny: completed, 6s, tools: read
+   access after allowing: completed, 3s, tools: read
+
+Live checks 20261030-152323 against http://127.0.0.1:8001
+invoices #1: 7/7
+    PASS  every turn completed
+    PASS  sheet has all 5 vendors
+    PASS  total 12,593.64 in answer
+    PASS  top vendor Annapurna Mess
+    PASS  summary PDF written
+    PASS  sheet not overwritten
+    PASS  used calculate
+invoices #2: 7/7
+    PASS  every turn completed
+    PASS  sheet has all 5 vendors
+    PASS  total 12,593.64 in answer
+    PASS  top vendor Annapurna Mess
+    PASS  summary PDF written
+    PASS  sheet not overwritten
+    PASS  used calculate
+merge #1: 5/5
+    PASS  every turn completed
+    PASS  merged PDF
+    PASS  Word file
+    PASS  2 pages, an image each
+    PASS  name changed once
+merge #2: 5/5
+    PASS  every turn completed
+    PASS  merged PDF
+    PASS  Word file
+    PASS  2 pages, an image each
+    PASS  name changed once
+maths #1: 7/7
+    PASS  every turn completed
+    PASS  gst: right
+    PASS  gst: used calculate
+    PASS  days: right
+    PASS  days: used dates
+    PASS  weekday: right
+    PASS  weekday: used dates
+maths #2: 6/7
+    PASS  every turn completed
+    FAIL  gst: right
+    PASS  gst: used calculate
+    PASS  days: right
+    PASS  days: used dates
+    PASS  weekday: right
+    PASS  weekday: used dates
+access #1: 4/4
+    PASS  every turn completed
+    PASS  card shown
+    PASS  denied: not read
+    PASS  allowed: read
+access #2: 4/4
+    PASS  every turn completed
+    PASS  card shown
+    PASS  denied: not read
+    PASS  allowed: read
+
+Trace: C:\Users\prana\Desktop\atlas\.data\live\20261030-152323.log

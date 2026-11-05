@@ -1,4 +1,4 @@
-"""B19: text that starts with `=` is saved as text, never as a live formula.
+"""Text that starts with `=` is saved as text, never as a live formula.
 
 Cells copied from web pages, or written by the model after reading one, reach
 the user's spreadsheet. A formula there runs when they open it (`=HYPERLINK`

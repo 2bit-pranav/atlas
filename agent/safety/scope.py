@@ -30,11 +30,6 @@ class Scope:
             return Path(windows_path(raw))
         return locate(raw, self.workspace, self.folders) or self.workspace / raw
 
-    def allows(self, path: Path, *, write: bool) -> bool:
-        roots = [self.workspace, *self.folders] + ([] if write else self.readable)
-        target = _absolute(path)
-        return any(target == r or r in target.parents for r in map(_absolute, roots))
-
 
 def _absolute(path: Path) -> Path:
     try:

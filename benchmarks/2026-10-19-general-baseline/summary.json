@@ -1,0 +1,902 @@
+{
+ "settings": {
+  "model.path": "C:\\Users\\prana\\Desktop\\atlas\\llm\\gemma\\unsloth_e2b_qat.gguf",
+  "model.mmproj_path": "C:\\Users\\prana\\Desktop\\atlas\\llm\\gemma\\mmproj-F16.gguf",
+  "model.name": "unsloth_e2b_qat",
+  "model.context_size": 32768,
+  "model.gpu_layers": "all",
+  "model.batch_size": 2048,
+  "model.ubatch_size": 512,
+  "model.threads": 6,
+  "model.flash_attention": true,
+  "model.jinja": true,
+  "model.reasoning": "auto",
+  "model.parallel_slots": 1,
+  "model.supports_thinking": true,
+  "model.supports_vision": true,
+  "ports.llama": 8080,
+  "ports.backend": 8000,
+  "ports.client": 5173,
+  "sampling.temperature": 0.7,
+  "sampling.top_p": 0.95,
+  "sampling.top_k": 40,
+  "sampling.min_p": 0.05,
+  "sampling.max_tokens": 8192,
+  "sampling.presence_penalty": 0.0,
+  "sampling.frequency_penalty": 0.0,
+  "sampling.repeat_penalty": 1.0,
+  "sampling.thinking": false,
+  "llamacpp.binary": "llama",
+  "llamacpp.subcommand": "serve",
+  "llamacpp.extra_args": [],
+  "tools.builtin.read": true,
+  "tools.builtin.write": true,
+  "tools.builtin.edit": true,
+  "tools.builtin.shell": true,
+  "tools.builtin.web_fetch": true,
+  "tools.builtin.subagent": false,
+  "tools.documents": true,
+  "tools.interventions": false,
+  "skills.dir": "skills",
+  "skills.disabled": [
+   "brand-guidelines"
+  ],
+  "mcp.config": "mcp.json",
+  "mcp.startup_timeout": 30.0,
+  "memory.enabled": false,
+  "retry.show_previous": true,
+  "retry.previous_limit": 2,
+  "retry.previous_chars": 600,
+  "retry.instructions": "This question was already answered. Write a substantially different answer: take a different approach, structure or angle. Do not reword the earlier answer.",
+  "retry.temperature_boost": 0.3,
+  "retry.presence_penalty": 0.5,
+  "retry.new_seed": true,
+  "resilience.model_attempts": 3,
+  "resilience.model_retry_delay": 1.0,
+  "resilience.tool_crash_retries": 1,
+  "resilience.tool_failure_limit": 3,
+  "resilience.nudge_after_failure": true,
+  "approvals.timeout": 60,
+  "session.dir": "sessions",
+  "context.conversation_manager": "summarizing",
+  "context.window": 32768,
+  "context.prune_trigger_ratio": 0.75,
+  "context.prune_target_ratio": 0.5,
+  "context.generation_reserve": 8000,
+  "paths.data_dir": ".data",
+  "system_prompt": "You are Atlas, a local assistant running entirely on this machine.\n\n- Read files with the skills before answering about them. Do not guess.\n- If a tool result is truncated, say so rather than filling the gap.\n- Prefer fetching a number again over recalling it from an earlier summary.\n- When a command fails, read the error before trying again. Repeating a failed command with a small variation rarely helps; a different approach usually does.\n- If you cannot do something, say so plainly. A blocked answer the user can act on is better than a confident guess they cannot."
+ },
+ "results": [
+  {
+   "case": "f1",
+   "thinking": false,
+   "chat": "883ee594c482452dae3beb2d15043c81",
+   "status": "completed",
+   "seconds": 2.2,
+   "model_calls": 1,
+   "context": 2463,
+   "tools": [],
+   "failed_tools": 0,
+   "checks": {
+    "spreadsheet created": false
+   },
+   "passed": false,
+   "answer": "I need the Formula 1 race results for last season to create the Excel file. Could you please provide me with the data, perhaps by uploading a file or providing a link?",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     2.2,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "f1",
+   "thinking": true,
+   "chat": "88138fc24dc048e08fce4154d51e3e57",
+   "status": "completed",
+   "seconds": 30.1,
+   "model_calls": 4,
+   "context": 3787,
+   "tools": [
+    "web_fetch",
+    "web_fetch",
+    "web_fetch"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "spreadsheet created": false
+   },
+   "passed": false,
+   "answer": "I am unable to find the specific, structured data for last season's Formula 1 race results from the web. I have attempted to retrieve this information using multiple sources, but all attempts have failed to provide the necessary data.\n\nTo create the Excel file, I need the actual race results data. If you can provide the results in a text format, a file (like a CSV or Markdown table), or a working URL to a reliable source, I can then proceed with creating the Excel file for you.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     6.5,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     17.9,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     17.9,
+     "call_start",
+     ""
+    ],
+    [
+     21.7,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     22.7,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     22.7,
+     "call_start",
+     ""
+    ],
+    [
+     25.9,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     27.2,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     27.2,
+     "call_start",
+     ""
+    ],
+    [
+     30.1,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "research",
+   "thinking": false,
+   "chat": "0d09f2b768b64112a503d7c0e993720b",
+   "status": "completed",
+   "seconds": 3.7,
+   "model_calls": 2,
+   "context": 2574,
+   "tools": [
+    "web_fetch"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "answered": false,
+    "cites a source": false
+   },
+   "passed": false,
+   "answer": "I was unable to fetch the most recent Formula 1 World Drivers' Championship results because the URL returned a 404 error. I need a working URL to get the information.\n\nDo you have a different URL you would like me to check, or would you like me to try a different search query?",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     2.3,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     2.9,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     2.9,
+     "call_start",
+     ""
+    ],
+    [
+     3.7,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "research",
+   "thinking": true,
+   "chat": "5d5e41cc623343ff82f188872bfa456d",
+   "status": "completed",
+   "seconds": 15.7,
+   "model_calls": 4,
+   "context": 3342,
+   "tools": [
+    "web_fetch",
+    "web_fetch",
+    "web_fetch"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "answered": false,
+    "cites a source": false
+   },
+   "passed": false,
+   "answer": "I am unable to retrieve real-time, specific sports results like the most recent Formula 1 World Drivers' Championship winner, the exact point difference, and the source using my available tools. I cannot browse the live internet effectively to find this specific, up-to-the-minute information.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     3.2,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     5.1,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     5.1,
+     "call_start",
+     ""
+    ],
+    [
+     6.8,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     7.4,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     7.4,
+     "call_start",
+     ""
+    ],
+    [
+     10.3,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     11.9,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     11.9,
+     "call_start",
+     ""
+    ],
+    [
+     15.7,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "merge",
+   "thinking": false,
+   "chat": "c0c2967b1540441ca96f2473587cb703",
+   "status": "completed",
+   "seconds": 55.2,
+   "model_calls": 9,
+   "context": 10486,
+   "tools": [
+    "read",
+    "read",
+    "skills",
+    "skills",
+    "shell",
+    "shell",
+    "shell",
+    "create_document",
+    "create_document"
+   ],
+   "failed_tools": 2,
+   "checks": {
+    "pdf created": true,
+    "exp1 content present": true,
+    "exp2 content present": true,
+    "all 10 images": false,
+    "exp2 starts a page": true,
+    "name on title page": true,
+    "no missing images": true
+   },
+   "passed": false,
+   "answer": "I need to use the `pdf` skill to read the content of the PDF files, as the `read` tool only handles text and images, and the provided tool description for `read` explicitly states it handles binary documents like PDFs by calling a skill script.\n\nFirst, I will activate the `pdf` skill to understand how to proceed, and then I will attempt to use the skill to extract the content from both PDFs.\n\nSince the task requires merging two PDFs, modifying a title page, renaming experiments, and ensuring a new page for the second experiment, this is a complex document manipulation task that is best handled",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     3.4,
+     "tool_start",
+     "read"
+    ],
+    [
+     3.4,
+     "tool_start",
+     "read"
+    ],
+    [
+     3.4,
+     "tool_end",
+     "read"
+    ],
+    [
+     3.4,
+     "tool_end",
+     "read"
+    ],
+    [
+     3.4,
+     "call_start",
+     ""
+    ],
+    [
+     6.7,
+     "tool_start",
+     "skills"
+    ],
+    [
+     6.7,
+     "tool_end",
+     "skills"
+    ],
+    [
+     6.7,
+     "call_start",
+     ""
+    ],
+    [
+     7.5,
+     "tool_start",
+     "skills"
+    ],
+    [
+     7.5,
+     "tool_end",
+     "skills"
+    ],
+    [
+     7.5,
+     "call_start",
+     ""
+    ],
+    [
+     10.8,
+     "tool_start",
+     "shell"
+    ],
+    [
+     11.3,
+     "tool_end",
+     "shell"
+    ],
+    [
+     11.3,
+     "call_start",
+     ""
+    ],
+    [
+     12.9,
+     "tool_start",
+     "shell"
+    ],
+    [
+     13.2,
+     "tool_end",
+     "shell"
+    ],
+    [
+     13.2,
+     "call_start",
+     ""
+    ],
+    [
+     15.0,
+     "tool_start",
+     "shell"
+    ],
+    [
+     15.4,
+     "tool_end",
+     "shell"
+    ],
+    [
+     15.4,
+     "call_start",
+     ""
+    ],
+    [
+     36.7,
+     "tool_start",
+     "create_document"
+    ],
+    [
+     37.1,
+     "tool_end",
+     "create_document"
+    ],
+    [
+     37.1,
+     "call_start",
+     ""
+    ],
+    [
+     51.5,
+     "tool_start",
+     "create_document"
+    ],
+    [
+     51.6,
+     "tool_end",
+     "create_document"
+    ],
+    [
+     51.6,
+     "call_start",
+     ""
+    ],
+    [
+     55.2,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "merge",
+   "thinking": true,
+   "chat": "07ef3543bc494a18a28ffc60a3970929",
+   "status": "completed",
+   "seconds": 48.2,
+   "model_calls": 5,
+   "context": 9347,
+   "tools": [
+    "skills",
+    "shell",
+    "shell",
+    "skills"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "pdf created": false
+   },
+   "passed": false,
+   "answer": "I am unable to perform the requested task of merging `exp1.pdf` and `exp2.pdf` into a single PDF with specific structural changes (title page creation, page splitting, and renaming) using the available tools.\n\nMy tools are designed for reading, searching, and creating documents from Markdown, but they do not include a dedicated feature for complex PDF manipulation such as merging files, restructuring pages, or reliably inserting a custom title page template while preserving images perfectly across documents.\n\nI can read the content of the individual files, but I cannot execute the structural m",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     13.3,
+     "tool_start",
+     "skills"
+    ],
+    [
+     13.3,
+     "tool_end",
+     "skills"
+    ],
+    [
+     13.3,
+     "call_start",
+     ""
+    ],
+    [
+     23.5,
+     "tool_start",
+     "shell"
+    ],
+    [
+     23.9,
+     "tool_end",
+     "shell"
+    ],
+    [
+     23.9,
+     "call_start",
+     ""
+    ],
+    [
+     26.5,
+     "tool_start",
+     "shell"
+    ],
+    [
+     26.9,
+     "tool_end",
+     "shell"
+    ],
+    [
+     26.9,
+     "call_start",
+     ""
+    ],
+    [
+     43.5,
+     "tool_start",
+     "skills"
+    ],
+    [
+     43.5,
+     "tool_end",
+     "skills"
+    ],
+    [
+     43.5,
+     "call_start",
+     ""
+    ],
+    [
+     48.3,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "attachment",
+   "thinking": false,
+   "chat": "e16e2f04f0374d37b2ef0ec11e79ca35",
+   "status": "completed",
+   "seconds": 3.6,
+   "model_calls": 3,
+   "context": 3618,
+   "tools": [
+    "skills",
+    "shell"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "names Packet Tracer": true
+   },
+   "passed": true,
+   "answer": "The experiment requires the following apparatus as listed on page 2 of the PDF:\n\n*   Cisco Packet Tracer\n*   A computer with 4 GB RAM",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     1.8,
+     "tool_start",
+     "skills"
+    ],
+    [
+     1.8,
+     "tool_end",
+     "skills"
+    ],
+    [
+     1.8,
+     "call_start",
+     ""
+    ],
+    [
+     2.7,
+     "tool_start",
+     "shell"
+    ],
+    [
+     3.0,
+     "tool_end",
+     "shell"
+    ],
+    [
+     3.0,
+     "call_start",
+     ""
+    ],
+    [
+     3.7,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "attachment",
+   "thinking": true,
+   "chat": "dcb8a9d2c25b4686ba728e8556f35f6b",
+   "status": "completed",
+   "seconds": 10.3,
+   "model_calls": 2,
+   "context": 3502,
+   "tools": [
+    "shell"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "names Packet Tracer": true
+   },
+   "passed": true,
+   "answer": "The experiment requires the following apparatus:\n\n*   Cisco Packet Tracer\n*   A computer with 4 GB RAM",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     7.5,
+     "tool_start",
+     "shell"
+    ],
+    [
+     7.9,
+     "tool_end",
+     "shell"
+    ],
+    [
+     7.9,
+     "call_start",
+     ""
+    ],
+    [
+     10.3,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "xlsx-sum",
+   "thinking": false,
+   "chat": "4057b618ed8441a2bfac6137f57c1b2d",
+   "status": "completed",
+   "seconds": 7.8,
+   "model_calls": 4,
+   "context": 4152,
+   "tools": [
+    "skills",
+    "shell",
+    "shell"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "March total 12450.75": true
+   },
+   "passed": true,
+   "answer": "The total revenue for March in the 'sales.xlsx' workbook is 12450.75.",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     1.9,
+     "tool_start",
+     "skills"
+    ],
+    [
+     1.9,
+     "tool_end",
+     "skills"
+    ],
+    [
+     1.9,
+     "call_start",
+     ""
+    ],
+    [
+     3.1,
+     "tool_start",
+     "shell"
+    ],
+    [
+     3.7,
+     "tool_end",
+     "shell"
+    ],
+    [
+     3.7,
+     "call_start",
+     ""
+    ],
+    [
+     4.4,
+     "tool_start",
+     "shell"
+    ],
+    [
+     7.2,
+     "tool_end",
+     "shell"
+    ],
+    [
+     7.2,
+     "call_start",
+     ""
+    ],
+    [
+     7.8,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "xlsx-sum",
+   "thinking": true,
+   "chat": "d37beb4c2fa34892a49c1ba0706e6d93",
+   "status": "completed",
+   "seconds": 13.8,
+   "model_calls": 4,
+   "context": 4944,
+   "tools": [
+    "skills",
+    "shell",
+    "shell"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "March total 12450.75": true
+   },
+   "passed": true,
+   "answer": "The total revenue for March in the sales.xlsx workbook is 12450.75.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     3.6,
+     "tool_start",
+     "skills"
+    ],
+    [
+     3.6,
+     "tool_end",
+     "skills"
+    ],
+    [
+     3.6,
+     "call_start",
+     ""
+    ],
+    [
+     7.6,
+     "tool_start",
+     "shell"
+    ],
+    [
+     8.2,
+     "tool_end",
+     "shell"
+    ],
+    [
+     8.2,
+     "call_start",
+     ""
+    ],
+    [
+     11.5,
+     "tool_start",
+     "shell"
+    ],
+    [
+     12.7,
+     "tool_end",
+     "shell"
+    ],
+    [
+     12.7,
+     "call_start",
+     ""
+    ],
+    [
+     13.8,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "chat",
+   "thinking": false,
+   "chat": "7af5b0cff25d48fd8d9d7910ca05e850",
+   "status": "completed",
+   "seconds": 2.2,
+   "model_calls": 1,
+   "context": 2444,
+   "tools": [],
+   "failed_tools": 0,
+   "checks": {
+    "no tools for a plain question": true,
+    "answered": true
+   },
+   "passed": true,
+   "answer": "A Virtual Local Area Network (VLAN) is a logical grouping of network devices that allows you to segment a physical network into multiple smaller broadcast domains. This segmentation improves network security, reduces broadcast traffic, and enhances performance by isolating different types of traffic from one another.",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     2.2,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "chat",
+   "thinking": true,
+   "chat": "7aed97a9118d45d8b94580bc0bbf9110",
+   "status": "completed",
+   "seconds": 15.4,
+   "model_calls": 2,
+   "context": 3122,
+   "tools": [
+    "web_fetch"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "no tools for a plain question": false,
+    "answered": true
+   },
+   "passed": false,
+   "answer": "A VLAN (Virtual Local Area Network) is a local area network broadcast domain that is partitioned and isolated at the data link layer. It functions by creating logically separate networks within a single physical infrastructure, allowing administrators to group devices based on function or security needs.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     4.1,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     12.4,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     12.4,
+     "call_start",
+     ""
+    ],
+    [
+     15.4,
+     "done",
+     ""
+    ]
+   ]
+  }
+ ]
+}

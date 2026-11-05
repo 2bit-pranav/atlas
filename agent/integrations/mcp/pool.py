@@ -132,7 +132,7 @@ def _label(tool: Any, server: str) -> None:
     """Prefix the description the model sees with the tool's server.
 
     Without it an MCP tool is just another name in the list, and asked to
-    "use the MCP fetch tool" the model reached for the built-in web_fetch or
+    "use the MCP fetch tool" the model reached for a built-in tool or
     went looking for a skill. The label is also how `mcp_server_of` finds a
     tool's server again when the prompt's tool list is built.
     """

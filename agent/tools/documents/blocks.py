@@ -89,7 +89,7 @@ _CELL = re.compile(r"(?:(?P<sheet>'[^']+'|[^!]+)!)?(?P<cell>[A-Za-z]{1,3}[0-9]{1
 
 def set_xlsx_cell(src: Path, dst: Path, cell: str, value: str, sheet: str = "") -> tuple[str, str, Any]:
     """Set one cell; returns (sheet, cell, old value). A number becomes a number;
-    text starting with `=` stays text (formula injection, B19)."""
+    text starting with `=` stays text (formula injection)."""
     from openpyxl import load_workbook
 
     m = _CELL.fullmatch(cell.strip())

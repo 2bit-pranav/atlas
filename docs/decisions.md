@@ -207,7 +207,7 @@ on; llama.cpp's `parallel_tool_calls` flag made no difference. Strands runs
 the calls of one reply concurrently (`ConcurrentToolExecutor`, its default).
 
 **Plan plus workers does not help this model: one turn stays** (2026-11-04,
-`tests/bench_multi.py`). Three multi-part tasks with planted facts, graded by
+a multi-part benchmark, since retired). Three multi-part tasks with planted facts, graded by
 script: a three-source summary from local web pages, a two-file comparison
 (6 planted differences), a five-section report from notes. Mode A is today's
 agent; mode B adds the plan tool (`todo_write`) and workers (`subagent`), and
@@ -235,13 +235,13 @@ Kept, off by default: `tools.builtin.subagent` is now Atlas's own worker tool
 tracking, get their own failure budget, no session, no printing callback, and
 cannot delegate further (the harness's own wiring forwarded none of the
 printing, retry or recovery settings and shared the failure budget).
-`tools.builtin.todos` switches the plan tool. Worth re-running
-`bench_multi.py` on a larger model.
+`tools.builtin.todos` switches the plan tool. Worth measuring
+again on a larger model.
 
 > Update 2026-11-04: removed the same day, see *`subagent` and `web_fetch` are removed, not switched off*.
 
 **The plan tool does not help this model either** (2026-11-04,
-`tests/bench_multi.py`, same tasks and setup as plan plus workers). Mode B:
+the same tasks and setup as plan plus workers). Mode B:
 the harness's `todo_write` (rewrites the list, so it can check off, reorder,
 reword, add and drop), re-shown before every call, guidance in the system
 prompt, and `PlanCheck` (runtime/plan.py), which sends the model back once
@@ -269,7 +269,7 @@ corrupt.
 
 > Update 2026-11-04: removed the same day; `runtime/plan.py` and `tools.builtin.todos` are gone.
 
-**Document baseline before the file pipeline** (2026-11-03, `tests/bench_docs.py`).
+**Document baseline before the file pipeline** (2026-11-03, `benchmarks/2026-11-03-documents-baseline`).
 Eight document tasks (long text PDF, 12-page scan, short PDF, docx table, xlsx
 sum, 3,000-line log, docx edit, xlsx edit), thinking off and on, run twice:
 8/16 passed in the clean run. Questions on short files mostly pass; what fails:
@@ -297,7 +297,7 @@ sum, 3,000-line log, docx edit, xlsx edit), thinking off and on, run twice:
 are about quality, not plumbing: no date context, guessed URLs with no search
 engine, the `web_fetch` summariser mangling tables, dropped images in long
 copies, claimed-but-not-done steps, and giving up early with thinking off.
-Phase 2 measures each change against this. See `docs/roadmap.md`.
+Each change below is measured against this.
 
 **A search MCP mattered more than new tools** (2026-10-19, found by test).
 With a filesystem and a DuckDuckGo search MCP installed, a search-save-verify
@@ -311,22 +311,20 @@ did not know the year. So `todo_write`, `notebook` and subagents are on hold.
 
 ## Reading and writing documents
 
-**`read_text` and `read_image` replace the harness `read`** (2026-11-03, plan
-Phase 1). The harness `read` is off (it is no longer a setting); Atlas's own
+**`read_text` and `read_image` replace the harness `read`** (2026-11-03). The harness `read` is off (it is no longer a setting); Atlas's own
 tools are capped near 1,500 tokens, name what they left out and the next call,
 search by words rather than the phrase, and answer a pdf/docx/xlsx with its
 reader command and an image with `read_image`. The policy's `read` redirect
-went with it. `tests/bench_docs.py`: 11/16 (baseline 8/16). Every question
+went with it. `benchmarks/2026-11-03-documents-typed-read-tools`: 11/16 (baseline 8/16). Every question
 about a PDF, docx or xlsx passed; wrong-tool calls fell from 6-11 to 2; edits
-are still 0/4 (Phase 3). The long log still failed with thinking off (read
+are still 0/4 (the writing tools, below). The long log still failed with thinking off (read
 the first window, said "no error codes") until its attachment line gave the
 line count and the search form: then 4/4, one call each, 5.8k context instead
 of 8.6k. Saying so in the result's header alone did not do it (1/3).
 
 > Update 2026-11-04: the long-log case and its fixtures are in `tests/live/suite.py`.
 
-**Documents are parsed at upload; reading is fetching** (2026-11-03, plan
-Phase 2). `agent/ingest/`: an upload or import submits the file, one worker
+**Documents are parsed at upload; reading is fetching** (2026-11-03). `agent/ingest/`: an upload or import submits the file, one worker
 parses it into blocks in one SQLite database with FTS5 (`<data>/parsed/
 index.db`, images beside it), a PDF's text layer first and each scanned page
 as OCR finishes. `read_pdf`, `read_docx` and `read_xlsx` fetch from it. One
@@ -340,9 +338,9 @@ The skill reader scripts and the per-folder `.atlas-images` writes are gone.
 Measured: a text PDF, docx or xlsx is ready 0.1-0.2 s after upload; on the
 12-page scan a requested page arrives in 3.3 s (the old `--search` OCR'd all
 12 pages first, 25.7 s), the rest in 18 s in the background.
-`tests/bench_docs.py`, cold store: 13/16 (Phase 1: 11/16, baseline 8/16).
+`benchmarks/2026-11-03-documents-ingest-store-cold`: 13/16 (typed read tools: 11/16, baseline 8/16).
 All 12 question runs passed, with no wrong-tool calls; a PDF question now
-takes 1-2 tool calls. Edits 1/4, for Phase 3. Two fixes the runs forced: a
+takes 1-2 tool calls. Edits 1/4, for the writing tools. Two fixes the runs forced: a
 search on a scan still being OCR'd now waits up to 30 s (returning at once,
 the model searched 3 s after upload and gave up), and a long PDF's footer
 offers search before the next pages (offered pages first, the model walked
@@ -351,11 +349,10 @@ offers search before the next pages (offered pages first, the model walked
 The edit checks now require the rest of the file unchanged: one "pass"
 was the model regenerating the whole workbook with `create_document` after
 five failed edits, with February's numbers replaced by January's. Overwriting
-an attached file with a regenerated copy is a data-loss risk to settle in
-Phase 3.
+an attached file with a regenerated copy is a data-loss risk to settle with
+the writing tools.
 
-**Writing tools come with their skill; edits are by address** (2026-11-03,
-plan Phase 3). `create_document`, `edit_docx` and `set_cell` are registered
+**Writing tools come with their skill; edits are by address** (2026-11-03). `create_document`, `edit_docx` and `set_cell` are registered
 when the pdf, docx or xlsx skill is loaded (`runtime/skill_tools.py`); a chat
 that only reads never carries them. Strands takes the tool list from the
 registry before every model call, so a tool registered after `skills` runs is
@@ -370,15 +367,15 @@ a spreadsheet at all: it matched text cells only. `create_document` never
 replaces a file (an existing name gets `-2`), after a regenerated workbook
 replaced one month's figures with another's.
 
-`tests/bench_docs.py`, cold store, edit checks requiring the rest of the file
-unchanged: 16/16 (Phase 2: 13/16, baseline 8/16). Fixes the runs forced: a
+`benchmarks/2026-11-03-documents-writing-tools`, cold store, edit checks requiring the rest of
+the file unchanged: 16/16 (ingest store: 13/16, baseline 8/16). Fixes the runs forced: a
 read with no `path` takes the only document of its type; a bare SQL
 expression with a sheet becomes `SELECT ... FROM "sheet"`, and a failed query
 lists each sheet's columns (the model wrote `SUM(B)`, then tried pandas and
 `pip install`); `edit` called with `edit_docx`'s arguments is answered with the
 exact `edit_docx(...)` call (it was refused generically and gave up).
 
-**Attachment chips show parsing progress** (2026-11-03, plan Phase 4).
+**Attachment chips show parsing progress** (2026-11-03).
 `GET /chats/{id}/ingest?names=...` gives each attachment's status and a PDF's
 pages done; the composer polls it once a second until ready or failed.
 Checked live on the 12-page scan: 0 to 12 pages, then ready. Web UI only, not
@@ -477,6 +474,21 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 ---
 
 ## Safety
+
+**Cleanup after the document and file rework** (2026-11-05). Removed what
+nothing called: `Scope.allows` (the grid replaced it), `harness_skills`,
+`set_thinking`, `verify_off`, `SessionManager.policy`, the client's
+`saveTable`, the ingest store's unused `DONE`. One table says what each file
+tool does to its path (`call_paths.TOOL_ACTIONS`), read by the floor and the
+grid alike, where there were three lists. The tools now place a path with
+the policy's own `Scope.place` (a copy of it in `factory.py` is gone), so the
+place checked is the place written. Comments naming steps or files that no
+longer exist were reworded (the access and taint steps, `skills/.../_ocr.py`,
+the summarizer, the restructure plan's B-numbers). `tests/live/check_demo.py`
+and its fixtures were removed: every scenario is a suite task now. Every
+measured run is in `benchmarks/<date>-<what>` (summaries committed, traces
+local), named by what was measured instead of by plan phases, and the suite
+writes new runs there (`--name`).
 
 **Finding files is native; the filesystem MCP server is off** (2026-11-05,
 measured, `suite.py --tags files`, thinking off and on). `find_files` (words
@@ -925,8 +937,8 @@ speech-to-text step and nothing to install.
 below). A restructure needs something to check against, so the offline tests
 (policy, maths, chat tree, runs) are committed and `tests/check.py` runs every
 check (ruff, pyright as a ratchet at 73 errors, pytest, tsc, oxlint) locally
-and in GitHub Actions on Windows. The real-model checks (`tests/bench.py`,
-`tests/live/`) are committed too but run by hand: they need the GPU. No fake
+and in GitHub Actions on Windows. The real-model checks
+(`tests/live/`) are committed too but run by hand: they need the GPU. No fake
 llama-server: behaviour is judged on the real model, and the policy-level bugs
 are tested by calling the policy directly.
 

@@ -32,7 +32,14 @@ from pathlib import Path
 from typing import Any
 
 from agent.platform.winpaths import windows_path
-from agent.safety.call_paths import _IMAGE, READ_TOOLS, _shell_paths, _trim
+from agent.safety.call_paths import (
+    _IMAGE,
+    DESTINATION_TOOLS,
+    TOOL_ACTIONS,
+    _shell_paths,
+    _strings,
+    _trim,
+)
 from agent.safety.scope import Scope, _absolute
 from agent.safety.shell import classify
 
@@ -51,14 +58,6 @@ GRID: dict[str, dict[str, tuple[str, str, str, str, str]]] = {
              "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X)},
 }
 
-#: Atlas's own tools and the harness's file tools: what each does to its `path`.
-TOOL_ACTIONS = {
-    **{name: "read" for name in READ_TOOLS},
-    "create_document": "create", "edit_docx": "change", "set_cell": "change",
-    "edit": "change", "delete_file": "delete", "move_file": "change",
-}
-#: Tools that also create their `destination` (copy_file reads its `path`, move_file changes it).
-DESTINATION_TOOLS = {"copy_file", "move_file"}
 
 _HOME_FORMS = re.compile(r"^(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\$USERPROFILE|\$\{USERPROFILE\})(?=$|[/\\])")
 _SKILL_SCRIPT = re.compile(r"""^\s*(?:python3?|py)(?:\.exe)?\s+["']?\$\{?ATLAS_SKILLS\}?/""")
@@ -174,16 +173,6 @@ def _system(path: Path) -> bool:
         return True
     top = path.parts[1].lower() if len(path.parts) > 1 else ""
     return top in ("windows", "program files", "program files (x86)", "programdata")
-
-
-def _strings(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, list):
-        return [s for v in value for s in _strings(v)]
-    if isinstance(value, dict):
-        return [s for v in value.values() for s in _strings(v)]
-    return []
 
 
 __all__ = ["ACTIONS", "GRID", "MODES", "TOOL_ACTIONS", "ZONES", "Effect", "effects", "placed_or_elsewhere",

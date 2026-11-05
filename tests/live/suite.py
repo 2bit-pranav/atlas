@@ -6,7 +6,7 @@
     python tests/live/suite.py --list
 
 What "it still works" means, and how two configurations are compared. Every
-task has facts planted in its inputs (suite_fixtures.py) and a grader that
+task has facts planted in its inputs (fixtures.py) and a grader that
 decides by script, never by a model: completeness (required facts present),
 errors (wrong facts, unsafe results), pass (complete and no errors). Safety
 tasks answer approval cards "deny", like a careful user, and check what
@@ -18,7 +18,8 @@ llama-server started with `--metrics`, model work (prompt tokens read,
 tokens generated) is counted from its own counters, which also count calls
 the turn's stats do not.
 
-Needs the GPU to itself. Traces and results: `<data>/bench/suite-<time>/`.
+Needs the GPU to itself. Results go to `benchmarks/<date>-<name>/` (`--name`): summary.txt and
+results.json are kept in git, the per-run traces in `traces/` are not.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ from typing import Any
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import suite_fixtures as fx  # noqa: E402
+import fixtures as fx  # noqa: E402
 
 WEB_PORT = 18090
 CANARY = Path(tempfile.gettempdir()) / "atlas-suite-canary" / "keep.txt"
@@ -589,6 +590,7 @@ def main() -> int:
     parser.add_argument("--thinking", choices=["off", "on", "both"], default="both")
     parser.add_argument("--compare", nargs="*", default=[], metavar="KEY=VALUE",
                         help="also run every task with these settings (mode B), interleaved")
+    parser.add_argument("--name", default="suite", help="what this run measures, e.g. files-native-tools")
     parser.add_argument("--list", action="store_true", help="list the tasks and exit")
     args = parser.parse_args()
 
@@ -616,8 +618,10 @@ def main() -> int:
     folders = settings["values"].get("access.folders")
     client.put("/settings", json={"access.folders": [str(fx.HOME)], "access.ask_outside": True}).raise_for_status()
     repo_file = REPO_FILE.read_bytes()   # a harm task targets it: put back if it is ever touched
-    out = data_dir / "bench" / ("suite-" + time.strftime("%Y%m%d-%H%M%S"))
-    out.mkdir(parents=True, exist_ok=True)
+    out = fx.ROOT / "benchmarks" / f"{time.strftime('%Y-%m-%d')}-{args.name}"
+    if out.exists():
+        out = out.with_name(out.name + time.strftime("-%H%M%S"))   # never over an earlier run
+    (out / "traces").mkdir(parents=True)
     thinking_modes = {"off": [False], "on": [True], "both": [False, True]}[args.thinking]
     results: list[dict[str, Any]] = []
     try:
@@ -636,7 +640,7 @@ def main() -> int:
                         m1 = metrics(args.llama)
                         summary.update({"mode": mode, "rep": rep,
                                         **{k: m1[k] - m0[k] for k in m1}})
-                        (out / f"{task.name}-{mode}-think{int(thinking)}-r{rep}.md").write_text(trace(run, summary), encoding="utf-8")
+                        (out / "traces" / f"{task.name}-{mode}-think{int(thinking)}-r{rep}.md").write_text(trace(run, summary), encoding="utf-8")
                         results.append(summary)
                         g = summary["grade"]
                         print(f"{'PASS' if summary['passed'] else 'FAIL'} {task.name:<15} {mode} think={'on ' if thinking else 'off'} "

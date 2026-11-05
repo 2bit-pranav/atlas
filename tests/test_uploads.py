@@ -1,4 +1,4 @@
-"""B13, B25: uploads into a chat's workspace, and how its files are served."""
+"""Uploads into a chat's workspace, and how its files are served."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _upload(client, name: str, data: bytes = b"x"):
 
 @pytest.mark.parametrize("name", ["..", ".", "CON", "a:b?.txt", "notes.txt. ", "../../escape.txt"])
 def test_awkward_names_are_saved_safely(client, name) -> None:
-    """B13: `..` resolved to the chat folder's parent and the upload failed with a 500."""
+    """`..` resolved to the chat folder's parent and the upload failed with a 500."""
     r = _upload(client, name)
     assert r.status_code == 200, r.text
     saved = Path(r.json()["path"])
@@ -40,7 +40,7 @@ def test_a_part_without_a_filename_is_a_clear_error(client) -> None:
 
 
 def test_a_second_file_with_the_same_name_does_not_overwrite(client) -> None:
-    """B13: an earlier message's history pointed at a file a later upload replaced."""
+    """An earlier message's history pointed at a file a later upload replaced."""
     first = _upload(client, "report.pdf", b"first").json()
     second = _upload(client, "report.pdf", b"second").json()
     assert first["name"] == "report.pdf" and second["name"] == "report (2).pdf"
@@ -58,7 +58,7 @@ def test_an_upload_over_the_cap_is_refused(client, monkeypatch) -> None:
 
 @pytest.mark.parametrize("name, inline", [("photo.png", True), ("drawing.svg", False), ("page.html", False)])
 def test_only_raster_images_are_shown_inline(client, name, inline) -> None:
-    """B25: an uploaded SVG or HTML opened from its chip must not run on Atlas's origin."""
+    """An uploaded SVG or HTML opened from its chip must not run on Atlas's origin."""
     _upload(client, name, b"<svg onload='alert(1)'/>")
     r = client.get(f"/api/chats/{client.chat}/files/{name}")
     disposition = r.headers.get("content-disposition", "")
@@ -67,7 +67,7 @@ def test_only_raster_images_are_shown_inline(client, name, inline) -> None:
 
 
 def test_an_upload_is_parsed_and_its_progress_can_be_asked(client) -> None:
-    """Plan Phase 2 and 4: a document is parsed at upload; the composer polls /ingest."""
+    """A document is parsed at upload, and the composer polls /ingest for its progress."""
     import io
     import time
 

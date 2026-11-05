@@ -289,11 +289,11 @@ workspace (always), `access.folders` (Settings > Access, subfolders included),
 and, read-only, the skills folder and Python install so scripts can be read.
 What is checked:
 
-- the read tools, `write`, `edit`, `create_document`, `edit_docx`, `set_cell`: an absolute
-  `path` argument. A relative path is placed by `safety/placement.locate`: the
+- every tool that takes a `path` (and `destination`, for copy and move): an absolute
+  one as given. A relative path is placed by `safety/placement.locate`: the
   workspace first, then each allowed folder (an existing file wins; a new
-  one goes where its folder exists). The filesystem MCP server, the skill
-  scripts (`$ATLAS_FOLDERS`) and the read tools follow the same rule, so
+  one goes where its folder exists). The file tools, the skill scripts
+  (`$ATLAS_FOLDERS`) and MCP arguments follow the same rule, so
   `Demo/Invoices/x.pdf` means one file to every tool.
 - `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
   quoted or bare). `/tmp` and other POSIX paths are the shell's own.
@@ -394,5 +394,5 @@ keep it, and its tools, out of the request.
 
 `python tests/check.py` runs every offline check (ruff, pyright, pytest, and
 the TypeScript checks); CI runs the same on every push. The real-model checks
-(`tests/live/suite.py`, `tests/live/check_demo.py`) need the GPU and are run by hand at every
-checkpoint. See [tests/README.md](../tests/README.md).
+(`tests/live/suite.py`) need the GPU and are run by hand before and after a change;
+results are kept in `benchmarks/`. See [tests/README.md](../tests/README.md).

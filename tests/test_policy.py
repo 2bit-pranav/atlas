@@ -1,5 +1,5 @@
 """The tool policy (agent/safety/policy.py): access, approvals, installs, taint,
-the documents step and path rewrites; and skill requirement detection."""
+the documents step and path rewrites. The permission grid itself: test_grid.py."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from types import SimpleNamespace
 import pytest
 from helpers import Asked, mcp_tool
 
-from agent.integrations.skills import requirements as skill_requirements
 from agent.safety.call_paths import _shell_paths
 from agent.safety.policy import ToolPolicy
 from agent.safety.scope import Scope
@@ -125,24 +124,6 @@ def test_documents_redirected_after_access(tmp_path) -> None:
     assert "did not allow" in outside.cancel_tool
 
 
-def test_requirements_detected_from_all_three_sources(tmp_path) -> None:
-    (tmp_path / "requirements.txt").write_text("pypdf>=4  # pdfs\n# comment\n-r other.txt\n")
-    (tmp_path / "package.json").write_text('{"dependencies": {"left-pad": "^1"}}')
-    (tmp_path / "SKILL.md").write_text(
-        "Install:\n```bash\nnpm install -g agent-browser\npip install pypdf rich\n```\n"
-        "Not in a fence: pip install ignored\n")
-    found = {(r["manager"], r["package"], r["scope"]) for r in skill_requirements.detect(tmp_path)}
-    assert found == {("pip", "pypdf>=4", "env"), ("npm", "left-pad", "skill"),
-                     ("npm", "agent-browser", "global"), ("pip", "pypdf", "env"), ("pip", "rich", "env")}
-
-
-def test_requirement_status_for_pip() -> None:
-    status = skill_requirements.with_status(Path("."), [
-        {"manager": "pip", "package": "pytest>=1", "scope": "env"},
-        {"manager": "pip", "package": "surely-not-installed-xyz", "scope": "env"}])
-    assert [r["installed"] for r in status] == [True, False]
-
-
 # ------------------------------------------------------------ normalise --
 
 
@@ -193,11 +174,11 @@ def test_installs_still_ask_as_installs_when_tainted(tmp_path) -> None:
     assert [k for k, _ in asked.calls] == ["install"]
 
 
-# ------------------------------------------------------ B1, B2: escapes --
+# ------------------------------------------------------ escapes --
 
 
 def test_relative_escape_from_the_workspace_asks(tmp_path) -> None:
-    """B1: `../` in a relative path was never access-checked."""
+    """`../` in a relative path was never access-checked."""
     (tmp_path / "settings.json").write_text("{}")
     for name, args in (("create_document", {"path": "../settings.json.md", "content": "x"}),
                        ("edit_docx", {"path": "../settings.json", "block": "b1", "text": "x"}),
@@ -229,7 +210,7 @@ def test_locate_never_leaves_the_folder_it_searches(tmp_path) -> None:
 
 
 def test_trailing_dotdot_in_shell_is_not_stripped(tmp_path) -> None:
-    """B2: `rstrip(".,)")` turned `allowed/..` into `allowed/`, which passed."""
+    """`rstrip(".,)")` turned `allowed/..` into `allowed/`, which passed."""
     asked = Asked("denied")
     allowed = (tmp_path / "docs").as_posix()
     event = _run(_policy(tmp_path, approver=asked), _event("shell", {"command": f"rm -rf {allowed}/.."}))
@@ -240,11 +221,11 @@ def test_trailing_dotdot_in_shell_is_not_stripped(tmp_path) -> None:
     assert asked.calls == [] and event.cancel_tool is False
 
 
-# ------------------------------------------------------- B9: exact grants --
+# ------------------------------------------------------- exact grants --
 
 
 def test_a_read_grant_does_not_allow_writes(tmp_path) -> None:
-    """B9: approving a read granted the folder for writes too."""
+    """Approving a read granted the folder for writes too."""
     asked = Asked("allowed")
     policy = _policy(tmp_path, approver=asked)
     outside = tmp_path / "elsewhere"
@@ -260,7 +241,7 @@ def test_a_read_grant_does_not_allow_writes(tmp_path) -> None:
 
 
 def test_a_file_at_a_drive_root_or_home_grants_only_itself(tmp_path, monkeypatch) -> None:
-    """B9: a read of C:/x.txt granted all of C:/."""
+    """A read of C:/x.txt granted all of C:/."""
     home = tmp_path / "home"
     (home / "docs").mkdir(parents=True)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))

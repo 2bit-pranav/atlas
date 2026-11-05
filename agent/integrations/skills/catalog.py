@@ -102,16 +102,6 @@ class SkillManager:
     def enabled(self) -> list[dict[str, Any]]:
         return [s for s in self.discover() if s["enabled"]]
 
-    def harness_skills(self) -> Any:
-        """The `skills=` argument for `create_harness`: one path per enabled skill.
-
-        The SDK's `AgentSkills` takes a list of individual skill directories, so
-        filtering is a matter of passing fewer of them. `False` when none are on,
-        which keeps the `skills` tool out of the request entirely.
-        """
-        chosen = [s["path"] for s in self.enabled()]
-        return chosen or False
-
     def catalogue(self) -> list[dict[str, Any]]:
         """For `GET /skills`: every skill, with its switch and any error."""
         return self.discover()

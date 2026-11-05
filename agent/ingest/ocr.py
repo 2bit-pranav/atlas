@@ -1,4 +1,4 @@
-"""OCR for the parts of a PDF that have no text layer (from skills/pdf/scripts/_ocr.py).
+"""OCR for the parts of a PDF that have no text layer.
 
 Decided per page: a page with a text layer gives its text; a page with
 (almost) none -- a scan, a photo of a page -- is rendered and read with OCR; a

@@ -1,0 +1,1000 @@
+{
+ "settings": {
+  "model.path": "C:\\Users\\prana\\Desktop\\atlas\\llm\\gemma\\unsloth_e2b_qat.gguf",
+  "model.mmproj_path": "C:\\Users\\prana\\Desktop\\atlas\\llm\\gemma\\mmproj-F16.gguf",
+  "model.name": "unsloth_e2b_qat",
+  "model.context_size": 32768,
+  "model.gpu_layers": "all",
+  "model.batch_size": 2048,
+  "model.ubatch_size": 512,
+  "model.threads": 6,
+  "model.flash_attention": true,
+  "model.jinja": true,
+  "model.reasoning": "auto",
+  "model.parallel_slots": 1,
+  "model.supports_thinking": true,
+  "model.supports_vision": true,
+  "ports.llama": 8080,
+  "ports.backend": 8000,
+  "ports.client": 5173,
+  "sampling.temperature": 0.7,
+  "sampling.top_p": 0.95,
+  "sampling.top_k": 40,
+  "sampling.min_p": 0.05,
+  "sampling.max_tokens": 8192,
+  "sampling.presence_penalty": 0.0,
+  "sampling.frequency_penalty": 0.0,
+  "sampling.repeat_penalty": 1.0,
+  "sampling.thinking": false,
+  "llamacpp.binary": "llama",
+  "llamacpp.subcommand": "serve",
+  "llamacpp.extra_args": [],
+  "tools.builtin.read": true,
+  "tools.builtin.write": true,
+  "tools.builtin.edit": true,
+  "tools.builtin.shell": true,
+  "tools.builtin.web_fetch": true,
+  "tools.builtin.subagent": false,
+  "tools.documents": true,
+  "tools.interventions": false,
+  "skills.dir": "skills",
+  "skills.disabled": [
+   "brand-guidelines"
+  ],
+  "mcp.config": "mcp.json",
+  "mcp.startup_timeout": 30.0,
+  "memory.enabled": false,
+  "retry.show_previous": true,
+  "retry.previous_limit": 2,
+  "retry.previous_chars": 600,
+  "retry.instructions": "This question was already answered. Write a substantially different answer: take a different approach, structure or angle. Do not reword the earlier answer.",
+  "retry.temperature_boost": 0.3,
+  "retry.presence_penalty": 0.5,
+  "retry.new_seed": true,
+  "resilience.model_attempts": 3,
+  "resilience.model_retry_delay": 1.0,
+  "resilience.tool_crash_retries": 1,
+  "resilience.tool_failure_limit": 3,
+  "resilience.nudge_after_failure": true,
+  "approvals.timeout": 60,
+  "access.folders": [],
+  "access.ask_outside": true,
+  "session.dir": "sessions",
+  "context.conversation_manager": "summarizing",
+  "context.window": 32768,
+  "context.prune_trigger_ratio": 0.75,
+  "context.prune_target_ratio": 0.5,
+  "context.generation_reserve": 8000,
+  "paths.data_dir": ".data",
+  "system_prompt": "You are Atlas, a local assistant running entirely on this machine.\n\n- Read files with the skills before answering about them. Do not guess.\n- If a tool result is truncated, say so rather than filling the gap.\n- Prefer fetching a number again over recalling it from an earlier summary.\n- When a command fails, read the error before trying again. Repeating a failed command with a small variation rarely helps; a different approach usually does.\n- If you cannot do something, say so plainly. A blocked answer the user can act on is better than a confident guess they cannot."
+ },
+ "results": [
+  {
+   "case": "f1",
+   "thinking": false,
+   "chat": "24c5d9adb7b84033967358d0ef000b33",
+   "status": "completed",
+   "seconds": 15.3,
+   "model_calls": 3,
+   "context": 3417,
+   "tools": [
+    "web_fetch",
+    "web_fetch"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "spreadsheet created": false
+   },
+   "passed": false,
+   "answer": "I cannot directly access and scrape real-time or historical sports databases to generate the requested Excel file. My current tools allow me to read specific files or fetch content from specific URLs, but I cannot browse the entire internet to compile a structured, up-to-date table of Formula 1 race results.\n\nTo create the Excel file, please provide the race results data to me (e.g., as a CSV text block or by uploading a file), and I will gladly use the `xlsx` skill to format it into the required Excel file.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     5.5,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     7.6,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     7.6,
+     "call_start",
+     ""
+    ],
+    [
+     10.1,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     10.6,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     10.6,
+     "call_start",
+     ""
+    ],
+    [
+     15.3,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "f1",
+   "thinking": true,
+   "chat": "6b69a43cd6b143459d4766d1b09670cb",
+   "status": "completed",
+   "seconds": 14.5,
+   "model_calls": 3,
+   "context": 3397,
+   "tools": [
+    "web_fetch",
+    "web_fetch"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "spreadsheet created": false
+   },
+   "passed": false,
+   "answer": "I am unable to find the specific data for last season's Formula 1 race results automatically. Please provide the race results data (e.g., a text file, a URL to a table, or the data itself) so I can create the Excel file for you.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     6.0,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     7.7,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     7.7,
+     "call_start",
+     ""
+    ],
+    [
+     11.9,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     12.3,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     12.3,
+     "call_start",
+     ""
+    ],
+    [
+     14.5,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "research",
+   "thinking": false,
+   "chat": "17d30a13e2294c4989b8880181025609",
+   "status": "completed",
+   "seconds": 3.8,
+   "model_calls": 2,
+   "context": 2593,
+   "tools": [
+    "web_fetch"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "answered": false,
+    "cites a source": false
+   },
+   "passed": false,
+   "answer": "I was unable to fetch the information from the Formula 1 website due to a 404 error. I cannot determine who won the most recent Formula 1 World Drivers' Championship or the point difference without a working source.\n\nPlease provide a different, working URL or file containing the relevant information, or I can try a different search strategy if you have a specific source in mind.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     2.2,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     2.8,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     2.8,
+     "call_start",
+     ""
+    ],
+    [
+     3.8,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "research",
+   "thinking": true,
+   "chat": "1221267160f947f4b8a9994de6c84d8a",
+   "status": "completed",
+   "seconds": 17.5,
+   "model_calls": 4,
+   "context": 3338,
+   "tools": [
+    "web_fetch",
+    "web_fetch",
+    "web_fetch"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "answered": false,
+    "cites a source": false
+   },
+   "passed": false,
+   "answer": "I am unable to provide you with the results for the most recent Formula 1 World Drivers' Championship. The information I could retrieve was for the 2026 season standings, which is not the most recent completed championship.",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     3.1,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     5.2,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     5.2,
+     "call_start",
+     ""
+    ],
+    [
+     6.1,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     6.7,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     6.7,
+     "call_start",
+     ""
+    ],
+    [
+     9.9,
+     "tool_start",
+     "web_fetch"
+    ],
+    [
+     14.5,
+     "tool_end",
+     "web_fetch"
+    ],
+    [
+     14.5,
+     "call_start",
+     ""
+    ],
+    [
+     17.6,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "merge",
+   "thinking": false,
+   "chat": "b4d8493a8d53498c97ca482c4765c527",
+   "status": "completed",
+   "seconds": 10.9,
+   "model_calls": 7,
+   "context": 5068,
+   "tools": [
+    "read",
+    "read",
+    "skills",
+    "skills",
+    "shell",
+    "shell"
+   ],
+   "failed_tools": 2,
+   "checks": {
+    "pdf created": false
+   },
+   "passed": false,
+   "answer": "I need to use the `pdf` skill to read the content of the PDFs, as the `read` tool is insufficient for binary PDF files.\n\nFirst, I will use the `pdf` skill to extract all pages from `exp1.pdf` and `exp2.pdf`. Then, I will merge them, handle the title page modification, rename the experiments, and ensure page breaks as requested.\n\nI will start by loading the necessary skills.\nSince the `read_pdf.py` script returned no output, I cannot extract the text content from the PDFs. This likely means the PDFs are image-only or the script failed to process them, as per the skill documentation: \"ERROR: pag",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     2.6,
+     "tool_start",
+     "read"
+    ],
+    [
+     2.6,
+     "tool_end",
+     "read"
+    ],
+    [
+     2.6,
+     "call_start",
+     ""
+    ],
+    [
+     3.5,
+     "tool_start",
+     "read"
+    ],
+    [
+     3.5,
+     "tool_end",
+     "read"
+    ],
+    [
+     3.5,
+     "call_start",
+     ""
+    ],
+    [
+     4.9,
+     "tool_start",
+     "skills"
+    ],
+    [
+     4.9,
+     "tool_end",
+     "skills"
+    ],
+    [
+     4.9,
+     "call_start",
+     ""
+    ],
+    [
+     5.6,
+     "tool_start",
+     "skills"
+    ],
+    [
+     5.6,
+     "tool_end",
+     "skills"
+    ],
+    [
+     5.6,
+     "call_start",
+     ""
+    ],
+    [
+     7.2,
+     "tool_start",
+     "shell"
+    ],
+    [
+     7.7,
+     "tool_end",
+     "shell"
+    ],
+    [
+     7.7,
+     "call_start",
+     ""
+    ],
+    [
+     9.0,
+     "tool_start",
+     "shell"
+    ],
+    [
+     9.4,
+     "tool_end",
+     "shell"
+    ],
+    [
+     9.4,
+     "call_start",
+     ""
+    ],
+    [
+     10.9,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "merge",
+   "thinking": true,
+   "chat": "d37441bc235d4b78bc73abb17bdde419",
+   "status": "completed",
+   "seconds": 45.1,
+   "model_calls": 6,
+   "context": 8549,
+   "tools": [
+    "read",
+    "read",
+    "skills",
+    "shell",
+    "shell",
+    "create_document"
+   ],
+   "failed_tools": 2,
+   "checks": {
+    "pdf created": true,
+    "exp1 content present": true,
+    "exp2 content present": true,
+    "all 10 images": true,
+    "exp2 starts a page": true,
+    "name on title page": true,
+    "no missing images": true
+   },
+   "passed": true,
+   "answer": "The experiments `exp1.pdf` and `exp2.pdf` have been successfully merged into a new PDF named `merged_experiment.pdf`.\n\nThe following modifications have been applied:\n1.  **Title Page**: A title page has been added containing:\n    *   Name: Pranav Chandak\n    *   Class: D16\n    *   Roll No.: 33\n2.  **Renaming**: The experiments are renamed to **Experiment 1a** (from `exp1.pdf`) and **Experiment 1b** (from `exp2.pdf`).\n3.  **Page Break**: Experiment 1b starts on a new page, as requested.\n4.  **Content Preservation**: All original text and images from both documents have been retained.\n\nThe merge",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     12.6,
+     "tool_start",
+     "read"
+    ],
+    [
+     12.6,
+     "tool_start",
+     "read"
+    ],
+    [
+     12.6,
+     "tool_end",
+     "read"
+    ],
+    [
+     12.6,
+     "tool_end",
+     "read"
+    ],
+    [
+     12.6,
+     "call_start",
+     ""
+    ],
+    [
+     15.0,
+     "tool_start",
+     "skills"
+    ],
+    [
+     15.0,
+     "tool_end",
+     "skills"
+    ],
+    [
+     15.0,
+     "call_start",
+     ""
+    ],
+    [
+     17.1,
+     "tool_start",
+     "shell"
+    ],
+    [
+     17.4,
+     "tool_end",
+     "shell"
+    ],
+    [
+     17.4,
+     "call_start",
+     ""
+    ],
+    [
+     18.6,
+     "tool_start",
+     "shell"
+    ],
+    [
+     19.0,
+     "tool_end",
+     "shell"
+    ],
+    [
+     19.0,
+     "call_start",
+     ""
+    ],
+    [
+     39.7,
+     "tool_start",
+     "create_document"
+    ],
+    [
+     40.0,
+     "tool_end",
+     "create_document"
+    ],
+    [
+     40.0,
+     "call_start",
+     ""
+    ],
+    [
+     45.1,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "attachment",
+   "thinking": false,
+   "chat": "8b15ec2279dd4b828a3f11811a97f70a",
+   "status": "completed",
+   "seconds": 4.3,
+   "model_calls": 4,
+   "context": 3732,
+   "tools": [
+    "read",
+    "skills",
+    "shell"
+   ],
+   "failed_tools": 1,
+   "checks": {
+    "names Packet Tracer": true
+   },
+   "passed": true,
+   "answer": "The experiment requires the following apparatus: Cisco Packet Tracer, a computer with 4 GB RAM.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     2.4,
+     "tool_start",
+     "read"
+    ],
+    [
+     2.4,
+     "tool_end",
+     "read"
+    ],
+    [
+     2.4,
+     "call_start",
+     ""
+    ],
+    [
+     2.7,
+     "tool_start",
+     "skills"
+    ],
+    [
+     2.7,
+     "tool_end",
+     "skills"
+    ],
+    [
+     2.7,
+     "call_start",
+     ""
+    ],
+    [
+     3.5,
+     "tool_start",
+     "shell"
+    ],
+    [
+     3.9,
+     "tool_end",
+     "shell"
+    ],
+    [
+     3.9,
+     "call_start",
+     ""
+    ],
+    [
+     4.3,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "attachment",
+   "thinking": true,
+   "chat": "f1477b092cf94f96a6c15adf115a7e5d",
+   "status": "completed",
+   "seconds": 10.4,
+   "model_calls": 4,
+   "context": 4252,
+   "tools": [
+    "read",
+    "skills",
+    "shell"
+   ],
+   "failed_tools": 1,
+   "checks": {
+    "names Packet Tracer": true
+   },
+   "passed": true,
+   "answer": "The experiment requires the following apparatus: Cisco Packet Tracer, a computer with 4 GB RAM.",
+   "timeline": [
+    [
+     0.5,
+     "call_start",
+     ""
+    ],
+    [
+     4.8,
+     "tool_start",
+     "read"
+    ],
+    [
+     4.8,
+     "tool_end",
+     "read"
+    ],
+    [
+     4.8,
+     "call_start",
+     ""
+    ],
+    [
+     6.4,
+     "tool_start",
+     "skills"
+    ],
+    [
+     6.4,
+     "tool_end",
+     "skills"
+    ],
+    [
+     6.4,
+     "call_start",
+     ""
+    ],
+    [
+     8.5,
+     "tool_start",
+     "shell"
+    ],
+    [
+     8.8,
+     "tool_end",
+     "shell"
+    ],
+    [
+     8.8,
+     "call_start",
+     ""
+    ],
+    [
+     10.4,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "xlsx-sum",
+   "thinking": false,
+   "chat": "bde203e1e9cc42dd978f172553733b01",
+   "status": "completed",
+   "seconds": 27.3,
+   "model_calls": 8,
+   "context": 6073,
+   "tools": [
+    "read",
+    "shell",
+    "shell",
+    "shell",
+    "shell",
+    "skills",
+    "shell"
+   ],
+   "failed_tools": 3,
+   "checks": {
+    "March total 12450.75": true
+   },
+   "passed": true,
+   "answer": "The `sales.xlsx` file contains three sheets: 'Jan', 'Feb', and 'Mar'.\n\nI need to read the 'Mar' sheet to find the total revenue.\n\nI will now execute the script again, specifically targeting the 'Mar' sheet, assuming the script can filter or I can query it directly. Since the previous output listed the sheets, I will now attempt to query the 'Mar' sheet. Since I don't have a specific tool to query a sheet by name, I will re-run the script and assume it will provide the data for the 'Mar' sheet if I can specify it, or I will assume the next call will give me the data for the 'Mar' sheet.\n\nGiven ",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     2.3,
+     "tool_start",
+     "read"
+    ],
+    [
+     2.3,
+     "tool_end",
+     "read"
+    ],
+    [
+     2.3,
+     "call_start",
+     ""
+    ],
+    [
+     3.3,
+     "tool_start",
+     "shell"
+    ],
+    [
+     4.4,
+     "tool_end",
+     "shell"
+    ],
+    [
+     4.4,
+     "call_start",
+     ""
+    ],
+    [
+     5.5,
+     "tool_start",
+     "shell"
+    ],
+    [
+     6.0,
+     "tool_end",
+     "shell"
+    ],
+    [
+     6.0,
+     "call_start",
+     ""
+    ],
+    [
+     10.5,
+     "tool_start",
+     "shell"
+    ],
+    [
+     11.0,
+     "tool_end",
+     "shell"
+    ],
+    [
+     11.0,
+     "call_start",
+     ""
+    ],
+    [
+     12.3,
+     "tool_start",
+     "shell"
+    ],
+    [
+     12.8,
+     "tool_end",
+     "shell"
+    ],
+    [
+     12.8,
+     "call_start",
+     ""
+    ],
+    [
+     22.3,
+     "tool_start",
+     "skills"
+    ],
+    [
+     22.3,
+     "tool_end",
+     "skills"
+    ],
+    [
+     22.3,
+     "call_start",
+     ""
+    ],
+    [
+     24.6,
+     "tool_start",
+     "shell"
+    ],
+    [
+     26.7,
+     "tool_end",
+     "shell"
+    ],
+    [
+     26.7,
+     "call_start",
+     ""
+    ],
+    [
+     27.3,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "xlsx-sum",
+   "thinking": true,
+   "chat": "790606266a7c40d0935b3141868fc607",
+   "status": "completed",
+   "seconds": 13.4,
+   "model_calls": 4,
+   "context": 4834,
+   "tools": [
+    "skills",
+    "shell",
+    "shell"
+   ],
+   "failed_tools": 0,
+   "checks": {
+    "March total 12450.75": true
+   },
+   "passed": true,
+   "answer": "The total revenue for March in the workbook is 12450.75.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     2.8,
+     "tool_start",
+     "skills"
+    ],
+    [
+     2.8,
+     "tool_end",
+     "skills"
+    ],
+    [
+     2.8,
+     "call_start",
+     ""
+    ],
+    [
+     7.1,
+     "tool_start",
+     "shell"
+    ],
+    [
+     7.6,
+     "tool_end",
+     "shell"
+    ],
+    [
+     7.6,
+     "call_start",
+     ""
+    ],
+    [
+     11.3,
+     "tool_start",
+     "shell"
+    ],
+    [
+     12.4,
+     "tool_end",
+     "shell"
+    ],
+    [
+     12.4,
+     "call_start",
+     ""
+    ],
+    [
+     13.4,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "chat",
+   "thinking": false,
+   "chat": "761423f8951d4927a1673700f8e1c8a9",
+   "status": "completed",
+   "seconds": 2.1,
+   "model_calls": 1,
+   "context": 2450,
+   "tools": [],
+   "failed_tools": 0,
+   "checks": {
+    "no tools for a plain question": true,
+    "answered": true
+   },
+   "passed": true,
+   "answer": "A Virtual Local Area Network (VLAN) is a method of logically segmenting a single physical network into multiple smaller, isolated networks. This segmentation allows devices on different VLANs to communicate with each other in a controlled manner, improving security and reducing broadcast traffic on the network.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     2.2,
+     "done",
+     ""
+    ]
+   ]
+  },
+  {
+   "case": "chat",
+   "thinking": true,
+   "chat": "02404f380652456daee35d3d7ab3a945",
+   "status": "completed",
+   "seconds": 4.7,
+   "model_calls": 1,
+   "context": 2674,
+   "tools": [],
+   "failed_tools": 0,
+   "checks": {
+    "no tools for a plain question": true,
+    "answered": true
+   },
+   "passed": true,
+   "answer": "A Virtual Local Area Network (VLAN) is a method of segmenting a physical network into multiple logical broadcast domains. This allows network administrators to isolate traffic and improve security and performance by grouping devices based on function or department, rather than relying solely on physical wiring.",
+   "timeline": [
+    [
+     0.4,
+     "call_start",
+     ""
+    ],
+    [
+     4.7,
+     "done",
+     ""
+    ]
+   ]
+  }
+ ]
+}

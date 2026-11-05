@@ -27,7 +27,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 from strands.session import SnapshotSessionManager
 from strands.session.snapshot_session_manager import _snapshot_key
@@ -110,10 +109,6 @@ class SessionManager:
     async def delete_all(self) -> None:
         """Remove every snapshot of this chat. Used when the chat is deleted."""
         await self.manager().delete_session()
-
-    def policy(self) -> dict[str, Any]:
-        """The session policy in force, for `GET /settings`."""
-        return {"dir": str(self.storage_dir()), "immutable_via": "save_snapshot(is_latest=False)"}
 
 
 __all__ = ["AGENT_ID", "SessionManager"]

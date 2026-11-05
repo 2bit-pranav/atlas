@@ -1,4 +1,4 @@
-"""B5: page taint belongs to the chat and covers every source of outside content.
+"""Page taint belongs to the chat and covers every source of outside content.
 
 Before: taint was a flag on one run. On the next message the page text was
 still in the conversation but nothing asked any more, and a

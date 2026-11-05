@@ -91,7 +91,7 @@ class ToolPolicy(HookProvider):
         self.ask_outside = ask_outside
         self.sensitive = sensitive or (lambda name: False)
         #: What the user allowed this turn: (folder or file, the action up to which
-        #: it is allowed). A read grant is not a change grant (B9); for running a
+        #: it is allowed). A read grant is not a change grant; for running a
         #: command, "run:<program>" instead of a folder.
         self._granted: list[tuple[Path | str, int]] = []
         #: The same, allowed for the whole chat ("Allow for this chat"): the chat's
@@ -432,7 +432,7 @@ def _grant_scope(target: Path) -> Path:
 class TaintTracker(HookProvider):
     """Marks the chat tainted once outside content has come back from a tool.
 
-    The policy's taint step then asks before shell commands and writes outside
+    The grid then asks before shell commands and writes outside
     the workspace, for the rest of the chat (the content stays in the history).
     Sources: MCP tools whose server is not trusted (`McpManager.is_untrusted`)
     and a PDF `read_pdf` downloads; the extension's page tools mark it themselves.

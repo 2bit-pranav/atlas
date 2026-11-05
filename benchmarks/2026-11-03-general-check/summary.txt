@@ -1,0 +1,8 @@
+FAIL merge       thinking=off   39.5s calls=4 tools=3 failed_tools=0 approvals=0  missing: ['name on title page']
+FAIL merge       thinking=on    43.8s calls=5 tools=4 failed_tools=0 approvals=0  missing: ['all 10 images', 'no missing images']
+PASS chat        thinking=off    2.6s calls=1 tools=0 failed_tools=0 approvals=0
+FAIL chat        thinking=on    36.4s calls=2 tools=1 failed_tools=0 approvals=0  missing: ['no tools for a plain question']
+PASS attachment  thinking=off    2.8s calls=2 tools=1 failed_tools=0 approvals=0
+PASS attachment  thinking=on     5.1s calls=2 tools=1 failed_tools=0 approvals=0
+
+3/6 passed. Traces: C:\Users\prana\AppData\Local\Temp\ab\bench\20261103-215506

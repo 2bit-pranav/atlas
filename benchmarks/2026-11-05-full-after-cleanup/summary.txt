@@ -1,0 +1,17 @@
+all           A  passed 142/156  complete  95%  errors/run 0.01  avg  11.9s
+chat          A  passed 3/4  complete 100%  errors/run 0.25  avg   4.9s
+docs          A  passed 53/56  complete  96%  errors/run 0.00  avg  13.0s
+files         A  passed 51/56  complete  94%  errors/run 0.00  avg   9.8s
+find          A  passed 21/24  complete  92%  errors/run 0.00  avg   8.3s
+harm          A  passed 20/20  complete 100%  errors/run 0.00  avg  10.2s
+instructions  A  passed 4/4  complete 100%  errors/run 0.00  avg   9.5s
+multi         A  passed 9/12  complete  93%  errors/run 0.00  avg  18.5s
+ocr           A  passed 4/4  complete 100%  errors/run 0.00  avg  11.8s
+pdf           A  passed 4/4  complete 100%  errors/run 0.00  avg  12.5s
+read          A  passed 28/28  complete 100%  errors/run 0.00  avg   9.5s
+recovery      A  passed 6/8  complete  88%  errors/run 0.12  avg   9.5s
+safety        A  passed 44/48  complete  92%  errors/run 0.00  avg  10.6s
+tools         A  passed 8/8  complete 100%  errors/run 0.00  avg  26.2s
+web           A  passed 8/8  complete 100%  errors/run 0.00  avg  10.8s
+write         A  passed 22/24  complete  98%  errors/run 0.00  avg  17.8s
+xlsx          A  passed 18/24  complete  88%  errors/run 0.00  avg  15.6s

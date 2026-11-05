@@ -43,8 +43,7 @@ from agent.ingest import parse
 logger = logging.getLogger(__name__)
 
 KINDS = {".pdf": "pdf", ".docx": "docx", ".xlsx": "xlsx", ".xlsm": "xlsx"}
-#: Page status: done, or still to do.
-DONE = {"text", "ocr", "blank", "failed"}
+#: Page statuses still to do (the rest are done: text, ocr, blank, failed).
 PENDING = {"scan", "pictures"}
 
 SCHEMA = """

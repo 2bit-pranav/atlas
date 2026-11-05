@@ -126,8 +126,8 @@ def build_agent(
     skills = skill_manager.enabled()
     enabled = set(tool_manager.atlas_tools())
     scope = _scope(settings, workspace_dir)
-    folders = scope.folders
-    resolve = lambda p: _resolve(p, workspace_dir, folders)  # noqa: E731
+    # The tools place a path exactly as the policy checks it: one rule (Scope.place).
+    resolve = scope.place
     store = store_for(paths.data_dir(settings))
     atlas_tools = [t for t in (*finding_tools(scope, resolve, model_path, store),
                                *read_tools(resolve, model_path, settings.model.supports_vision),
@@ -148,7 +148,7 @@ def build_agent(
         # up from `agent.sandbox` with no other change.
         sandbox=sandbox if sandbox is not None else default_environment(
             cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
-            folders=_scope(settings, workspace_dir).folders),
+            folders=scope.folders),
         instructions=instructions or None,
         session=session_manager,
         skills=[s["path"] for s in skills] or False,
@@ -169,7 +169,7 @@ def build_agent(
         # Before a tool runs: the run's limits, then one ordered policy
         # (policy.py), so a refused repeat never shows a card. After: recovery.
         hooks=[RunLimits(settings.limits, notify=observer),
-               ToolPolicy(_scope(settings, workspace_dir), approver=approver,
+               ToolPolicy(scope, approver=approver,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           mode=settings.access.mode, chat_grants=chat_grants),
                ToolFailureRecovery(settings.resilience, notify=observer),
@@ -202,17 +202,6 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
                             mcp_config=paths.mcp_config(settings), venv=Path(sys.prefix),
                             skills=paths.skills_dir(settings)),
     )
-
-
-def _resolve(path: str, workspace: Path, folders: list[Path]) -> Path:
-    """Where a file tool's `path` points, placed as `document_tools` places it."""
-    from agent.platform.winpaths import windows_path
-    from agent.safety.placement import locate
-
-    p = Path(windows_path(path)) if path.startswith("/") else Path(path)
-    if p.is_absolute():
-        return p
-    return locate(path, workspace, folders) or workspace / p
 
 
 __all__ = ["CONVERSATION_MANAGERS", "build_agent", "build_conversation_manager"]

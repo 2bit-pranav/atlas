@@ -1,4 +1,4 @@
-"""B10: install commands are recognised by parsing, not one regex (agent/safety/installs.py)."""
+"""Install commands are recognised by parsing, not one regex (agent/safety/installs.py)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from agent.safety.shell import is_install
     "npx -y some-tool",
     "uvx ruff",
     "winget install Git.Git",
-    # B10: all of these ran without asking.
+    # all of these ran without asking.
     "   pip install rich",
     "echo start\npip install rich",
     "py -3 -m pip install rich",

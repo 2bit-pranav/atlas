@@ -48,7 +48,7 @@ def test_arithmetic(expression: str, expected: str) -> None:
 @pytest.mark.parametrize("expression, expected", [
     ("18% of 2750", "495"),
     pytest.param("2750 * 18%", "495", marks=pytest.mark.xfail(
-        reason="B16: the % rewrite takes one digit, so 18% becomes 1(8/100)", strict=True)),
+        reason="the % rewrite takes one digit, so 18% becomes 1(8/100)", strict=True)),
     ("Rs. 1,250.50 + ₹ 1,00,000", "101250.5"),   # currency marks, Indian grouping
     ("13,798.14 - 798.14", "13000"),
     ("2750 x 3", "8250"),
@@ -96,7 +96,7 @@ def test_bad_dates_are_refused() -> None:
 
 
 @pytest.mark.parametrize("expression, expected", [
-    ("max(10,20)", "20"),                    # B8: became max(1020)
+    ("max(10,20)", "20"),                    # became max(1020)
     ("sum([10,20,30])", "60"),
     ("min(5,12)", "5"),
     ("max(1,000, 2,500)", "2500"),           # grouped numbers inside a call still read as numbers

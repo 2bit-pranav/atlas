@@ -18,7 +18,7 @@ describe("client calls (the extension's page operations)", () => {
   })
 
   it("are left to the window that can reach the page", async () => {
-    // B4: a web UI tab on the same chat answered first, with an error,
+    // A web UI tab on the same chat answered first, with an error,
     // so page_read failed even though the side panel was open.
     clientCall(run, event)
     await settle()
