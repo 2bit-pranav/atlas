@@ -93,6 +93,8 @@ export const SECTIONS: Section[] = [
             help: "One per line, e.g. C:/Users/you/Documents. Subfolders are included. The chat workspace is always allowed. Used by the file tools, the document tools, shell commands and any MCP server whose arguments contain {atlas:folders}." },
           { key: "access.ask_outside", label: "Ask before going outside them", control: toggle,
             help: "On: anything outside shows an Allow / Deny card. Off: it is refused." },
+          { key: "access.mode", label: "Mode", control: { type: "select", options: ["look", "ask", "work"] },
+            help: "Look: reads only. Ask: asks before changing, deleting or running anything in your folders. Work: changes your folders without asking; deleting still asks, and nothing outside them runs without asking." },
         ],
       },
       {

@@ -35,6 +35,7 @@ from agent.safety.scope import Scope
 from agent.store.snapshots import SessionManager
 from agent.tools.doc_reading import doc_read_tools
 from agent.tools.documents.tool import document_tools
+from agent.tools.files import file_tools
 from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
 from agent.tools.reading import read_tools
@@ -126,6 +127,7 @@ def build_agent(
     store = store_for(paths.data_dir(settings))
     atlas_tools = [t for t in (*read_tools(resolve, model_path, settings.model.supports_vision),
                                *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
+                               *file_tools(resolve, model_path),
                                *maths_tools())
                    if t.tool_name in enabled]
     # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
@@ -163,7 +165,8 @@ def build_agent(
         # (policy.py), so a refused repeat never shows a card. After: recovery.
         hooks=[RunLimits(settings.limits, notify=observer),
                ToolPolicy(_scope(settings, workspace_dir), approver=approver,
-                          ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted),
+                          ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
+                          mode=settings.access.mode),
                ToolFailureRecovery(settings.resilience, notify=observer),
                skill_tools,
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],

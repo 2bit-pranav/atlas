@@ -16,7 +16,7 @@ from agent.safety.scope import Scope
 READ_TOOLS = {"read_text", "read_image", "read_pdf", "read_docx", "read_xlsx"}
 #: Tools that write their `path`: the access step asks for write access, the taint step
 #: asks outside the workspace.
-WRITE_TOOLS = {"write", "edit", "create_document", "edit_docx", "set_cell"}
+WRITE_TOOLS = {"write", "edit", "create_document", "edit_docx", "set_cell", "delete_file"}
 FILE_TOOLS = READ_TOOLS | WRITE_TOOLS
 
 

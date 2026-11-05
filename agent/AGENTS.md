@@ -17,6 +17,7 @@ agent/
                 restore.py       restoring from a Strands snapshot, then re-setting the prompt
                 memory.py        long-term memory: off, and why
   safety/       policy.py        ToolPolicy: every check before a tool runs, in one order; TaintTracker
+                grid.py          the permission grid: (place, action) -> run, ask or refuse, per mode
                 scope.py         Scope: the workspace and allowed folders; where a path argument lands
                 placement.py     locate(): the one rule for relative paths, never outside its folder
                 call_paths.py    which paths a call touches; the path rewrites before the checks
@@ -35,6 +36,7 @@ agent/
                 maths/           calculate / dates: evaluator.py (the safe evaluator), dates.py, tool.py
                 reading.py       read_text / read_image: capped, typed reads (the harness `read` is off)
                 doc_reading.py   read_pdf / read_docx / read_xlsx: fetch from the ingest store
+                files.py         delete_file: to the Recycle Bin, the agent's only way to delete
                 page.py          page_read / page_find for the browser extension, via client calls
   ingest/       store.py         the ingest store: parse at upload, one worker, SQLite + FTS5, per-chat ownership
                 parse.py         a pdf/docx/xlsx into blocks whose ids the edit tools address
@@ -235,15 +237,37 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 2. **floor**: refused outright, no card: Atlas's own files (protected.py), the
    floor's shell rules (rules.toml), and shell writes or deletes that land in
    Atlas's data or another chat (relative paths placed from the workspace).
-3. **access**: a path outside the scope asks the user (kind `access`).
-3. **install**: a `shell` command that installs asks (kind `install`).
-4. **page taint**: once outside content is in the **chat** (the extension's page
-   tools, a PDF `read_pdf` downloads, an MCP tool from an untrusted server), shell commands and
-   writes outside the workspace ask (kind `page`), in that turn and every later
-   one: the content stays in the history. Stored on the chat (`chats.tainted`);
-   `TaintTracker` marks it after such a tool returns. An MCP server is trusted
-   when Atlas points it only at the allowed folders (`{atlas:folders}`) or it is
-   marked `"atlas": {"trusted": true}` in mcp.json.
+3. **grid** (`safety/grid.py`): every call, of any tool, is described as
+   (place, action) pairs and each is looked up in the grid of `access.mode`:
+
+   | | read | create | change | delete | run |
+   |---|---|---|---|---|---|
+   | workspace | run | run | run | run | ask (skill scripts run) |
+   | folders | run | run | ask | ask | ask |
+   | elsewhere | ask | ask | ask | ask | ask |
+   | system | ask | refused | refused | refused | refused |
+
+   That is the default, **ask**. **Look** refuses everything but reads (and
+   asks to read outside); **work** runs changes and commands in the folders
+   and still asks to delete. Atlas's own files never get here (the floor).
+   How a call is described: Atlas's tools declare their action
+   (`TOOL_ACTIONS`); `write` is create or change by whether the file exists;
+   shell commands are parsed (`shell.py`), their targets placed with `~`,
+   `$HOME` and `%USERPROFILE%` as the home folder and anything else that
+   cannot be placed (another variable, a path after `cd`) as elsewhere; an
+   MCP tool by its server's labels (`read_only_hint`, `destructive_hint`),
+   unlabelled as a change. A shell delete outside the workspace is refused and
+   pointed to `delete_file` (Recycle Bin). One card per call (kind `access`
+   with a path, `tool` for a command); Allow covers that action, or a lesser
+   one, in that folder (that program, for a command) for the rest of the turn.
+   **Outside content in the chat** (the extension's page tools, a PDF
+   `read_pdf` downloads, an MCP tool from an untrusted server) makes every
+   run, change and delete, every create outside the workspace and every
+   shell command ask (kind `page`), in that turn and later ones. Stored on the
+   chat (`chats.tainted`); `TaintTracker` marks it after such a tool returns.
+   An MCP server is trusted when Atlas points it only at the allowed folders
+   (`{atlas:folders}`) or it is marked `"atlas": {"trusted": true}` in mcp.json.
+4. **install**: a `shell` command that installs asks (kind `install`).
 5. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
 6. **documents**: `write`/`edit` on a binary document is redirected.
 

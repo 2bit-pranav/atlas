@@ -98,10 +98,13 @@ def test_mcp_paths_are_normalised_then_checked(tmp_path) -> None:
     policy = _policy(tmp_path, approver=asked)
     inside = (tmp_path / "docs" / "n.txt").as_posix()          # C:/Users/... form
     git_bash = "/" + inside[0].lower() + inside[2:]            # /c/Users/... form
-    event = _run(policy, _event("read_file", {"path": git_bash}, mcp_tool("read_file")))
+    event = _run(policy, _event("read_file", {"path": git_bash}, mcp_tool("read_file", read_only=True)))
     assert event.cancel_tool is False
     assert event.tool_use["input"]["path"].replace("\\", "/").lower() == inside.lower()
     assert asked.calls == []
+    # A tool its server does not label read-only may change what it is given: it asks.
+    _run(policy, _event("write_file", {"path": git_bash}, mcp_tool("write_file")))
+    assert asked.calls and asked.calls[-1][1]["action"] == "change"
 
 
 def test_sensitive_mcp_tool_asks(tmp_path) -> None:
@@ -174,7 +177,7 @@ def test_after_reading_a_page_shell_and_outside_writes_ask(tmp_path) -> None:
     asked = Asked("denied")
     policy = _policy(tmp_path, approver=asked, tainted=lambda: True)
     shell = _run(policy, _event("shell", {"command": "echo hi"}))
-    assert asked.calls[-1][0] == "page" and "web page" in shell.cancel_tool
+    assert asked.calls[-1][0] == "page" and "outside content" in shell.cancel_tool
     write = _run(policy, _event("write", {"path": (tmp_path / "docs" / "x.txt").as_posix(), "content": "x"}))
     assert asked.calls[-1][0] == "page" and write.cancel_tool
     # The chat's own workspace stays writable.
@@ -230,8 +233,7 @@ def test_trailing_dotdot_in_shell_is_not_stripped(tmp_path) -> None:
     asked = Asked("denied")
     allowed = (tmp_path / "docs").as_posix()
     event = _run(_policy(tmp_path, approver=asked), _event("shell", {"command": f"rm -rf {allowed}/.."}))
-    assert asked.calls and asked.calls[0][0] == "access"
-    assert event.cancel_tool
+    assert event.cancel_tool and "delete_file" in event.cancel_tool   # outside the workspace: never by shell
     # Ordinary punctuation after a path is still trimmed.
     asked = Asked("denied")
     event = _run(_policy(tmp_path, approver=asked), _event("shell", {"command": f"ls {allowed}/a.txt,"}))

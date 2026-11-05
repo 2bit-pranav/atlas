@@ -22,12 +22,14 @@ class Asked:
         return self.answer
 
 
-def mcp_tool(name: str) -> Any:
-    """An MCP tool called `name`, as the policy and the taint tracker see one."""
+def mcp_tool(name: str, read_only: bool | None = None) -> Any:
+    """An MCP tool called `name`, as the policy and the taint tracker see one;
+    `read_only` sets its server's label (none by default)."""
     from mcp import types as mcp_types
     from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
-    tool = mcp_types.Tool(name=name, description="", inputSchema={"type": "object"})
+    notes = mcp_types.ToolAnnotations(readOnlyHint=read_only) if read_only is not None else None
+    tool = mcp_types.Tool(name=name, description="", inputSchema={"type": "object"}, annotations=notes)
     return MCPAgentTool(tool, SimpleNamespace(), name_override=name)
 
 

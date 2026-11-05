@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -129,6 +129,7 @@ class AtlasToolSettings(StrictModel):
     read_pdf: bool = True  # agent/tools/doc_reading.py: from the ingest store
     read_docx: bool = True
     read_xlsx: bool = True
+    delete_file: bool = True  # agent/tools/files.py: to the Recycle Bin, after the grid
     create_document: bool = True  # agent/tools/documents/
     edit_docx: bool = True  # with the docx skill
     set_cell: bool = True  # with the xlsx skill
@@ -281,6 +282,9 @@ class AccessSettings(StrictModel):
     folders: list[str] = Field(default_factory=list)
     #: Outside these: ask the user (true) or refuse outright (false).
     ask_outside: bool = True
+    #: The permission grid's mode (agent/safety/grid.py): look reads only; ask asks before
+    #: changes, deletes and commands in the folders; work changes them without asking.
+    mode: Literal["look", "ask", "work"] = "ask"
 
 
 class ApprovalSettings(StrictModel):
@@ -392,6 +396,7 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.read_pdf": Tier.LIVE,
     "tools.atlas.read_docx": Tier.LIVE,
     "tools.atlas.read_xlsx": Tier.LIVE,
+    "tools.atlas.delete_file": Tier.LIVE,
     "tools.atlas.create_document": Tier.LIVE,
     "tools.atlas.edit_docx": Tier.LIVE,
     "tools.atlas.set_cell": Tier.LIVE,
@@ -421,6 +426,7 @@ TIERS: dict[str, Tier] = {
     "approvals.timeout": Tier.LIVE,
     "access.folders": Tier.LIVE,
     "access.ask_outside": Tier.LIVE,
+    "access.mode": Tier.LIVE,
     "session.dir": Tier.RESTART,
     "context.conversation_manager": Tier.LIVE,
     "context.window": Tier.RESTART,

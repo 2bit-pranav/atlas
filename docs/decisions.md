@@ -478,6 +478,26 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 
 ## Safety
 
+**One permission grid for every tool: where, what, and whether it asks**
+(2026-11-05, `agent/safety/grid.py`). Every call, Atlas's own tools, the
+harness's, the shell's and MCP's, is described as (place, action) pairs:
+place is the workspace, the allowed folders, elsewhere or a system folder
+(Atlas's own files stay the floor); action is read, create, change, delete
+or run. Each pair is looked up in the grid of `access.mode`: look (reads
+only), ask (the default: changing, deleting and running commands in the
+folders ask), work (changes and commands in the folders run; deleting still
+asks). Two rules hold in every mode: deleting outside the workspace asks,
+and outside content in the chat makes every run, change and delete ask.
+Deleting goes through `delete_file`, which moves to the Recycle Bin; a shell
+delete outside the workspace is refused and pointed there. Shell targets are
+placed with `~`, `$HOME` and `%USERPROFILE%` as the home folder, and one that
+cannot be placed asks, closing the hole the file baseline found
+(`rm -rf ~/Downloads/*` passed every check). MCP tools are described by their
+servers' labels, unlabelled ones as changes, so they ask in the folders. The
+old access and taint steps are folded into this one, so a call gets at most
+one card. Tested offline in every mode, with the probe's commands; disabling
+the fix fails 6 of the 27 tests.
+
 **Image lines in `create_document` are access-checked** (2026-11-04). An
 image's source in the Markdown is a file the tool reads and embeds, but only
 the output `path` was checked: any picture on the disk, or Atlas's own files,
