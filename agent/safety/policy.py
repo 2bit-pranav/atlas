@@ -6,13 +6,14 @@ place a tool call is inspected before it runs, as ordered steps:
 
     1. normalise   MCP servers get Windows paths, not `/c/Users/...`
     2. floor       Atlas's own files, the shell rules (rules.toml): refused
-    3. grid        each (place, action) the call has, looked up in the mode's
+    3. documents   `write`/`edit` on a .docx/.pdf/.xlsx is redirected to the
+                   document tools (before the grid: no card for a call that
+                   would be redirected anyway)
+    4. grid        each (place, action) the call has, looked up in the mode's
                    grid (grid.py): runs, asks, or is refused. Outside content
                    in the chat makes runs, changes and deletes ask
-    4. install     a shell command that installs anything asks the user
-    5. sensitive   a tool set to Ask (MCP tools by default, `tools.ask`) asks
-    6. documents   `write`/`edit` on a .docx/.pdf/.xlsx is redirected to the
-                   document tools
+    5. install     a shell command that installs anything asks the user
+    6. sensitive   a tool set to Ask (MCP tools by default, `tools.ask`) asks
 
 The first step that refuses ends the check; an approved step moves on to the
 next. Everything after a tool runs (re-running a crashed tool, annotating a
@@ -99,7 +100,8 @@ class ToolPolicy(HookProvider):
         #: Calls the grid already asked about, so the tool step does not ask twice.
         self._approved: set[str] = set()
         self.steps: list[Callable[[BeforeToolCallEvent], Awaitable[Decision | None]]] = [
-            self._normalise, self._floor, self._grid, self._install, self._sensitive, self._documents,
+            # documents before the grid: a call it would redirect anyway never shows a card.
+            self._normalise, self._floor, self._documents, self._grid, self._install, self._sensitive,
         ]
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
@@ -135,8 +137,11 @@ class ToolPolicy(HookProvider):
         if event.tool_use.get("name") in ("write", "edit"):
             args = event.tool_use.get("input") or {}
             raw = args.get("path")
-            if isinstance(raw, str) and not raw.startswith("/") and Path(raw).is_absolute():
-                return Decision(rewrite={**args, "path": model_path(raw)})
+            if isinstance(raw, str) and raw and not raw.startswith("/"):
+                # Absolute: the form they take. Relative: placed like every tool's (the workspace,
+                # then the folders); the harness resolved it against Atlas's own folder.
+                return Decision(rewrite={**args, "path": model_path(raw if Path(raw).is_absolute()
+                                                                    else self.scope.place(raw))})
             return None
         if event.tool_use.get("name") == "shell":
             args = event.tool_use.get("input") or {}
@@ -218,6 +223,11 @@ class ToolPolicy(HookProvider):
                 return Decision(refuse=(
                     "Deleting the user's files goes through the delete_file tool, which moves them to the "
                     "Recycle Bin after the user agrees. Use delete_file; do not delete them with a command."))
+            if where == "elsewhere" and effect.path is not None and (meant := self._misplaced(effect.path)):
+                return Decision(refuse=(
+                    f"There is no folder {effect.path.parent}. Did you mean {model_path(meant)}? Use that "
+                    "path exactly, or a path inside the user's folder such as "
+                    f"`{meant.parent.name}/{meant.name}`; never type a full path from memory."))
             v = verdict(self.mode, where, effect.action)
             if v == "ask" and where in ("elsewhere", "system") and (not self.ask_outside or self.approver is None):
                 v = "refuse"
@@ -259,6 +269,20 @@ class ToolPolicy(HookProvider):
             detail.update(path=str(target), folder=str(_grant_scope(target)),
                           access="read" if first.action == "read" else "write")
         return kind, detail
+
+    def _misplaced(self, path: Path) -> Path | None:
+        """A path outside the folders whose folder does not exist, but whose end names
+        a folder that does exist in the user's folders: the model typed the full path
+        from memory (`/c/Users/x/Desktop/home/Reports/a.xlsx` for a home in Temp, 2026-11-05).
+        Only ever used to refuse with the right path, never to run anything."""
+        if path.parent.exists():
+            return None
+        parts = path.parts
+        for k in range(len(parts) - 1, 1, -1):             # the longest tail first, at least folder/file
+            found = locate("/".join(parts[-k:]), self.scope.workspace, self.scope.folders)
+            if found is not None and found.parent.is_dir():
+                return found
+        return None
 
     def _covered(self, effect: Effect) -> bool:
         key, rank = self._grant(effect)

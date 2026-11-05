@@ -260,3 +260,12 @@ def test_sql_expression_alone_is_completed_and_errors_name_the_columns(store, ws
     assert "7950.75" in read_xlsx(path="sales.xlsx", sheet="Mar", sql='SUM("revenue")')
     bad = text_of(read_xlsx(path="sales.xlsx", sheet="Mar", sql="SUM(B)"))
     assert '"Mar" columns: "region", "revenue"' in bad and "not by letter" in bad
+
+
+def test_find_text_names_the_documents_holding_the_words(store, ws) -> None:
+    """For find_files: an ingested document found by what it says, not its name."""
+    doc = _docx(ws / "report.docx")
+    _ready(store, store.submit(doc, "c1"))
+    found = store.find_text("brightline suppliers")
+    assert found and Path(found[0][0]) == doc.resolve() and "Brightline" in found[0][1]
+    assert store.find_text("nothing-like-this") == []

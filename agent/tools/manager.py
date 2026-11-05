@@ -26,7 +26,8 @@ SWITCHABLE: tuple[str, ...] = ("write", "edit", "shell")
 
 
 #: Atlas's own tools, given to the agent directly (not a skill, not MCP).
-ATLAS_TOOLS: tuple[str, ...] = ("read_text", "read_image", "read_pdf", "read_docx", "read_xlsx", "delete_file", "create_document", "edit_docx", "set_cell", "calculate", "dates")
+ATLAS_TOOLS: tuple[str, ...] = ("find_files", "list_folder", "read_text", "read_image", "read_pdf", "read_docx",
+                                "read_xlsx", "copy_file", "move_file", "delete_file", "create_document", "edit_docx", "set_cell", "calculate", "dates")
 
 
 class ToolManager:

@@ -182,6 +182,47 @@ def test_one_card_when_the_grid_and_the_tool_both_ask(home) -> None:
     assert len(asked.calls) == 1
 
 
+def test_the_grid_on_finding_copying_and_moving(home) -> None:
+    notes = (home / "Docs" / "notes.txt").as_posix()
+    policy, asked = _policy(home, answer="denied")
+    assert _call(policy, "find_files", {"query": "notes"}) is False
+    assert _call(policy, "list_folder", {"path": (home / "Docs").as_posix()}) is False
+    assert _call(policy, "copy_file", {"path": notes, "destination": (home / "Docs" / "copy.txt").as_posix()}) is False
+    assert asked.calls == []                                         # reads and a new file in the folders run
+    assert _call(policy, "move_file", {"path": notes, "destination": (home / "Docs" / "x.txt").as_posix()})
+    assert asked.calls[-1][1]["action"] == "change"                  # moving the user's file asks
+    assert _call(policy, "list_folder", {"path": (home / "Elsewhere").as_posix()})
+    assert asked.calls[-1][1]["action"] == "read"                    # outside the folders asks
+
+
+def test_moving_atlas_own_files_is_refused(home) -> None:
+    policy, asked = _policy(home, answer="denied")
+    db = (home / ".data" / "atlas.db").as_posix()
+    assert "Atlas" in str(_call(policy, "move_file", {"path": db, "destination": (home / "Docs").as_posix()}))
+    assert "Atlas" in str(_call(policy, "copy_file", {"path": (home / "Docs" / "notes.txt").as_posix(),
+                                                   "destination": (home / "atlas" / "x.txt").as_posix()}))
+    assert asked.calls == []
+
+
+def test_a_relative_write_is_placed_like_every_tool(home) -> None:
+    policy, _ = _policy(home)
+    event = SimpleNamespace(tool_use={"name": "write", "toolUseId": "t", "input": {"path": "out.md", "content": "x"}},
+                            selected_tool=SimpleNamespace(tool_name="write"), cancel_tool=False)
+    decision = asyncio.run(policy._normalise(event))
+    assert decision and decision.rewrite and decision.rewrite["path"].endswith("/.data/chats/c1/out.md")
+
+
+def test_a_full_path_typed_from_memory_is_answered_with_the_real_one(home) -> None:
+    """Thinking on, the model wrote a home folder in Temp as .../Desktop/... twice (2026-11-05)."""
+    (home / "Docs" / "Reports").mkdir()
+    policy, asked = _policy(home, answer="denied")
+    wrong = (home / "Desktop" / "Docs" / "Reports" / "a.docx").as_posix()
+    refused = _call(policy, "create_document", {"path": wrong, "content": "x"})
+    assert "Did you mean" in str(refused) and "Docs/Reports/a.docx" in str(refused) and asked.calls == []
+    _call(policy, "create_document", {"path": (home / "Nowhere" / "a.docx").as_posix(), "content": "x"})
+    assert asked.calls                                   # no folder of that name: it still asks
+
+
 def test_recycle_moves_a_file_to_the_recycle_bin(tmp_path) -> None:
     target = tmp_path / "atlas-test-recycle.txt"
     target.write_text("restore me")

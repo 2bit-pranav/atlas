@@ -36,6 +36,7 @@ from agent.store.snapshots import SessionManager
 from agent.tools.doc_reading import doc_read_tools
 from agent.tools.documents.tool import document_tools
 from agent.tools.files import file_tools
+from agent.tools.finding import finding_tools
 from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
 from agent.tools.reading import read_tools
@@ -124,10 +125,12 @@ def build_agent(
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
     enabled = set(tool_manager.atlas_tools())
-    folders = _scope(settings, workspace_dir).folders
+    scope = _scope(settings, workspace_dir)
+    folders = scope.folders
     resolve = lambda p: _resolve(p, workspace_dir, folders)  # noqa: E731
     store = store_for(paths.data_dir(settings))
-    atlas_tools = [t for t in (*read_tools(resolve, model_path, settings.model.supports_vision),
+    atlas_tools = [t for t in (*finding_tools(scope, resolve, model_path, store),
+                               *read_tools(resolve, model_path, settings.model.supports_vision),
                                *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
                                *file_tools(resolve, model_path),
                                *maths_tools())

@@ -155,6 +155,22 @@ class Store:
                 "WHERE fts MATCH ? AND fts.sha=? ORDER BY bm25(fts) LIMIT ?", (match, sha, limit)).fetchall()
         return [_block(r) for r in rows]
 
+    def find_text(self, query: str, limit: int = 200) -> list[tuple[str, str]]:
+        """(file path, text) for every ingested document holding any of the words,
+        best block first. The caller keeps only paths it may search."""
+        words = re.findall(r"\w+", query.lower())
+        if not words:
+            return []
+        match = " OR ".join(f'"{w}"*' for w in dict.fromkeys(words))
+        with self.lock:
+            rows = self.db.execute(
+                # bm25() only works with the FTS table on its own, hence the materialized step.
+                "WITH hits AS MATERIALIZED (SELECT sha, seq, bm25(fts) AS r FROM fts WHERE fts MATCH ?) "
+                "SELECT p.path, group_concat(b.text, ' ') FROM hits h JOIN blocks b ON b.sha=h.sha AND b.seq=h.seq "
+                "JOIN paths p ON p.sha=h.sha GROUP BY p.path ORDER BY min(h.r) LIMIT ?",
+                (match, limit)).fetchall()
+        return [(r[0], r[1] or "") for r in rows]
+
     # --------------------------------------------------------------- ingest --
 
     def submit(self, path: Path, chat: str) -> str | None:

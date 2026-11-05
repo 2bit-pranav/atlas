@@ -129,7 +129,11 @@ class AtlasToolSettings(StrictModel):
     read_pdf: bool = True  # agent/tools/doc_reading.py: from the ingest store
     read_docx: bool = True
     read_xlsx: bool = True
+    find_files: bool = True  # agent/tools/finding.py
+    list_folder: bool = True
     delete_file: bool = True  # agent/tools/files.py: to the Recycle Bin, after the grid
+    copy_file: bool = True
+    move_file: bool = True
     create_document: bool = True  # agent/tools/documents/
     edit_docx: bool = True  # with the docx skill
     set_cell: bool = True  # with the xlsx skill
@@ -397,7 +401,11 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.read_pdf": Tier.LIVE,
     "tools.atlas.read_docx": Tier.LIVE,
     "tools.atlas.read_xlsx": Tier.LIVE,
+    "tools.atlas.find_files": Tier.LIVE,
+    "tools.atlas.list_folder": Tier.LIVE,
     "tools.atlas.delete_file": Tier.LIVE,
+    "tools.atlas.copy_file": Tier.LIVE,
+    "tools.atlas.move_file": Tier.LIVE,
     "tools.atlas.create_document": Tier.LIVE,
     "tools.atlas.edit_docx": Tier.LIVE,
     "tools.atlas.set_cell": Tier.LIVE,

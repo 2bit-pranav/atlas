@@ -13,10 +13,12 @@ from agent.platform.winpaths import drive_path, windows_path
 from agent.safety.scope import Scope
 
 #: Tools whose `path` argument is a file path, and those of them that only read.
-READ_TOOLS = {"read_text", "read_image", "read_pdf", "read_docx", "read_xlsx"}
+#: `copy_file` only reads its `path`; its `destination` is a write (below).
+READ_TOOLS = {"read_text", "read_image", "read_pdf", "read_docx", "read_xlsx", "find_files", "list_folder",
+              "copy_file"}
 #: Tools that write their `path`: the access step asks for write access, the taint step
 #: asks outside the workspace.
-WRITE_TOOLS = {"write", "edit", "create_document", "edit_docx", "set_cell", "delete_file"}
+WRITE_TOOLS = {"write", "edit", "create_document", "edit_docx", "set_cell", "delete_file", "move_file"}
 FILE_TOOLS = READ_TOOLS | WRITE_TOOLS
 
 
@@ -78,6 +80,8 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     out: list[tuple[Path, bool]] = []
     if name in FILE_TOOLS and isinstance(args.get("path"), str) and args["path"]:
         out.append((scope.place(args["path"]), name not in READ_TOOLS))
+    if name in ("copy_file", "move_file") and isinstance(args.get("destination"), str) and args["destination"]:
+        out.append((scope.place(args["destination"]), True))
     if name == "create_document":
         # Images in the Markdown are files it reads and embeds: checked like any read,
         # or a document could carry any picture on the disk (or Atlas's own files).

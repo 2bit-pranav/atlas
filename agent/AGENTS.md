@@ -36,7 +36,9 @@ agent/
                 maths/           calculate / dates: evaluator.py (the safe evaluator), dates.py, tool.py
                 reading.py       read_text / read_image: capped, typed reads (the harness `read` is off)
                 doc_reading.py   read_pdf / read_docx / read_xlsx: fetch from the ingest store
-                files.py         delete_file: to the Recycle Bin, the agent's only way to delete
+                files.py         delete_file (to the Recycle Bin, the agent's only way to delete),
+                                 copy_file, move_file (never over an existing file)
+                finding.py       find_files (words in name, folder or contents), list_folder (a tree)
                 page.py          page_read / page_find for the browser extension, via client calls
   ingest/       store.py         the ingest store: parse at upload, one worker, SQLite + FTS5, per-chat ownership
                 parse.py         a pdf/docx/xlsx into blocks whose ids the edit tools address
@@ -232,12 +234,15 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 
 1. **normalise**: paths in the form each tool takes. MCP arguments get Windows
    paths (`/c/Users/x` -> `C:/Users/x`) and relative paths placed by `locate`;
-   `write`/`edit` get `/c/...` for a pasted `C:\...`; unquoted `C:\...` in
+   `write`/`edit` get `/c/...` for a pasted `C:\...` and a relative path placed
+   like every tool's; unquoted `C:\...` in
    a shell command becomes `C:/...` (bash eats the backslashes).
 2. **floor**: refused outright, no card: Atlas's own files (protected.py), the
    floor's shell rules (rules.toml), and shell writes or deletes that land in
    Atlas's data or another chat (relative paths placed from the workspace).
-3. **grid** (`safety/grid.py`): every call, of any tool, is described as
+3. **documents**: `write`/`edit` on a binary document is redirected, before
+   the grid, so a call that would be redirected never shows a card.
+4. **grid** (`safety/grid.py`): every call, of any tool, is described as
    (place, action) pairs and each is looked up in the grid of `access.mode`:
 
    | | read | create | change | delete | run |
@@ -267,11 +272,13 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    chat (`chats.tainted`); `TaintTracker` marks it after such a tool returns.
    An MCP server is trusted when Atlas points it only at the allowed folders
    (`{atlas:folders}`) or it is marked `"atlas": {"trusted": true}` in mcp.json.
-4. **install**: a `shell` command that installs asks (kind `install`).
-5. **sensitive**: a tool set to Ask asks (kind `tool`): every MCP tool unless
+   A create or change outside the folders whose folder does not exist, but whose
+   end names one that does in the user's folders (`Reports/a.xlsx`), is refused
+   with the real path, no card: the model typed a full path from memory.
+5. **install**: a `shell` command that installs asks (kind `install`).
+6. **sensitive**: a tool set to Ask asks (kind `tool`): every MCP tool unless
    set On on the MCP page (stored as `atlas.on` in mcp.json), and any tool
    named in `tools.ask`. Skipped when the grid already asked about the call.
-6. **documents**: `write`/`edit` on a binary document is redirected.
 
 Recovery after a tool runs stays in `recovery/`.
 

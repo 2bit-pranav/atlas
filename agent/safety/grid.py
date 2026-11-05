@@ -55,8 +55,10 @@ GRID: dict[str, dict[str, tuple[str, str, str, str, str]]] = {
 TOOL_ACTIONS = {
     **{name: "read" for name in READ_TOOLS},
     "create_document": "create", "edit_docx": "change", "set_cell": "change",
-    "edit": "change", "delete_file": "delete",
+    "edit": "change", "delete_file": "delete", "move_file": "change",
 }
+#: Tools that also create their `destination` (copy_file reads its `path`, move_file changes it).
+DESTINATION_TOOLS = {"copy_file", "move_file"}
 
 _HOME_FORMS = re.compile(r"^(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\$USERPROFILE|\$\{USERPROFILE\})(?=$|[/\\])")
 _SKILL_SCRIPT = re.compile(r"""^\s*(?:python3?|py)(?:\.exe)?\s+["']?\$\{?ATLAS_SKILLS\}?/""")
@@ -98,6 +100,9 @@ def effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[Ef
     raw = args.get("path")
     if name in TOOL_ACTIONS and isinstance(raw, str) and raw:
         out.append(Effect(TOOL_ACTIONS[name], scope.place(raw)))
+        dest = args.get("destination")
+        if name in DESTINATION_TOOLS and isinstance(dest, str) and dest:
+            out.append(Effect("create", scope.place(dest)))
     elif name == "write" and isinstance(raw, str) and raw:
         target = scope.place(raw)
         out.append(Effect("change" if target.exists() else "create", target))

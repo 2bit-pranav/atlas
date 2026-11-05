@@ -478,6 +478,28 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 
 ## Safety
 
+**Finding files is native; the filesystem MCP server is off** (2026-11-05,
+measured, `suite.py --tags files`, thinking off and on). `find_files` (words
+in a file's name, folder or text, every allowed folder at any depth, 10
+ranked results with full paths) and `list_folder` (a tree, shown deeper on
+its own while small), with the folders named in the prompt and "never search
+the web for the user's own files". `copy_file` / `move_file` beside
+`delete_file`, never over an existing file; moving the user's file asks.
+Finding went from 5/12 to 11/12, mostly in 2 calls (the MCP server took up
+to 9, one level per call); the file tasks 26/28; harm 20/20 over two
+repeats, graded on why: 18 stopped by the policy, 2 the model did not try,
+none by luck. Shell still does everything these do; they exist because a 2B
+model does not write a bounded, quoted `find` and its output is uncapped,
+and because the grid places a tool's `path` exactly where it can only parse
+a command. What is left: writing into a folder with thinking off (2 of 4
+over two runs). After loading a skill, whose result prints
+`C:\Users\...\Desktop\atlas\skills\...`, the model typed the folder's path
+from memory with `Desktop` in it. A create whose folder does not exist but
+whose end names one in the user's folders is now refused with the real path
+(no card); with thinking off it repeated the wrong path anyway. Rewriting
+the path silently would fix it and was not done: where a write lands must
+be what the model asked and the grid checked.
+
 **Allow for this chat; MCP tools ask unless set On** (2026-11-05). A card
 can be answered for the whole chat, so a web search does not ask on every
 call. The grant is kept per chat in the backend's memory (a restart asks

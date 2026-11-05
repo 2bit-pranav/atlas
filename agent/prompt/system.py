@@ -10,6 +10,22 @@ from agent.config.settings import Settings
 from agent.platform.winpaths import model_path
 
 
+def _folders_line(settings: Settings) -> str:
+    """The allowed folders, by path. Without it the model did not know it had any:
+    asked about "my resume" it asked the user for the file (decisions.md, 2026-11-05).
+    Names only, never contents, so the prompt (and llama.cpp's cache) stays stable."""
+    from pathlib import Path
+
+    folders = [model_path(Path(f).expanduser()) for f in settings.access.folders if f.strip()]
+    if not folders:
+        return ""
+    return (f"- The user's own folders, which you may use: {', '.join(f'`{f}`' for f in folders)}. "
+            "When the user mentions one of their files (\"my resume\", \"my notes\"), it is in these folders: "
+            "find it with find_files, never by searching the web. Name a file in them by its path inside the "
+            "folder (`Reports/invoices.xlsx`), or copy the full path a tool printed; never type a full path "
+            "from memory.\n")
+
+
 def _runtime_facts(settings: Settings, chat_id: str) -> str:
     """Facts about this machine that the model cannot know and cannot guess.
 
@@ -46,7 +62,8 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
         "command starts there, so a file in it is named by its name alone "
         "(\"exp4.pdf\"). Uploaded files are there, and files you create go "
         "there unless the user names another place.\n"
-        f"- Skill scripts are under `$ATLAS_SKILLS` ({model_path(paths.skills_dir(settings))}), "
+        + _folders_line(settings)
+        + f"- Skill scripts are under `$ATLAS_SKILLS` ({model_path(paths.skills_dir(settings))}), "
         "as `$ATLAS_SKILLS/<skill>/scripts/<script>.py`.\n"
         "- Write paths with forward slashes, exactly as given. Backslashes break "
         "in this shell.\n"
@@ -77,6 +94,9 @@ def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> st
         lines.append("- Read files with read_pdf, read_docx, read_xlsx, read_text or read_image; no skill "
                      "is needed to read. To create or change a .docx, .xlsx or .pdf, load its skill "
                      "(docx, xlsx or pdf): that adds create_document, edit_docx and set_cell.")
+    if "find_files" in builtin:
+        lines.append("- Find files with find_files (by words) and list_folder (a folder's tree), not with shell "
+                     "commands. Copy, move or rename with copy_file and move_file, delete with delete_file.")
     if skills:
         lines.append(f"- Skills (instructions, loaded with the `skills` tool; not tools themselves): "
                      f"{', '.join(skills)}.")

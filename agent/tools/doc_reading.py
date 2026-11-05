@@ -275,7 +275,9 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
             sheet = sheet.strip("'\"")
         target_sheet = sheet or (names[0] if names else "")
         if target_sheet not in names:
-            return _failed(f"no sheet {sheet!r} in {name}. {listing}.")
+            # The exact retry: after a bare "no sheet" the model dropped the path too (2026-11-05).
+            return _failed(f"no sheet {sheet!r} in {name}. {listing}. Next: read_xlsx(path=\"{path or name}\", "
+                           f"sheet=\"{names[0] if names else ''}\")")
         return f"{name}: {listing}.\n\n" + _grid(target, target_sheet, range)
 
     return [read_pdf, read_docx, read_xlsx]
