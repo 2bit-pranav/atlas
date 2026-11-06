@@ -14,11 +14,11 @@ import re
 REDACTED = "••••••"
 
 _NAME = r"[\w.-]*(?:token|secret|password|passwd|api[-_]?key|auth|credential|bearer)[\w.-]*"
-#: scheme://user:password@ or scheme://token@
+# scheme://user:password@ or scheme://token@
 _USERINFO = re.compile(r"(?P<scheme>\b[a-z][\w+.-]*://)(?P<user>[^\s/@:]+)(?::(?P<pw>[^\s/@]*))?@", re.I)
-#: name=value, --name=value, ?name=value&
+# name=value, --name=value, ?name=value&
 _ASSIGNED = re.compile(rf"(?P<name>{_NAME})=(?P<value>[^\s&]+)", re.I)
-#: --name value
+# --name value
 _FLAG = re.compile(rf"(?P<flag>--?{_NAME})\s+(?P<value>(?!-)\S+)", re.I)
 
 

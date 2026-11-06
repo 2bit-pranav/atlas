@@ -823,6 +823,18 @@ The lock went from 162 packages to 90, the venv from 1.5 GB to 672 MB. The
 pdf skill's pdf2docx brings PyMuPDF, which is AGPL-3.0: worth replacing
 before Atlas is distributed.
 
+**Keep the single-model settings migration for now** (2026-10-31, measured).
+The current `settings.json` uses `model.dir` and `model.name`, and both that
+shape and the legacy `model.path` shape normalize to the same `ModelSettings`.
+Removing `_from_single_model` would not affect the current file, but would make
+older settings files fail strict validation because `ModelSettings` forbids
+unknown keys. Remove it only when backward compatibility with those files is
+intentionally dropped.
+
+> Update 2026-11-06: dropped, with the older `tools.documents` switch. The
+> settings.json in use has the `model.dir` / `model.name` shape and loads; a
+> file with `model.path` now fails validation with the unknown key named.
+
 **Everything is relative to the app root, and generated state is in `.data/`**
 (2026-10-18). Paths used to resolve against the working directory. A backend
 started from `tests/` wrote a second database there, and `session.dir`

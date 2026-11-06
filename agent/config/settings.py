@@ -1,8 +1,7 @@
 """
 Settings: the schema of `settings.json`, and the only one.
 
-Every key has a tier (`TIERS`):
-
+Every key is in either of the 2 tiers:
 - restart: read once at launch and baked into llama-server or the process.
   Changing one requires a restart.
 - live: read when the next turn's agent is built, which is why the agent is
@@ -23,19 +22,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Tier(str, Enum):
-    """When a setting takes effect. See the module docstring."""
-
+    """Decides when a setting takes effect."""
     RESTART = "restart"
     LIVE = "live"
 
 
 class StrictModel(BaseModel):
-    """
-    Refuse unknown keys. Otherwise a typo in `settings.json` is silently
-    ignored, and the symptom is a behaviour that does not change no matter
-    what you set.
-    """
-
+    """Refuses unknown keys instead of ignoring them."""
     model_config = ConfigDict(extra="forbid")
 
 
@@ -47,27 +40,8 @@ class ModelSettings(StrictModel):
     restart. The other values are llama-server flags.
     """
 
-    #: The models folder, relative to the application root.
-    dir: str = "llm"
-    #: The model to serve: a subfolder of `dir`, or a loose .gguf's stem.
-    name: str = ""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _from_single_model(cls, data: Any) -> Any:
-        """An older settings.json named one GGUF file as `path`.
-
-        `path: llm/gemma/x.gguf` becomes `dir: llm`, `name: gemma`, so an old
-        file still loads and means the same model.
-        """
-        if not isinstance(data, dict) or "path" not in data:
-            return data
-        data = dict(data)
-        gguf = Path(str(data.pop("path")))
-        data.pop("mmproj_path", None)
-        data.setdefault("dir", str(gguf.parent.parent))
-        data["name"] = gguf.parent.name
-        return data
+    dir: str = "llm" # %root%/llm
+    name: str = "" # folder name under dir
     context_size: int = Field(default=32768, gt=0)
     gpu_layers: str | int = "all"
     batch_size: int = Field(default=2048, gt=0)
@@ -88,13 +62,7 @@ class PortSettings(StrictModel):
 
 
 class SamplingSettings(StrictModel):
-    """
-    Sent to the model on every request.
-
-    Penalties act on the tokens being generated, so they change the *wording* of
-    an answer, not its approach. What makes a retry genuinely different lives in
-    `retry` instead.
-    """
+    """Sent to the model on every request."""
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)
@@ -151,42 +119,25 @@ class ToolsSettings(StrictModel):
     # words to a third party (Exa), so they ask: "Allow for this chat" covers a whole chat.
     ask: list[str] = Field(default_factory=lambda: ["web_search", "read_url"])
 
-    @model_validator(mode="before")
-    @classmethod
-    def _from_documents_switch(cls, data: Any) -> Any:
-        """An older settings.json had one `documents` switch for both document tools."""
-        if not isinstance(data, dict) or "documents" not in data:
-            return data
-        data = dict(data)
-        on = bool(data.pop("documents"))
-        atlas = dict(data.get("atlas") or {})
-        atlas.setdefault("create_document", on)
-        atlas.setdefault("edit_document", on)
-        data["atlas"] = atlas
-        return data
-
 
 class SkillSettings(StrictModel):
     dir: str = "skills"
-    #: Skill folders switched off. May name skills that have since been deleted.
-    disabled: list[str] = Field(default_factory=list)
+    disabled: list[str] = Field(default_factory=list) # list of skills that are disabled
 
 
 class McpSettings(StrictModel):
-    """
-    MCP servers, in the standard `mcpServers` JSON format.
+    """MCP servers, in the standard `mcpServers` JSON format.
 
     Kept in its own file rather than inside settings.json because that format is
     what every MCP server's README shows: a block can be pasted in unchanged.
     """
 
-    config: str = "mcp.json" # relative to the application root.
-    startup_timeout: float = Field(default=30.0, gt=0) # seconds to wait for one server to start and list its tools.
+    config: str = "mcp.json" # %root%/mcp.json
+    startup_timeout: float = Field(default=30.0, gt=0)
 
 
 class MemorySettings(StrictModel):
-    """
-    Long-term memory: hard-wired off (`agent/runtime/memory.py`, docs/decisions.md).
+    """Long-term memory: hard-wired off (`agent/runtime/memory.py`, docs/decisions.md).
 
     The harness store has no chat or branch in its key and is injected every
     turn, and `restore_snapshot` cannot rewind it, so a fact from one branch
@@ -208,8 +159,7 @@ class MemorySettings(StrictModel):
 
 
 class RetrySettings(StrictModel):
-    """
-    What makes a retried answer genuinely different from the one before it.
+    """What makes a retried answer genuinely different from the one before it.
 
     A retry restores the same state and asks the same question, so on its own
     it gets a near-copy: the sampler is the only thing that changed, and a small
@@ -226,10 +176,8 @@ class RetrySettings(StrictModel):
     """
 
     show_previous: bool = True
-    #: How many earlier versions to quote, newest first.
-    previous_limit: int = Field(default=2, ge=1, le=5)
-    #: Characters quoted from each earlier version.
-    previous_chars: int = Field(default=600, ge=100, le=4000)
+    previous_limit: int = Field(default=2, ge=1, le=5) # how many previous responses to quote; newest first
+    previous_chars: int = Field(default=600, ge=100, le=4000) # characters from each previous response
     instructions: str = (
         "This question was already answered. Write a substantially different "
         "answer: take a different approach, structure or angle. Do not reword "
@@ -241,45 +189,27 @@ class RetrySettings(StrictModel):
 
 
 class ResilienceSettings(StrictModel):
-    """
-    How a run recovers from failures without a human (agent/recovery/).
+    """How a run recovers from failures without a human (agent/recovery/)."""
 
-    Built on Strands' own hooks rather than on prompt text: a 2B model does not
-    reliably follow "retry on failure", but a hook always runs.
-    """
-
-    #: Total attempts per model call when llama-server errors or returns nothing.
     model_attempts: int = Field(default=3, ge=1, le=10)
-    #: Seconds between model attempts. Local, so no exponential backoff.
     model_retry_delay: float = Field(default=1.0, ge=0.0, le=30.0)
-    #: Re-runs of a tool that raised (crashed), as opposed to one that returned
-    #: an error. A crash is usually transient; a returned error is not.
     tool_crash_retries: int = Field(default=1, ge=0, le=5)
-    #: Failed tool calls per turn after which the model is told to stop trying
-    #: and explain the failure instead.
-    tool_failure_limit: int = Field(default=3, ge=1, le=10)
-    #: When the model gives up straight after a failed tool call, re-invoke it
-    #: once with the failure in front of it.
-    nudge_after_failure: bool = True
+    tool_failure_limit: int = Field(default=3, ge=1, le=10) # failed tool calls PER TURN
+    nudge_after_failure: bool = True # re-invoke failed tool call with the failure in front of the model
 
 
 class LimitsSettings(StrictModel):
-    """
-    Cheap limits on every run (agent/safety/limits.py). A small model can loop;
+    """Cheap limits on every run (agent/safety/limits.py). A small model can loop;
     these end it with a message instead of leaving it to the user's Stop.
     """
 
-    #: Model calls in one run (one message, its tool calls and any resume).
-    max_model_calls: int = Field(default=40, ge=1, le=500)
-    #: Minutes from the first model call; past it no new tool call or model call starts.
-    max_minutes: int = Field(default=15, ge=1, le=240)
-    #: The same tool with the same arguments: this many run, the next is refused.
-    repeat_limit: int = Field(default=3, ge=1, le=20)
+    max_model_calls: int = Field(default=40, ge=1, le=500) # means 40 model calls MAX per turn
+    max_minutes: int = Field(default=15, ge=1, le=240) # limit to complete the current turn; after this no new tool calls are made and the turn is finished with a message
+    repeat_limit: int = Field(default=3, ge=1, le=20) # identicall tool call limit
 
 
 class AccessSettings(StrictModel):
-    """
-    Which folders the agent may touch beyond its chat workspace (agent/safety/).
+    """Which folders the agent may touch beyond its chat workspace (agent/safety/).
 
     One list for every tool: the built-in file tools, the document tools,
     absolute paths in shell commands (which is how skills run), and MCP servers
@@ -287,9 +217,7 @@ class AccessSettings(StrictModel):
     always allowed and never needs listing.
     """
 
-    #: Absolute folders; `~` is the user's home. Subfolders are included.
-    folders: list[str] = Field(default_factory=list)
-    #: Outside these: ask the user (true) or refuse outright (false).
+    folders: list[str] = Field(default_factory=list) # absolute paths from user's home
     ask_outside: bool = True
     #: The permission grid's mode (agent/safety/grid.py): look reads only; ask asks before
     #: changes, deletes and commands in the folders; work changes them without asking.
@@ -299,9 +227,7 @@ class AccessSettings(StrictModel):
 class ApprovalSettings(StrictModel):
     """Questions the agent has to ask the user first (agent/safety/approvals.py)."""
 
-    #: Seconds to wait for Allow or Deny. No answer counts as Deny, so a closed
-    #: tab can never leave a run waiting forever.
-    timeout: int = Field(default=60, ge=30, le=120)
+    timeout: int = Field(default=60, ge=30, le=120) # no answer = DENY
 
 
 class SessionSettings(StrictModel):
@@ -320,7 +246,6 @@ class ContextSettings(StrictModel):
     window. `prune_target_ratio` and `generation_reserve` are not read yet.
     """
 
-    #: "null" until a trimming manager is picked and measured.
     conversation_manager: str = Field(
         default="null", pattern="^(null|sliding|summarizing)$"
     )
@@ -340,10 +265,7 @@ class ContextSettings(StrictModel):
 
 
 class PathsSettings(StrictModel):
-    #: Everything Atlas generates: the chat database, Strands snapshots, and
-    #: each chat's uploads and workspace. Relative to the application root, and
-    #: dot-prefixed so it reads as state rather than source.
-    data_dir: str = ".data"
+    data_dir: str = ".data" # everything generated by agent goes here; %root%/.data_dir
 
 
 class Settings(StrictModel):
@@ -366,8 +288,6 @@ class Settings(StrictModel):
     system_prompt: str = "" # anything here gets appended to the harness' prompt, not replaced
 
 
-#: The only place that knows which key is which tier. It must cover every leaf
-#: of the schema, so a new setting cannot silently escape tiering.
 TIERS: dict[str, Tier] = {
     "model.dir": Tier.RESTART,
     "model.name": Tier.RESTART,

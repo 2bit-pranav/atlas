@@ -1,6 +1,6 @@
-"""ULIDs for launch ids.
+"""ULID generator for launch ids.
 
-A leaf module under `core/` so the CLI can use it without importing anything
+The CLI can use it without importing anything
 above it. Chat and turn rows use `uuid4().hex` (`store/chats.py`) instead.
 
 26 characters of Crockford base32: 10 of millisecond timestamp, then 16 (80
@@ -14,13 +14,9 @@ from __future__ import annotations
 import secrets
 import time
 
-#: Crockford base32: no I, L, O or U, so an id read aloud stays unambiguous.
+# no I, L, O or U, so an id read aloud stays unambiguous.
 CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-
-
 ULID_LENGTH = 26
-
-
 _RANDOM_BITS = 80
 
 

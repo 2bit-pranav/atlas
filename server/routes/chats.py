@@ -18,7 +18,6 @@ from server.schemas import (
 
 
 def register(api: Any, state: Any) -> None:
-    # -------------------------------------------------------------- chats --
 
     @api.get("/chats")
     async def list_chats() -> list[dict[str, Any]]:

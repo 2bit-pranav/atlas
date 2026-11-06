@@ -86,8 +86,7 @@ class Store:
         self.wanted: dict[str, set[int]] = {}
         self.worker: threading.Thread | None = None
 
-    # -------------------------------------------------------------- lookups --
-
+    # lookups
     def identify(self, path: Path) -> str:
         """The file's content hash, from the path cache when size and mtime match."""
         st = path.stat()

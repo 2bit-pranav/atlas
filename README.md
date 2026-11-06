@@ -1,16 +1,15 @@
 # Atlas
 
-A local agent: a small model on your own machine, with tools, skills and MCP
-servers, and nothing sent to a cloud unless you add a remote MCP server or
-switch on `web_fetch`.
+A local agent harness built to work with small language models (2-7B) and
+perform document tasks with no cloud dependency. 
 
-- **Model:** llama.cpp's `llama-server`, configured for Gemma (2B effective,
-  32k context, vision via mmproj).
+
+- **Inference:** `llama-server` as the inference to run `.gguf` models like Gemma.
 - **Agent:** the [Strands](https://strandsagents.com) harness. Strands owns the
   agent loop, the tools, skills, MCP connections and the model's history;
   Atlas configures it and adds what Strands does not have: a chat tree with
   versions, runs that outlive the browser, an HTTP API and a web UI.
-- **UI:** React, modelled on llama.cpp's own web UI.
+- **UI:** React, inspired by llama.cpp's web UI.
 
 ## Running it
 

@@ -7,12 +7,11 @@ Two tables:
           before_snap, after_snap, status, selected_child,
           render_json, stats_json, refs_json, error, created_at)
 
-`before_snap` and `after_snap` are Strands snapshot ids, and the snapshots are
-the model's history -- the only copy, owned by Strands. `render_json` is what
+`before_snap` and `after_snap` are Strands snapshot ids, which are
+the model's history owned by Strands itself. `render_json` is what
 the *UI* showed for the turn: answer text, reasoning, tool cards with their
 results. It is written once when a run ends and never fed back to the model.
-It exists so opening a chat is one query instead of replaying a snapshot per
-turn, and so reasoning (which Strands never stores) survives a reload.
+It exists so opening a chat is one query.
 
 **The two operations that change the past, and why they differ:**
 
@@ -50,22 +49,11 @@ from pathlib import Path
 from typing import Any
 
 RUNNING = "running"
-
-
 COMPLETED = "completed"
-
-
 FAILED = "failed"
-
-
 CANCELLED = "cancelled"
-
-
 INTERRUPTED = "interrupted"
-
-
 TERMINAL = frozenset({COMPLETED, FAILED, CANCELLED, INTERRUPTED})
-
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS chats (

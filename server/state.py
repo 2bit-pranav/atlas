@@ -43,22 +43,17 @@ from server.views import _run_view, _turn_view
 logger = logging.getLogger(__name__)
 
 
-# ------------------------------------------------------------------ state --
-
-
 class Atlas:
     """The backend's state, held outside the app for testability."""
 
     def __init__(self, settings_path: Path) -> None:
         self.settings_path = Path(settings_path)
-        #: As the process started. Restart-tier keys keep these values for the
-        #: life of the process even after settings.json changes, because the
-        #: running llama-server was built with them.
+        # Restart tier keys keep their values for the life of the process even after settings.json changes
         self.boot = load_settings(self.settings_path)
         self.settings = self.boot
         self.store = ChatStore(paths.database(self.settings))
         self.runs = RunManager()
-        #: MCP connections live as long as the process, not as long as a turn.
+        # Mcp connections are per-process, not per-turn
         self.mcp = McpManager(self.settings)
         self._modalities: dict[str, bool] | None = None
         # "Allow for this chat" answers, per chat. In memory: a restart asks again.
@@ -93,8 +88,6 @@ class Atlas:
     def close(self) -> None:
         self.mcp.stop_all()
         self.store.close()
-
-    # ------------------------------------------------------------ helpers --
 
     def require_chat(self, chat_id: str) -> dict[str, Any]:
         chat = self.store.get_chat(chat_id)
@@ -132,7 +125,6 @@ class Atlas:
             turns.append(_turn_view(turn, versions))
         return {**chat, "turns": turns, "active_run": _run_view(run) if run else None}
 
-    # -------------------------------------------------------------- runs --
 
     def launch(
         self, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None = None,
@@ -196,8 +188,8 @@ class Atlas:
             sm = SessionManager(settings, run.chat_id)
             # Recorded per turn, so each version shows the model that wrote it.
             run.transcript.stats["model"] = settings.model.name
-            #: What the workspace held before the run, so the files this turn
-            #: created or changed can be offered as downloads afterwards.
+            # What the workspace held before the run, so the files this turn
+            # created or changed can be offered as downloads afterwards.
             run.workspace_before = _scan(self.chat_dir(run.chat_id))
             manager = sm.manager()
             # Building restores a snapshot from disk: blocking work that would

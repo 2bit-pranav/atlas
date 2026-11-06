@@ -7,8 +7,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-# ---------------------------------------------------------- request bodies --
-
 
 class CreateChat(BaseModel):
     title: str = ""
