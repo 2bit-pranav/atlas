@@ -18,6 +18,8 @@ export interface Prefs {
   autoScroll: boolean
   /** Shows the tuning settings, the extension's pairing token and build steps. */
   devMode: boolean
+  /** The task panel's Details: tool calls, timings, every file read, run stats. */
+  taskDetails: boolean
 }
 
 const KEY = "atlas-prefs"
@@ -30,6 +32,7 @@ const DEFAULTS: Prefs = {
   showContextMeter: true,
   autoScroll: false,
   devMode: false,
+  taskDetails: false,
 }
 
 function load(): Prefs {

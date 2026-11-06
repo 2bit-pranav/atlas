@@ -60,6 +60,8 @@ export interface AtlasState {
   connected: boolean
   /** Bumps when something asks the composer to take focus. */
   focusTick: number
+  /** Text a starter on the home page puts in the composer; `tick` makes the same text land twice. */
+  prefill: { text: string; tick: number } | null
   /** A restart from the UI in progress (llama-server and the backend). */
   restarting: boolean
   /** Why the last restart failed; the model is not running until another one works. */
@@ -82,6 +84,7 @@ class Store {
     error: null,
     connected: true,
     focusTick: 0,
+    prefill: null,
     restarting: false,
     restartError: null,
   }
@@ -167,6 +170,11 @@ class Store {
       this.set({ chatsLoaded: true })
       this.fail(error)
     }
+  }
+
+  /** Put text in the composer (a home page starter) and focus it. */
+  prefillComposer(text: string) {
+    this.set({ prefill: { text, tick: (this.state.prefill?.tick ?? 0) + 1 }, focusTick: this.state.focusTick + 1 })
   }
 
   async refreshChats() {

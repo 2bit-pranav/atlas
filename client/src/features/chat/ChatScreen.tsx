@@ -16,14 +16,23 @@ import { usePrefs } from "@/state/prefs"
 import { TurnRow } from "@/features/chat/TurnRow"
 import { Composer } from "@/features/composer/Composer"
 import { cn } from "@/lib/cn"
+import { TaskHome } from "@/features/task/TaskHome"
+import { WorkPanel } from "@/features/task/WorkPanel"
+import { TaskLayout } from "@/features/task/layout"
 
-export function ChatScreen() {
+/** `layout="task"`: the web app's task view, a home page and a work panel beside the answer.
+ * The extension's narrow side panel keeps the chat layout. */
+export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
+  const task = layout === "task"
   const chat = useAtlas((s) => s.chat)
   const live = useAtlas((s) => s.live)
   const runTurn = useAtlas((s) => s.run?.turn_id ?? null)
   const prefs = usePrefs()
   const turns = chat?.turns ?? []
   const empty = turns.length === 0
+  // The panel follows the running turn, else the newest one shown.
+  const panelTurn = turns.find((t) => t.id === runTurn) ?? turns[turns.length - 1]
+  const panelLive = panelTurn !== undefined && panelTurn.id === runTurn
 
   const scroller = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -78,8 +87,10 @@ export function ChatScreen() {
   }, [])
 
   return (
+    <TaskLayout.Provider value={task}>
+    <div className="flex h-full min-h-0">
     <div
-      className="relative flex h-full min-h-0 flex-col"
+      className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onDragEnter={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return
         dragDepth.current += 1
@@ -99,8 +110,10 @@ export function ChatScreen() {
     >
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className={cn("mx-auto flex w-full max-w-3xl flex-col px-4",
-                           empty ? "h-full justify-center pb-24" : "pb-10 pt-6")}>
-          {empty ? (
+                           empty && !task ? "h-full justify-center pb-24" : empty ? "" : "pb-10 pt-6")}>
+          {empty && task ? (
+            <TaskHome />
+          ) : empty ? (
             <div className="text-balance px-4 text-center">
               <h1 className="mb-2 text-2xl font-semibold tracking-tight md:text-3xl">Hello there</h1>
               <p className="text-muted-foreground md:text-lg">Type a message or upload files to get started</p>
@@ -136,10 +149,10 @@ export function ChatScreen() {
             <p className="mx-auto mb-1.5 flex max-w-3xl items-center gap-1.5 px-1 text-xs text-muted-foreground"
                title="Text from outside (a web page, a fetched link, an untrusted MCP server) can carry instructions for the model. It stays in this chat's history, so this lasts for the whole chat.">
               <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-              This chat has read outside content: commands, and changes outside its folder, ask you first.
+              This task has read outside content: commands, and changes outside its folder, ask you first.
             </p>
           ) : null}
-          <Composer />
+          <Composer placeholder={task ? "Ask a follow-up, or tell Atlas what to change…" : undefined} />
         </div>
       )}
 
@@ -153,5 +166,12 @@ export function ChatScreen() {
         </div>
       )}
     </div>
+    {task && !empty && panelTurn && chat && (
+      <WorkPanel chatId={chat.id} turn={panelTurn} running={panelLive}
+                 parts={panelLive ? live?.parts ?? [] : panelTurn.render}
+                 stats={panelLive ? live?.stats ?? null : panelTurn.stats} />
+    )}
+    </div>
+    </TaskLayout.Provider>
   )
 }

@@ -24,7 +24,7 @@ const s = (action: ShortcutAction, label: string, key: string, shift: boolean, s
 })
 
 export const SHORTCUTS: Shortcut[] = [
-  s("newChat", "New chat", "o", true, "O"),
+  s("newChat", "New task", "o", true, "O"),
   s("search", "Search conversations", "k", false, "K"),
   s("toggleSidebar", "Toggle sidebar", "b", false, "B"),
   s("renameChat", "Rename conversation", "e", true, "E"),

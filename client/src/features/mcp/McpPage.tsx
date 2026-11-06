@@ -216,7 +216,7 @@ function ModeSwitch({ value, onChange }: { value: ToolMode; onChange: (m: ToolMo
     <span className="inline-flex shrink-0 rounded-md border p-0.5 text-[11px]">
       {(["on", "ask", "off"] as const).map((m) => (
         <button key={m} type="button" onClick={() => onChange(m)} title={
-          m === "ask" ? "Ask first (Allow once, or for the chat)" :m === "on" ? "Use freely" : "Hidden from the agent"}
+          m === "ask" ? "Ask first (Allow once, or for the task)" :m === "on" ? "Use freely" : "Hidden from the agent"}
                 className={cn("rounded px-1.5 py-0.5 capitalize",
                               value === m ? "bg-accent font-medium text-foreground" : "text-muted-foreground")}>
           {m}

@@ -475,6 +475,22 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 
 ## Safety
 
+**The web UI is a task view, calm by default** (2026-11-06). A mockup was
+reviewed first (two rounds: the first showed every stat and read as noise to
+a casual user). The web app shows a chat as a task: a home page asking what
+Atlas should do, and beside an answer a panel of plain steps, the files made
+and the web sources, with tool calls, timings and stats behind one Details
+switch. Step labels are templates over each call's arguments and result, not
+a model call: a label per step from a 2B model would cost a generation each.
+A failed or declined step says what did not happen ("Did not delete X · You
+said no"); the first build labelled a declined delete "Deleted X". Approval
+cards ask in plain words, but a command, an install or anything after
+outside content always shows the exact text: a summary there could hide what
+is approved. The extension keeps the chat layout. Inter and Poppins are
+bundled from npm rather than loaded from Google, which would be a request on
+every page load from an app that otherwise needs no network. Checked by
+rendering recorded suite tasks with the backend alone (no model, no GPU).
+
 **Web search is native, through Exa; the workspace is never shown by its path**
 (2026-11-05, measured, `benchmarks/2026-11-05-search-exa*`). `web_search` and
 `read_url` (agent/tools/web.py) call Exa's API with httpx (no SDK: two POST

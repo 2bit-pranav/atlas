@@ -25,7 +25,10 @@ src/
   state/store.ts             the single source of truth (see below)
   state/prefs.ts             display preferences, per browser (theme, Enter sends, ...)
   state/slots.ts             slots the extension fills (AnswerExtras)
-  features/chat/             ChatScreen, TurnRow, UserMessage, AssistantMessage, ApprovalCard,
+  features/task/             the web app's task view: TaskHome (the new task page), WorkPanel (progress,
+                             files, sources beside the answer), steps.ts (tool calls as plain steps),
+                             layout.ts (TaskLayout context)
+  features/chat/             ChatScreen, TurnRow, UserMessage, AssistantMessage, ApprovalCard (approvalText.ts),
                              Reasoning, StatsBar, MessageActions, Markdown, ToolBlock, ContextGauge;
                              transcript.ts (fold run events into parts; mirrors server/transcript.py)
   features/composer/         Composer, FileChip, MentionMenu; audio.ts (record the microphone,
@@ -111,9 +114,33 @@ settings sections and the raw pairing token; it is off by default.
 
 Control: Settings > Access holds the allowed folders, whether to ask outside
 them, and the approval timeout. The MCP page sets each tool On / Ask / Off.
-Approval cards in the chat are titled by kind (install, access, tool). The
+Approval cards ask in plain words ("OK to save invoices.xlsx in Reports?");
+a file operation keeps its exact path under Details, while a command, an
+install or anything after outside content always shows what runs. The
 Skills page shows each requirement as installed or missing, with one button
 for the missing ones.
+
+## The task view (web app only)
+
+The web app shows a chat as a task (`ChatScreen layout="task"`); the
+extension's side panel keeps the chat layout, so nothing there changed.
+
+- **Home:** "What should Atlas do?", the composer, starters that prefill it
+  (`atlas.prefillComposer`), "Recently made" (`GET /api/outputs`, files runs
+  made, never the inputs they downloaded) and the folders Atlas may use.
+- **A task:** the conversation on the left; on wide screens (`lg`) a work
+  panel on the right with what needs the user, the steps, the files made and
+  read, the web sources, and with Details on (a per-browser pref) the tool
+  calls, every file read and the run's stats. On narrow screens the panel is
+  hidden and tool lines, approvals and files stay inline, as before.
+- **Steps** come from `steps.ts`: each tool has a template filled from its
+  arguments and result ("Read 3 invoices", "Saved invoices.xlsx", "Did not
+  delete X · You said no"), consecutive calls of one tool are one step, and
+  Atlas's plumbing (loading a skill) shows only with Details. No model call.
+- **The task list** in the sidebar has a dot per task: working, needs you,
+  done, failed, stopped (`last_status` on `GET /chats`).
+- **Type:** Inter for text, Poppins (`font-display`) for the app's own headings,
+  both bundled from npm (`@fontsource`): no request to Google Fonts.
 
 ## Working with files
 

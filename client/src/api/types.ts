@@ -39,6 +39,8 @@ export interface ChatSummary {
   page_title?: string
   /** Outside content (a web page, a fetch, an untrusted MCP server) has entered the chat. */
   tainted?: number | boolean
+  /** Its newest turn's status: the task list's dot. */
+  last_status?: TurnStatus | null
 }
 
 export type Part =
@@ -63,7 +65,7 @@ export type Part =
       folder?: string | null
       /** For a folder request: what Allow grants, reading only or also changing. */
       access?: "read" | "write" | null
-      /** Whether "Allow for this chat" is offered (never after outside content, for a delete or a command). */
+      /** Whether "Allow for this task" (the whole chat) is offered (never after outside content, for a delete or a command). */
       chat?: boolean
       command: string
       status: "pending" | "allowed" | "allowed_chat" | "denied" | "expired"
@@ -75,6 +77,16 @@ export interface Ref {
   file: string
   path: string | null
   quote: string
+}
+
+/** A file a run made, for the home page's "Recently made" (GET /outputs). */
+export interface RecentOutput {
+  chat_id: string
+  chat_title: string
+  name: string
+  size: number
+  change: "created" | "modified"
+  created_at: number
 }
 
 /** A file the run created or changed, for the download chips. */

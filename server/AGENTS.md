@@ -69,7 +69,8 @@ one); `events.py` translates only the raw one. Translating both is what put
 | Route | |
 |---|---|
 | `GET /health` | `active_run` with its chat title and tokens/s (the start screen's run line) |
-| `GET /chats`, `POST /chats` | list, create |
+| `GET /chats`, `POST /chats` | list (each with its newest turn's `last_status`), create |
+| `GET /outputs` | files runs made lately, across chats, still on disk; inputs a run downloaded to read are left out. Web UI only |
 | `GET /chats/{id}` | the visible path: each turn with `render`, `stats`, `version`, `versions`, and the active run |
 | `PATCH /chats/{id}` | rename |
 | `DELETE /chats/{id}` | the chat, its snapshots, its files, and parsed documents no other chat owns |

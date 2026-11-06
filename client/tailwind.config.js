@@ -6,6 +6,11 @@ export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["Inter Variable", "Inter", "Segoe UI", "system-ui", "sans-serif"],
+        // Headings and labels of the app itself; answers stay in Inter.
+        display: ["Poppins", "Inter Variable", "Segoe UI", "system-ui", "sans-serif"],
+      },
       colors: {
         border: token("border"),
         input: token("input"),

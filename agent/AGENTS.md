@@ -224,9 +224,9 @@ allow-list (numbers, quoted dates, `+ - * / // **`, a few named functions);
 nothing is executed. Numbers are `Decimal`, so money is exact. The docstrings
 carry examples, which a 2B model copies. Nothing yet forces their use.
 
-Atlas's own tools (these two, the document tools and the read tools) are switched one by one
+Atlas's own tools are switched one by one
 in `tools.atlas` (Settings > Agent > Built-in tools); `ToolManager.atlas_tools()`
-resolves them. An older `tools.documents` switch still loads.
+resolves them.
 
 ## Tool policy (`safety/policy.py`)
 

@@ -8,7 +8,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import * as Dropdown from "@radix-ui/react-dropdown-menu"
 import {
-  Download, Globe, Loader2, PanelRight, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plug, Search,
+  Download, Globe, PanelRight, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plug, Search,
   Settings, Sparkles, SquarePen, Trash2, X,
 } from "lucide-react"
 
@@ -35,15 +35,16 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
   const chats = useAtlas((s) => s.chats)
   const activeId = useAtlas((s) => s.chat?.id ?? s.stagedChat)
   const runningChat = useAtlas((s) => s.run?.chat_id ?? null)
+  const waiting = useAtlas((s) => Boolean(s.live?.parts.some((p) => p.kind === "approval" && p.status === "pending")))
   const [query, setQuery] = useState("")
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q ? chats.filter((c) => (c.title || "New chat").toLowerCase().includes(q)) : chats
+    return q ? chats.filter((c) => (c.title || "New task").toLowerCase().includes(q)) : chats
   }, [chats, query])
 
   const actions: { icon: typeof Search; label: string; action?: ShortcutAction; run: () => void; path?: string }[] = [
-    { icon: SquarePen, label: "New chat", action: "newChat", run: () => { atlas.newChat(); navigate("/") } },
+    { icon: SquarePen, label: "New task", action: "newChat", run: () => { atlas.newChat(); navigate("/") } },
     { icon: Search, label: "Search", action: "search", run: () => { if (!open) onToggle(); setSearching(true) } },
     { icon: Sparkles, label: "Skills", path: "/skills", run: () => navigate("/skills") },
     { icon: Plug, label: "MCP", path: "/mcp", run: () => navigate("/mcp") },
@@ -117,10 +118,10 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
         {open && (
           <div className="mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             <p className="flex h-8 items-center px-2 text-xs font-medium text-muted-foreground">
-              {query ? "Search results" : "Recent conversations"}
+              {query ? "Search results" : "Tasks"}
             </p>
             {visible.length === 0 ? (
-              <p className="px-2 py-1 text-xs text-muted-foreground">{query ? "No results found" : "No conversations yet"}</p>
+              <p className="px-2 py-1 text-xs text-muted-foreground">{query ? "No results found" : "No tasks yet"}</p>
             ) : (
               <ul className="space-y-0.5">
                 {visible.map((chat) => (
@@ -128,7 +129,7 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
                     key={chat.id}
                     chat={chat}
                     active={chat.id === activeId && location.pathname.startsWith("/c/")}
-                    running={chat.id === runningChat}
+                    status={chat.id === runningChat ? (waiting ? "ask" : "run") : DOT[chat.last_status ?? ""] ?? null}
                     renaming={renaming === chat.id}
                     onOpen={() => {
                       navigate(`/c/${chat.id}`)
@@ -160,7 +161,7 @@ function SearchBox({ value, onChange, onClose }: { value: string; onChange: (v: 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && onClose()}
-        placeholder="Search conversations..."
+        placeholder="Search tasks..."
         className="h-9 w-full rounded-lg border border-border/30 bg-background/70 pl-8 pr-8 text-sm outline-none focus:border-border"
       />
       <button type="button" onClick={onClose} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Close search">
@@ -170,10 +171,17 @@ function SearchBox({ value, onChange, onClose }: { value: string; onChange: (v: 
   )
 }
 
-const ChatItem = memo(function ChatItem({ chat, active, running, renaming, onOpen, onRename, onRenamed, onDelete }: {
+/** A task's dot: working, needs you, done, failed or stopped (no dot before its first answer). */
+const DOT: Record<string, "ok" | "bad" | "idle"> = { completed: "ok", failed: "bad", interrupted: "bad", cancelled: "idle" }
+const DOT_CLASS = {
+  run: "bg-sky-500 animate-pulse", ask: "bg-amber-500", ok: "bg-emerald-500", bad: "bg-destructive", idle: "bg-muted-foreground/40",
+} as const
+const DOT_LABEL = { run: "Working", ask: "Needs you", ok: "Done", bad: "Failed", idle: "Stopped" } as const
+
+const ChatItem = memo(function ChatItem({ chat, active, status, renaming, onOpen, onRename, onRenamed, onDelete }: {
   chat: ChatSummary
   active: boolean
-  running: boolean
+  status: keyof typeof DOT_CLASS | null
   renaming: boolean
   onOpen: () => void
   onRename: () => void
@@ -213,10 +221,11 @@ const ChatItem = memo(function ChatItem({ chat, active, running, renaming, onOpe
                       active && "bg-foreground/5 text-accent-foreground")}
       >
         <span className="flex min-w-0 items-center gap-2">
-          {running && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+          <span title={status ? DOT_LABEL[status] : undefined} aria-label={status ? DOT_LABEL[status] : undefined}
+                className={cn("h-2 w-2 shrink-0 rounded-full", status ? DOT_CLASS[status] : "bg-transparent")} />
           <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium" title={chat.page_url || undefined}>
             {chat.source === "extension" && <Globe className="h-3 w-3 shrink-0 text-muted-foreground" />}
-            <span className="truncate">{chat.title || "New chat"}</span>
+            <span className="truncate">{chat.title || "New task"}</span>
           </span>
         </span>
         <Dropdown.Root>

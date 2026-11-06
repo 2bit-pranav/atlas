@@ -20,5 +20,5 @@ export function ChatRoute() {
     if (!chatId && openId) navigate(`/c/${openId}`, { replace: true })
   }, [chatId, openId, navigate])
 
-  return <ChatScreen />
+  return <ChatScreen layout="task" />
 }

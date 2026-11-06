@@ -15,6 +15,7 @@ import { Reasoning } from "@/features/chat/Reasoning"
 import { ApprovalCard } from "@/features/chat/ApprovalCard"
 import { Stats } from "@/features/chat/StatsBar"
 import { Action, CopyButton } from "@/features/chat/MessageActions"
+import { TaskLayout } from "@/features/task/layout"
 
 /** An answer given up on after a failure, before Atlas sent the model back to work. */
 function Superseded({ text }: { text: string }) {
@@ -85,6 +86,8 @@ export function AssistantMessage({ turn, chatId, parts, stats, running, isLast }
   const empty = parts.length === 0
   const lastIndex = parts.length - 1
   const extras = useContext(AnswerExtras)
+  // In the task layout the work panel shows these on wide screens; narrow screens keep them inline.
+  const inPanel = useContext(TaskLayout) ? "lg:hidden" : undefined
 
   return (
     <div className="mt-6 w-full text-[15px] leading-[1.875rem]">
@@ -92,13 +95,13 @@ export function AssistantMessage({ turn, chatId, parts, stats, running, isLast }
 
       {items(parts).map((item) => {
         if ("tools" in item)
-          return <ToolGroup key={item.tools[0].id || item.index} parts={item.tools} defaultOpen={prefs.expandTools} />
+          return <div key={item.tools[0].id || item.index} className={inPanel}><ToolGroup parts={item.tools} defaultOpen={prefs.expandTools} /></div>
         const { part, index: i } = item
         if (part.kind === "reasoning")
           return <Reasoning key={i} text={part.text} streaming={running && i === lastIndex}
                             interrupted={!running && turn.status !== "completed"} defaultOpen={prefs.expandReasoning} />
         if (part.kind === "approval")
-          return <ApprovalCard key={part.id} part={part} live={running} />
+          return <div key={part.id} className={inPanel}><ApprovalCard part={part} live={running} /></div>
         if (part.kind === "superseded")
           return <Superseded key={i} text={part.text} />
         return <Markdown key={i} text={part.text} />
@@ -113,14 +116,14 @@ export function AssistantMessage({ turn, chatId, parts, stats, running, isLast }
         </p>
       )}
 
-      {!running && stats?.files && stats.files.length > 0 && <ProducedFiles files={stats.files} chatId={chatId} />}
+      {!running && stats?.files && stats.files.length > 0 && <div className={inPanel}><ProducedFiles files={stats.files} chatId={chatId} /></div>}
 
       {!running && extras && turn.status === "completed" && extras(turn, answerText(parts))}
 
       {!running && (
         <>
           {prefs.showStats && stats && (stats.completion_tokens ?? 0) > 0 && (
-            <div className="my-4 inline-flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <div className={cn("my-4 inline-flex flex-wrap items-center gap-2 text-xs text-muted-foreground", inPanel)}>
               {modelName && <span className="rounded-sm bg-muted px-1.5 py-0.5 font-medium">{modelName}</span>}
               <Stats stats={stats} />
             </div>

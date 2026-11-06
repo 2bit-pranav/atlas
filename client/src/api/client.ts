@@ -12,6 +12,7 @@ import {
   type ChatView,
   type McpServer,
   type ModelList,
+  type RecentOutput,
   type RegistryServer,
   type RestartStatus,
   type RunEvent,
@@ -191,6 +192,8 @@ export const suggestFill = (fields: { id: string; label: string }[], title: stri
 export const resetPairing = () => request<{ token: string }>("/pairing/reset", json("POST"))
 /** Set (or, empty, clear) the Exa key for web search. Write-only: it is never read back. */
 export const putExaKey = (key: string) => request<{ exa_key_set: boolean }>("/secrets/exa", json("PUT", { key }))
+/** Files runs made lately, across chats (web UI only). */
+export const listOutputs = () => request<RecentOutput[]>("/outputs")
 export const listModels = () => request<ModelList>("/models")
 export const restartStatus = () => request<RestartStatus>("/restart")
 export const restart = () => request<{ ok: boolean }>("/restart", json("POST"))

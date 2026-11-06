@@ -23,6 +23,13 @@ def register(api: Any, state: Any) -> None:
     async def list_chats() -> list[dict[str, Any]]:
         return state.store.list_chats()
 
+    @api.get("/outputs")
+    async def recent_outputs() -> list[dict[str, Any]]:
+        """Files runs made lately, across chats, for the home page. Still on disk only.
+        The web UI's alone: not in the extension's routes."""
+        files = state.store.recent_files(limit=12)
+        return [f for f in files if (paths.chat_dir(state.settings, f["chat_id"]) / f["name"]).is_file()][:6]
+
     @api.post("/chats")
     async def create_chat(body: CreateChat | None = None) -> dict[str, Any]:
         if body is None:

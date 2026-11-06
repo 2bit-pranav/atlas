@@ -26,7 +26,7 @@ interface EditProps {
   onCancel: () => void
 }
 
-export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
+export const Composer = memo(function Composer({ edit, placeholder }: { edit?: EditProps; placeholder?: string }) {
   const prefs = usePrefs()
   const busy = useAtlas((s) => s.run !== null)
   const staged = useAtlas((s) => s.staged)
@@ -116,6 +116,14 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
     if (!edit) area.current?.focus()
   }, [focusTick, edit])
 
+  // A home page starter: its text, ready to finish and send (set while rendering, once per tick).
+  const prefill = useAtlas((s) => s.prefill)
+  const [prefillSeen, setPrefillSeen] = useState(prefill?.tick ?? 0)
+  if (prefill && prefill.tick !== prefillSeen && !edit) {
+    setPrefillSeen(prefill.tick)
+    setText(prefill.text)
+  }
+
   useEffect(() => {
     if (edit) {
       const el = area.current
@@ -190,7 +198,7 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
               }}
               onClick={(e) => trackMention(e.currentTarget.value, e.currentTarget.selectionStart)}
               onBlur={() => setMention(null)}
-              placeholder={edit ? "Edit your message..." : "Type a message, or @ to point at a file, skill or tool..."}
+              placeholder={edit ? "Edit your message..." : placeholder ?? "Type a message, or @ to point at a file, skill or tool..."}
               className="block min-h-6 w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 outline-none placeholder:text-muted-foreground"
               onKeyDown={(e) => {
                 if (mention) {
