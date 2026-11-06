@@ -101,6 +101,11 @@ def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> st
         lines.append("- Search the web with web_search. A link the user gives: read it with read_url, not a "
                      "search. End an answer from the web with its Sources: each link in full. Your own "
                      "knowledge may be out of date: search for anything recent.")
+    else:
+        # Without this the model said it was an offline AI with no internet, which is not true of Atlas.
+        lines.append("- Web search is off right now (it needs an Exa key, or was switched off). For news or "
+                     "anything recent, say that web search is off and that the user can turn it on in "
+                     "Settings > Agent, then answer only from what you know, saying it may be out of date.")
     if skills:
         lines.append(f"- Skills (instructions, loaded with the `skills` tool; not tools themselves): "
                      f"{', '.join(skills)}.")

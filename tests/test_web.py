@@ -148,3 +148,10 @@ def test_web_results_taint_the_chat() -> None:
     tracker._after_tool(SimpleNamespace(tool_use={"name": "web_search"}, selected_tool=SimpleNamespace()))
     tracker._after_tool(SimpleNamespace(tool_use={"name": "read_text"}, selected_tool=SimpleNamespace()))
     assert marked == [True]
+
+
+def test_the_prompt_says_whether_web_search_is_on() -> None:
+    from agent.prompt.system import _tool_sources
+    assert "Search the web with web_search" in _tool_sources(["web_search", "read_url"], [], [])
+    off = _tool_sources(["read_text"], [], [])
+    assert "Web search is off" in off and "Settings" in off
