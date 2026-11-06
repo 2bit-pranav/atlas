@@ -22,6 +22,8 @@ export interface Step {
   internal: boolean
   /** What the user answered when it asked: "You said no". */
   note?: string
+  /** How long its calls took, when the run recorded it. */
+  ms?: number
 }
 
 const READS = new Set(["read_text", "read_image", "read_pdf", "read_docx", "read_xlsx", "read"])
@@ -113,8 +115,9 @@ export function toSteps(parts: Part[], running: boolean): Step[] {
     const name = run[0].name
     const status: StepStatus = run.some((c) => c.status === "running") ? "running"
       : run.every((c) => c.status === "error") ? "error" : "done"
+    const ms = run.every((c) => c.ms !== undefined) ? run.reduce((t, c) => t + (c.ms ?? 0), 0) : undefined
     steps.push({ key: run[0].id || `${name}-${steps.length}`, label: label(name, run), detail: run.map(detail),
-                 status, internal: name === "skills" })
+                 status, internal: name === "skills", ms })
     run = []
   }
   for (const part of parts) {

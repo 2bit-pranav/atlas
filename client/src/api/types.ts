@@ -55,6 +55,9 @@ export type Part =
       args: unknown
       status: "running" | "success" | "error"
       text: string
+      /** Epoch ms the call began, and how long it took (runs since 2026-11-06). */
+      started?: number
+      ms?: number
     }
   | {
       /** The agent is waiting for the user to allow or deny something. */
@@ -155,9 +158,9 @@ export type RunEvent = { seq: number } & (
   | { type: "resumed"; reason: string }
   | { type: "thinking_delta"; text: string }
   | { type: "text_delta"; text: string }
-  | { type: "tool_start"; id: string; name: string; args: unknown }
+  | { type: "tool_start"; id: string; name: string; args: unknown; at?: number }
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
-  | { type: "tool_end"; id: string; name: string; status: string; text: string }
+  | { type: "tool_end"; id: string; name: string; status: string; text: string; at?: number }
   | { type: "approval_request"; id: string; kind: "install" | "access" | "tool" | "page"; command: string; folder?: string; access?: "read" | "write";
       chat?: boolean; timeout: number; expires_at: number }
   | { type: "approval_result"; id: string; decision: "allowed" | "allowed_chat" | "denied" | "expired" }

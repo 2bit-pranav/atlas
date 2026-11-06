@@ -51,9 +51,9 @@ Server-sent events, each `{"seq": n, "type": ...}`:
 | `model_retry` | `reason`, `attempt`, `of` | the last model call is discarded and repeated |
 | `thinking_delta` | `text` | reasoning |
 | `text_delta` | `text` | answer text |
-| `tool_start` | `id`, `name`, `args` | a tool call |
+| `tool_start` | `id`, `name`, `args`, `at` (epoch ms) | a tool call |
 | `tool_args_delta` | `id`, `name`, `args` | arguments still arriving |
-| `tool_end` | `id`, `name`, `status`, `text` | the result |
+| `tool_end` | `id`, `name`, `status`, `text`, `at` | the result; the stored part gets `ms`, how long the call took |
 | `approval_request` | `id`, `kind` (`install`, `access`, `tool`, `page`), `command`, `folder?`, `access?` (`read`/`write`), `chat` (Allow for this chat offered), `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
 | `approval_result` | `id`, `decision` (`allowed`, `allowed_chat`, `denied`, `expired`) | the answer, or the timeout |
 | `stats` | `context_used`, `context_size`, `prompt_tokens`, `completion_tokens`, `tokens_per_second`, `prompt_per_second`, `model_calls`, `duration_ms` | at most 4/s while generating, and once at the end |

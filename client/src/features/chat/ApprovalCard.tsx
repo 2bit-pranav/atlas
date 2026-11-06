@@ -38,35 +38,35 @@ export function ApprovalCard({ part, live }: { part: ApprovalPart; live: boolean
     void atlas.answerApproval(part.id, allow, scope)
   }
   return (
-    <div className={cn("my-3 rounded-xl border p-3.5",
-                       pending ? "border-amber-500/60 bg-card" : "bg-muted/30")}>
-      <div className="flex items-start gap-2 text-sm font-medium">
-        <ShieldAlert className={cn("mt-0.5 h-4 w-4 shrink-0", pending ? "text-amber-500" : "text-muted-foreground")} />
+    <div className={cn("my-3 rounded-xl border p-3 first:mt-0 last:mb-0",
+                       pending ? "border-ask bg-ask/10" : "bg-muted/30")}>
+      <div className="flex items-start gap-2 text-[13px] font-semibold">
+        <ShieldAlert className={cn("mt-0.5 h-4 w-4 shrink-0", pending ? "text-ask" : "text-muted-foreground")} />
         <span className="font-display">{title}</span>
         {pending && prefs.taskDetails && <span className="ml-auto font-mono text-xs text-muted-foreground">{left}s</span>}
         {outcome && (
-          <span className={cn("ml-auto shrink-0 text-xs", part.status.startsWith("allowed") ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+          <span className={cn("ml-auto shrink-0 text-xs", part.status.startsWith("allowed") ? "text-ok" : "text-muted-foreground")}>
             {outcome}
           </span>
         )}
       </div>
       {(showCommand || prefs.taskDetails) && (
-        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-code p-2.5 font-mono text-xs text-code-foreground">{part.command}</pre>
+        <pre className="mt-2.5 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border bg-card px-2.5 py-2 font-mono text-xs">{part.command}</pre>
       )}
       {pending && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={sent} onClick={() => answer(true)}
-                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
+                  className="rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
             Allow
           </button>
           {part.chat && (
             <button type="button" disabled={sent} onClick={() => answer(true, "chat")}
-                    className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
+                    className="rounded-lg border bg-card px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
               Allow for this task
             </button>
           )}
           <button type="button" disabled={sent} onClick={() => answer(false)}
-                  className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
+                  className="rounded-lg border bg-card px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
             No
           </button>
         </div>

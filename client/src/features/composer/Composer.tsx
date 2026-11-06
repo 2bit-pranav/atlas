@@ -26,7 +26,13 @@ interface EditProps {
   onCancel: () => void
 }
 
-export const Composer = memo(function Composer({ edit, placeholder }: { edit?: EditProps; placeholder?: string }) {
+/** The task view's card: a squarer box with a soft shadow (`home` is the new task page's, taller, with Start). */
+const TASK_CARD = "border bg-card text-foreground shadow-[0_1px_2px_oklch(0_0_0/0.04),0_8px_24px_oklch(0_0_0/0.04)] focus-within:border-foreground/25"
+
+export const Composer = memo(function Composer({ edit, placeholder, look = "chat" }: {
+  edit?: EditProps; placeholder?: string; look?: "chat" | "home" | "follow"
+}) {
+  const task = look !== "chat"
   const prefs = usePrefs()
   const busy = useAtlas((s) => s.run !== null)
   const staged = useAtlas((s) => s.staged)
@@ -168,7 +174,7 @@ export const Composer = memo(function Composer({ edit, placeholder }: { edit?: E
         <MentionMenu items={matches} query={mention.query} index={mentionIndex}
                      onPick={pickMention} onHover={setMentionIndex} />
       )}
-      <div className={cn(INPUT_CLASSES, "overflow-hidden rounded-4xl backdrop-blur-md md:rounded-3xl")}>
+      <div className={cn("overflow-hidden", task ? cn(TASK_CARD, "rounded-[14px]") : cn(INPUT_CLASSES, "rounded-4xl backdrop-blur-md md:rounded-3xl"))}>
         {files.length > 0 && (
           <div className="flex gap-2 overflow-x-auto px-3 pt-3">
             {files.map((f) => (
@@ -177,7 +183,7 @@ export const Composer = memo(function Composer({ edit, placeholder }: { edit?: E
             ))}
           </div>
         )}
-        <div className="relative min-h-12 py-2 md:py-3">
+        <div className={cn("relative min-h-12", task ? "py-2.5" : "py-2 md:py-3")}>
           {recording && (
             <div className="flex items-center gap-3 px-5 py-1.5 text-sm">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
@@ -187,7 +193,7 @@ export const Composer = memo(function Composer({ edit, placeholder }: { edit?: E
               <span className="text-muted-foreground">Recording. Stop to attach it.</span>
             </div>
           )}
-          <div className={cn("px-5 py-1.5", recording && "hidden")}>
+          <div className={cn(task ? "px-4 py-1.5" : "px-5 py-1.5", recording && "hidden")}>
             <textarea
               ref={area}
               rows={1}
@@ -199,7 +205,8 @@ export const Composer = memo(function Composer({ edit, placeholder }: { edit?: E
               onClick={(e) => trackMention(e.currentTarget.value, e.currentTarget.selectionStart)}
               onBlur={() => setMention(null)}
               placeholder={edit ? "Edit your message..." : placeholder ?? "Type a message, or @ to point at a file, skill or tool..."}
-              className="block min-h-6 w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 outline-none placeholder:text-muted-foreground"
+              className={cn("block w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 outline-none placeholder:text-muted-foreground",
+                            look === "home" ? "min-h-[4.5rem]" : "min-h-6")}
               onKeyDown={(e) => {
                 if (mention) {
                   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -244,11 +251,13 @@ export const Composer = memo(function Composer({ edit, placeholder }: { edit?: E
             />
           </div>
 
-          <div className="flex items-center gap-3 px-3 pt-1">
+          <div className={cn("flex items-center px-3 pt-1", task ? "gap-2" : "gap-3")}>
             <Dropdown.Root>
               <Tip label="Add files">
                 <Dropdown.Trigger asChild>
-                  <button type="button" className="flex h-8 w-8 items-center justify-center rounded-full bg-background shadow-sm hover:bg-accent dark:bg-muted-foreground/15">
+                  <button type="button" aria-label="Add files"
+                          className={cn("flex h-8 w-8 items-center justify-center hover:bg-accent",
+                                        task ? "rounded-lg border bg-card" : "rounded-full bg-background shadow-sm dark:bg-muted-foreground/15")}>
                     <Plus className="h-4 w-4" />
                   </button>
                 </Dropdown.Trigger>
@@ -271,7 +280,16 @@ export const Composer = memo(function Composer({ edit, placeholder }: { edit?: E
 
             <div className="ml-auto flex items-center gap-1.5">
               {!edit && prefs.showContextMeter && <ContextGauge />}
-              {supportsThinking && (
+              {supportsThinking && task && (
+                <Tip label="Slower, but better at tasks with several steps">
+                  <button type="button" onClick={() => atlas.setThinking(!thinking)} aria-pressed={thinking}
+                          className={cn("flex h-8 items-center rounded-lg border bg-card px-2.5 text-xs font-medium transition-colors hover:bg-accent",
+                                        thinking ? "border-run/60 text-run" : "text-muted-foreground")}>
+                    Think first: {thinking ? "On" : "Off"}
+                  </button>
+                </Tip>
+              )}
+              {supportsThinking && !task && (
                 <Tip label={thinking ? "Thinking on" : "Thinking off"}>
                   <button type="button" onClick={() => atlas.setThinking(!thinking)}
                           aria-pressed={thinking}
@@ -282,7 +300,7 @@ export const Composer = memo(function Composer({ edit, placeholder }: { edit?: E
                   </button>
                 </Tip>
               )}
-              {!edit && modelName && (
+              {!edit && !task && modelName && (
                 <span className="hidden max-w-40 truncate rounded-sm bg-background px-1.5 py-1 text-xs shadow-sm dark:bg-muted-foreground/15 sm:inline" title={modelName}>
                   {modelName}
                 </span>
@@ -321,10 +339,18 @@ export const Composer = memo(function Composer({ edit, placeholder }: { edit?: E
                 </button>
               </Tip>
             ) : (
-              <button type="submit" disabled={!canSend} aria-label="Send"
-                      className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40 md:h-8 md:w-8">
-                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-              </button>
+              look === "home" ? (
+                <button type="submit" disabled={!canSend}
+                        className="flex h-9 items-center gap-2 rounded-[9px] bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-opacity disabled:opacity-40">
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}Start
+                </button>
+              ) : (
+                <button type="submit" disabled={!canSend} aria-label="Send"
+                        className={cn("flex h-9 w-9 items-center justify-center bg-primary text-primary-foreground transition-opacity disabled:opacity-40 md:h-8 md:w-8",
+                                      task ? "rounded-lg" : "rounded-full")}>
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+                </button>
+              )
             )}
           </div>
         </div>

@@ -19,7 +19,8 @@ export const TurnRow = memo(function TurnRow({ turn, chatId, isLast, laterCount,
   const running = turn.status === "running"
   return (
     <div className="w-full" data-turn-id={turn.id}>
-      <UserMessage turn={turn} chatId={chatId} editing={editing} setEditing={setEditing} laterCount={laterCount} />
+      <UserMessage turn={turn} chatId={chatId} editing={editing} setEditing={setEditing} laterCount={laterCount}
+                   parts={parts} stats={liveStats ?? turn.stats} />
       <AssistantMessage turn={turn} chatId={chatId} parts={parts} stats={liveStats ?? turn.stats} running={running} isLast={isLast} />
     </div>
   )

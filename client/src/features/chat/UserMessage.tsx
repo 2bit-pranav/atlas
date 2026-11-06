@@ -1,19 +1,24 @@
+import { useContext } from "react"
 import { Pencil, Quote } from "lucide-react"
 import { atlas, useAtlas } from "@/state/store"
 import { FileImage, FileLink } from "@/features/chat/FileLink"
-import type { ChatFile, Ref, Turn } from "@/api/types"
+import type { ChatFile, Part, Ref, Turn, TurnStats } from "@/api/types"
 import { cn } from "@/lib/cn"
 import { Composer } from "@/features/composer/Composer"
 import { formatBytes } from "@/lib/format"
 import { fullTime, timeAgo, useNow } from "@/lib/time"
 import { Action, CopyButton } from "@/features/chat/MessageActions"
+import { TaskLayout } from "@/features/task/layout"
+import { TaskStatus } from "@/features/task/TaskStatus"
 
 // ------------------------------------------------------------------ user --
 
-export function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
+export function UserMessage({ turn, chatId, editing, setEditing, laterCount, parts, stats }: {
   turn: Turn; chatId: string; editing: boolean; setEditing: (v: boolean) => void; laterCount: number
+  parts: Part[]; stats: TurnStats | null
 }) {
   const busy = useAtlas((s) => s.run !== null)
+  const task = useContext(TaskLayout)
 
   if (editing) {
     return (
@@ -38,6 +43,27 @@ export function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
             <button type="button" onClick={() => setEditing(false)} className="rounded-md px-3 py-1 hover:bg-accent">Cancel</button>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (task) {
+    // The task view: the request as plain text under its state, not a bubble.
+    return (
+      <div className="group/request mt-12 grid gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <TaskStatus turn={turn} parts={parts} stats={stats} />
+          <span>You asked, <SentAt at={turn.created_at} /></span>
+          <span className="ml-auto flex items-center gap-1 transition-opacity focus-within:opacity-100 md:opacity-0 md:group-hover/request:opacity-100">
+            <CopyButton text={turn.user_text} />
+            <Action label="Edit" onClick={() => setEditing(true)} disabled={busy}><Pencil className="h-3 w-3" /></Action>
+          </span>
+        </div>
+        {turn.files.length > 0 && <Attachments files={turn.files} chatId={chatId} align="start" />}
+        {turn.refs?.length > 0 && <RefChips refs={turn.refs} />}
+        {turn.user_text && (
+          <p className="whitespace-pre-wrap break-words text-base leading-relaxed"><WithMentions text={turn.user_text} /></p>
+        )}
       </div>
     )
   }
@@ -96,9 +122,9 @@ function RefChips({ refs }: { refs: Ref[] }) {
   )
 }
 
-function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
+function Attachments({ files, chatId, align = "end" }: { files: ChatFile[]; chatId: string; align?: "start" | "end" }) {
   return (
-    <div className="flex max-w-[80%] flex-wrap justify-end gap-2">
+    <div className={cn("flex max-w-[80%] flex-wrap gap-2", align === "end" ? "justify-end" : "justify-start")}>
       {files.map((f) => {
         const image = f.type.startsWith("image/")
         const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"

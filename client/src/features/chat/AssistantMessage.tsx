@@ -77,8 +77,9 @@ export function AssistantMessage({ turn, chatId, parts, stats, running, isLast }
   const inPanel = useContext(TaskLayout) ? "lg:hidden" : undefined
 
   return (
-    <div className="mt-6 w-full text-[15px] leading-[1.875rem]">
-      {running && empty && <span className="shimmer-text text-sm">Processing...</span>}
+    <div className={cn("w-full text-[15px] leading-[1.875rem]", inPanel ? "mt-5 border-t pt-4" : "mt-6")}>
+      {inPanel && <h4 className="mb-1 font-display text-[13px] font-semibold leading-6">Atlas</h4>}
+      {running && empty && <span className="shimmer-text text-sm">{inPanel ? "Getting started…" : "Processing..."}</span>}
 
       {items(parts, inPanel !== undefined).map((item) => {
         if ("reasoning" in item)

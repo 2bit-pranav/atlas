@@ -115,3 +115,11 @@ def test_finish_is_final() -> None:
     run.finish("cancelled")
     run.finish("completed")
     assert run.status == "cancelled" and run.events[-1]["type"] == "done"
+
+
+def test_a_tool_call_records_how_long_it_took() -> None:
+    run = RunManager().start("chat", "t1")
+    run.emit({"type": "tool_start", "id": "a", "name": "read_text", "args": {}})
+    run.emit({"type": "tool_end", "id": "a", "name": "read_text", "status": "success", "text": "x"})
+    part = run.transcript.parts[0]
+    assert run.events[0]["at"] == part["started"] and part["ms"] >= 0

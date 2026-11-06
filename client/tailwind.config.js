@@ -26,6 +26,9 @@ export default {
         popover: { DEFAULT: token("popover"), foreground: token("popover-foreground") },
         card: { DEFAULT: token("card"), foreground: token("card-foreground") },
         code: { DEFAULT: token("code-background"), foreground: token("code-foreground") },
+        run: token("run"),
+        ask: token("ask"),
+        ok: token("ok"),
       },
       borderRadius: {
         sm: "calc(var(--radius) - 4px)",
@@ -36,6 +39,9 @@ export default {
       },
       spacing: {
         4.5: "1.125rem",
+        6.5: "1.625rem",
+        8.5: "2.125rem",
+        62: "15.5rem",
         13: "3.25rem",
       },
     },

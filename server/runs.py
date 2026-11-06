@@ -71,6 +71,9 @@ class Run:
         The sequence number is what `after=<n>` resumes from, so it is assigned
         here and nowhere else.
         """
+        if event.get("type") in ("tool_start", "tool_end"):
+            # When, for the step's duration; stamped here so a replay carries the original time.
+            event = {**event, "at": int(time.time() * 1000)}
         self.events.append({"seq": len(self.events), **event})
         self.transcript.fold(event)
         self.wake()

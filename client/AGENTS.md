@@ -66,8 +66,7 @@ Taken from llama.cpp's source, not screenshots:
 - **Palette:** `index.css`. shadcn "neutral" in oklch, with llama.cpp's darker
   light-mode border and darker dark background. Tokens are "L C H" triples so
   Tailwind opacity modifiers work (`bg-muted/60`).
-- **Layout:**
-  - floating rounded sidebar, 288px, collapsing to a 48px icon rail;
+- **Layout** (the extension's chat layout; the web app's task view below differs):
   - 48rem chat column;
   - "Hello there" greeting with the composer centred while empty.
 - **Composer:** `INPUT_CLASSES`, pill radius, + menu, context gauge (20px ring,
@@ -145,6 +144,12 @@ extension's side panel keeps the chat layout, so nothing there changed.
   Atlas's plumbing (loading a skill) shows only with Details. No model call.
 - **The task list** in the sidebar has a dot per task: working, needs you,
   done, failed, stopped (`last_status` on `GET /chats`).
+- **The look** is the approved mockup's: a flat 248px task rail (brand, New task, pages,
+  tasks with a dot and a short time, "Running on this computer"; collapses to 48px), a top
+  bar with the task's name, the request as plain text under its status pill ("Done · 0:41"),
+  the answer under a rule headed "Atlas", a squarer composer ("Think first", Start on the
+  home page), and a sidebar-tinted work panel. Status colours are tokens (`run`, `ask`,
+  `ok` in `index.css`), never the accent. Step times show under Details.
 - **Type:** Inter for text, Poppins (`font-display`) for the app's own headings,
   both bundled from npm (`@fontsource`): no request to Google Fonts.
 

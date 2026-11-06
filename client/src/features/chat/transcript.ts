@@ -49,7 +49,7 @@ export function fold(live: LiveTurn, event: RunEvent): void {
       return append(parts, "text", event.text)
     case "tool_start":
       parts.push({ kind: "tool", id: event.id, name: event.name, args: event.args ?? {},
-                   status: "running", text: "" })
+                   status: "running", text: "", started: event.at })
       return
     case "tool_args_delta":
       updateTool(parts, event.id, (p) => ({ ...p, args: event.args }))
@@ -57,6 +57,7 @@ export function fold(live: LiveTurn, event: RunEvent): void {
     case "tool_end":
       updateTool(parts, event.id, (p) => ({
         ...p, status: event.status === "error" ? "error" : "success", text: event.text,
+        ...(p.started && event.at ? { ms: event.at - p.started } : {}),
       }))
       return
     case "approval_request":

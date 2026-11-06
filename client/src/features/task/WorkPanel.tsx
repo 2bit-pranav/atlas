@@ -1,8 +1,8 @@
 /**
  * The task's work, beside the conversation (wide screens): what needs the
  * user, the steps in plain words, the files made, the web pages used. Calm by
- * default; Details (a per-browser pref) adds the tool calls, every file read
- * and the run's stats.
+ * default; Details (a per-browser pref) adds the tool calls and their times,
+ * every file read and the run's stats.
  *
  * It covers the whole task, not one turn: the current turn's steps open,
  * earlier turns' steps folded under their question, and the files and sources
@@ -10,69 +10,56 @@
  */
 
 import { useMemo, useState } from "react"
-import { Check, ChevronRight, Download, ExternalLink, Loader2, X } from "lucide-react"
+import { Check, ChevronRight, Download, ExternalLink, X } from "lucide-react"
 import type { ChangedFile, Part, Turn, TurnStats } from "@/api/types"
 import { setPrefs, usePrefs } from "@/state/prefs"
 import { ApprovalCard } from "@/features/chat/ApprovalCard"
 import { FileLink } from "@/features/chat/FileLink"
-import { Stats } from "@/features/chat/StatsBar"
+import { FileBadge } from "@/features/task/FileBadge"
 import { readFiles, sources, toSteps, type Step } from "@/features/task/steps"
 import { formatBytes } from "@/lib/format"
+import { clock } from "@/lib/time"
 import { cn } from "@/lib/cn"
 
-function statusOf(turn: Turn, running: boolean, waiting: boolean): { label: string; tone: string } {
-  if (running) return waiting ? { label: "Needs you", tone: "ask" } : { label: "Working", tone: "run" }
-  return {
-    completed: { label: "Done", tone: "ok" },
-    cancelled: { label: "Stopped", tone: "idle" },
-    failed: { label: "Failed", tone: "bad" },
-    interrupted: { label: "Interrupted", tone: "bad" },
-    running: { label: "Working", tone: "run" },
-  }[turn.status]
-}
-
-const TONE: Record<string, string> = {
-  run: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
-  ask: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-  ok: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  bad: "bg-destructive/10 text-destructive",
-  idle: "bg-muted text-muted-foreground",
-}
+const seconds = (ms: number) => (ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : clock(ms))
 
 function StepIcon({ status }: { status: Step["status"] }) {
   const ring = "relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
-  if (status === "running") return <span className={cn(ring, "bg-background text-sky-600 dark:text-sky-400")}><Loader2 className="h-4 w-4 animate-spin" /></span>
-  if (status === "waiting") return <span className={cn(ring, "border border-amber-500 bg-amber-500/15")}><span className="h-1.5 w-1.5 rounded-full bg-amber-500" /></span>
-  if (status === "error") return <span className={cn(ring, "bg-destructive/10 text-destructive")}><X className="h-3 w-3" strokeWidth={3} /></span>
-  return <span className={cn(ring, "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400")}><Check className="h-3 w-3" strokeWidth={3} /></span>
+  if (status === "running")
+    return <span className={cn(ring, "border border-border bg-card")}><span className="absolute -inset-px animate-spin rounded-full border-2 border-run border-r-transparent" /></span>
+  if (status === "waiting") return <span className={cn(ring, "border border-ask bg-ask/15")}><span className="h-1.5 w-1.5 rounded-full bg-ask" /></span>
+  if (status === "error") return <span className={cn(ring, "bg-destructive/10 text-destructive")}><X className="h-[11px] w-[11px]" strokeWidth={2.5} /></span>
+  return <span className={cn(ring, "bg-ok/10 text-ok")}><Check className="h-[11px] w-[11px]" strokeWidth={2.5} /></span>
 }
 
 function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section>
-      <h3 className="mb-2.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <section className="border-b px-4 py-3.5">
+      <h5 className="mb-2.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
         <span>{title}</span>{aside}
-      </h3>
+      </h5>
       {children}
     </section>
   )
 }
 
-const ext = (name: string) => (name.includes(".") ? name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE")
-
 function StepList({ steps, details }: { steps: Step[]; details: boolean }) {
   return (
-    <ol className="relative">
+    <ol>
       {steps.map((s, i) => (
-        <li key={s.key + i} className="relative flex gap-3 pb-3 last:pb-0">
-          {i < steps.length - 1 && <span aria-hidden className="absolute left-2.5 top-6 -bottom-0.5 w-px bg-border" />}
+        <li key={s.key + i} className="relative grid grid-cols-[1.25rem_1fr_auto] gap-2.5 py-[7px]">
+          {i < steps.length - 1 && <span aria-hidden className="absolute left-2.5 top-7 -bottom-[7px] w-px bg-border" />}
           <StepIcon status={s.status} />
-          <span className="min-w-0 pt-px">
-            <span className={cn("block text-sm", s.status === "error" && "text-destructive")}>{s.label}</span>
+          <span className="min-w-0">
+            <span className={cn("block text-sm font-medium", s.status === "error" && "text-destructive")}>{s.label}</span>
             {s.note && <span className="block text-xs text-muted-foreground">{s.note}</span>}
+            {s.status === "waiting" && <span className="block text-xs text-muted-foreground">Waiting for you</span>}
             {details && s.detail.map((d, j) => (
-              <span key={j} className="block truncate font-mono text-[11px] text-muted-foreground" title={d}>{d}</span>
+              <span key={j} className="block truncate font-mono text-xs text-muted-foreground" title={d}>{d}</span>
             ))}
+          </span>
+          <span className="pt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+            {details && s.ms !== undefined ? seconds(s.ms) : ""}
           </span>
         </li>
       ))}
@@ -91,17 +78,36 @@ function Earlier({ turn, steps, details }: { turn: Turn; steps: Step[]; details:
         <span className="min-w-0 flex-1 truncate" title={turn.user_text}>{turn.user_text || "Attachment"}</span>
         <span className="shrink-0 text-xs">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"}` : "answered"}</span>
       </button>
-      {open && steps.length > 0 && <div className="mb-2 ml-1 mt-1.5"><StepList steps={steps} details={details} /></div>}
+      {open && steps.length > 0 && <div className="mb-2 ml-1 mt-1"><StepList steps={steps} details={details} /></div>}
     </div>
   )
 }
+
+function Tag({ children, tone }: { children: React.ReactNode; tone: "new" | "read" }) {
+  return (
+    <span className={cn("rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide",
+                        tone === "new" ? "bg-ok/10 text-ok" : "bg-muted text-muted-foreground")}>
+      {children}
+    </span>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="font-display text-[15px] font-medium tabular-nums">{value}</div>
+    </div>
+  )
+}
+
+const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 
 export interface PanelTurn { turn: Turn; parts: Part[]; stats: TurnStats | null; running: boolean }
 
 export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[] }) {
   const { taskDetails: details, showStats } = usePrefs()
-  const current = turns[turns.length - 1]
-  const { turn, parts, stats, running } = current
+  const { parts, stats, running } = turns[turns.length - 1]
   const visible = (steps: Step[]) => (details ? steps : steps.filter((s) => !s.internal))
   const steps = useMemo(() => toSteps(parts, running), [parts, running])
   const shown = visible(steps)
@@ -120,50 +126,60 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
     return [...byName.values()].reverse().filter((f) => !read.includes(f.name))
   }, [turns, read])
   const web = useMemo(() => sources(allParts), [allParts])
-  const status = statusOf(turn, running, pending.length > 0)
+  const size = stats?.context_size ?? 0
+  const used = stats?.context_used ?? 0
 
   return (
     <aside aria-label="Task progress"
-           className="hidden w-[22rem] shrink-0 flex-col gap-6 overflow-y-auto border-l px-5 py-6 lg:flex">
-      {pending.map((p) => <ApprovalCard key={p.id} part={p} live />)}
+           className="hidden w-[23.75rem] shrink-0 flex-col overflow-y-auto border-l bg-sidebar lg:flex">
+      {pending.length > 0 && (
+        <section className="space-y-2 border-b px-4 py-3.5">
+          {pending.map((p) => <ApprovalCard key={p.id} part={p} live />)}
+        </section>
+      )}
 
       <Section title="Progress" aside={
         <button type="button" aria-pressed={details} onClick={() => setPrefs({ taskDetails: !details })}
-                className="text-[11px] font-medium normal-case tracking-normal text-muted-foreground underline underline-offset-2 hover:text-foreground">
-          {details ? "Hide details" : "Details"}
+                className={cn("text-[11px] font-medium normal-case tracking-normal underline underline-offset-[3px] hover:text-foreground",
+                              details ? "text-foreground" : "text-muted-foreground")}>
+          Details
         </button>
       }>
         {earlier.length > 0 && (
-          <div className="mb-4 border-b pb-3">
+          <div className="mb-3 border-b pb-2.5">
             {earlier.map((e) => <Earlier key={e.turn.id} turn={e.turn} steps={visible(e.steps)} details={details} />)}
           </div>
         )}
-        <span className={cn("mb-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium", TONE[status.tone])}>
-          {running && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />}{status.label}
-        </span>
         {shown.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{running ? "Getting started…" : "Answered directly, without using any tools."}</p>
+          <p className="text-xs text-muted-foreground">{running ? "Getting started…" : "Answered directly, without using any tools."}</p>
         ) : <StepList steps={shown} details={details} />}
       </Section>
 
       {(made.length > 0 || read.length > 0) && (
         <Section title="Files">
-          <div className="space-y-2">
+          <div className="grid gap-2">
             {made.map((f) => (
-              <div key={f.name} className="flex items-center gap-3 rounded-lg border bg-card p-2">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 font-mono text-[10px] font-semibold text-primary">{ext(f.name)}</span>
-                <span className="min-w-0 flex-1">
+              <div key={f.name} className="grid grid-cols-[2.125rem_1fr_auto_auto] items-center gap-2.5 rounded-[10px] border bg-card p-2">
+                <FileBadge name={f.name} />
+                <span className="min-w-0">
                   <span className="block truncate text-sm font-medium" title={f.name}>{f.name}</span>
                   <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Made in this task" : "Changed"} · {formatBytes(f.size)}</span>
                 </span>
+                <Tag tone="new">{f.change === "created" ? "new" : "changed"}</Tag>
                 <FileLink chatId={chatId} name={f.name} download title="Download"
-                          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border bg-card text-muted-foreground hover:bg-accent hover:text-foreground">
                   <Download className="h-4 w-4" />
                 </FileLink>
               </div>
             ))}
             {read.length > 0 && (details
-              ? read.map((n) => <p key={n} className="truncate font-mono text-[11px] text-muted-foreground" title={n}>read {n}</p>)
+              ? read.map((n) => (
+                  <div key={n} className="grid grid-cols-[2.125rem_1fr_auto] items-center gap-2.5 rounded-[10px] border bg-card p-2">
+                    <FileBadge name={n} />
+                    <span className="min-w-0 truncate text-sm font-medium" title={n}>{n}</span>
+                    <Tag tone="read">read</Tag>
+                  </div>
+                ))
               : <p className="text-xs text-muted-foreground">Read {read.length === 1 ? read[0] : `${read.length} files`}.</p>)}
           </div>
         </Section>
@@ -171,12 +187,12 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
 
       {web.length > 0 && (
         <Section title="Sources">
-          <ol className="space-y-2">
+          <ol>
             {web.map((s, i) => (
-              <li key={s.url} className="flex gap-2 text-sm">
-                <span className="w-5 shrink-0 font-mono text-[11px] text-muted-foreground">[{i + 1}]</span>
-                <a href={s.url} target="_blank" rel="noreferrer noopener" className="group min-w-0 hover:underline">
-                  <span className="line-clamp-2">{s.title}</span>
+              <li key={s.url} className="grid grid-cols-[1.375rem_1fr] gap-2 py-1.5">
+                <span className="pt-px font-mono text-[11px] font-medium text-muted-foreground">[{i + 1}]</span>
+                <a href={s.url} target="_blank" rel="noreferrer noopener" className="group min-w-0">
+                  <span className="line-clamp-2 text-sm group-hover:underline">{s.title}</span>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">{s.site}<ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100" /></span>
                 </a>
               </li>
@@ -185,13 +201,25 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
         </Section>
       )}
 
-      {details && showStats && stats && (stats.completion_tokens ?? 0) > 0 && (
-        <Section title="This run">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {stats.model && <span className="rounded-sm bg-muted px-1.5 py-0.5 font-medium">{stats.model}</span>}
-            <Stats stats={stats} />
+      {details && showStats && stats && (stats.model_calls ?? 0) > 0 && (
+        <section className="px-4 py-3.5">
+          <h5 className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">This run</h5>
+          <div className="grid grid-cols-3 gap-2.5">
+            <Stat label="Time" value={stats.duration_ms ? clock(stats.duration_ms) : "—"} />
+            <Stat label="Model calls" value={String(stats.model_calls ?? 0)} />
+            <Stat label="Speed" value={stats.tokens_per_second ? `${Math.round(stats.tokens_per_second)} tok/s` : "—"} />
+            {size > 0 && (
+              <div className="col-span-3">
+                <div className="flex justify-between text-[11px] text-muted-foreground">
+                  <span>Context</span><span className="font-mono">{compact(used)} of {compact(size)}</span>
+                </div>
+                <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-muted">
+                  <i className="block h-full rounded-full bg-run transition-[width]" style={{ width: `${Math.min(100, (used / size) * 100)}%` }} />
+                </div>
+              </div>
+            )}
           </div>
-        </Section>
+        </section>
       )}
     </aside>
   )

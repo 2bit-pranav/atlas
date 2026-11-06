@@ -89,7 +89,17 @@ export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
 
   return (
     <TaskLayout.Provider value={task}>
-    <div className="flex h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col">
+    {task && (
+      <header className="flex min-h-13 shrink-0 items-center gap-2 border-b py-2.5 pl-14 pr-4 text-sm md:pl-4">
+        {empty ? <b className="font-medium">New task</b> : (
+          <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+            Tasks<span aria-hidden>/</span><b className="truncate font-medium text-foreground">{chat?.title || "New task"}</b>
+          </span>
+        )}
+      </header>
+    )}
+    <div className="flex min-h-0 flex-1">
     <div
       className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onDragEnter={(e) => {
@@ -153,7 +163,7 @@ export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
               This task has read outside content: commands, and changes outside its folder, ask you first.
             </p>
           ) : null}
-          <Composer placeholder={task ? "Ask a follow-up, or tell Atlas what to change…" : undefined} />
+          <Composer look={task ? "follow" : "chat"} placeholder={task ? "Ask a follow-up, or tell Atlas what to change…" : undefined} />
         </div>
       )}
 
@@ -168,6 +178,7 @@ export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
       )}
     </div>
     {task && !empty && chat && <WorkPanel chatId={chat.id} turns={panelTurns} />}
+    </div>
     </div>
     </TaskLayout.Provider>
   )
