@@ -8,7 +8,7 @@
  * it, and the round arrow brings the reader back to the bottom.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ShieldAlert, Upload } from "lucide-react"
 
 import { atlas, useAtlas } from "@/state/store"
@@ -17,7 +17,7 @@ import { TurnRow } from "@/features/chat/TurnRow"
 import { Composer } from "@/features/composer/Composer"
 import { cn } from "@/lib/cn"
 import { TaskHome } from "@/features/task/TaskHome"
-import { WorkPanel } from "@/features/task/WorkPanel"
+import { WorkPanel, type PanelTurn } from "@/features/task/WorkPanel"
 import { TaskLayout } from "@/features/task/layout"
 
 /** `layout="task"`: the web app's task view, a home page and a work panel beside the answer.
@@ -28,11 +28,12 @@ export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
   const live = useAtlas((s) => s.live)
   const runTurn = useAtlas((s) => s.run?.turn_id ?? null)
   const prefs = usePrefs()
-  const turns = chat?.turns ?? []
+  const turns = useMemo(() => chat?.turns ?? [], [chat])
   const empty = turns.length === 0
-  // The panel follows the running turn, else the newest one shown.
-  const panelTurn = turns.find((t) => t.id === runTurn) ?? turns[turns.length - 1]
-  const panelLive = panelTurn !== undefined && panelTurn.id === runTurn
+  // The panel covers every turn shown; the running one (always the newest) with its live parts.
+  const panelTurns = useMemo<PanelTurn[]>(() => turns.map((t) => t.id === runTurn
+    ? { turn: t, parts: live?.parts ?? [], stats: live?.stats ?? null, running: true }
+    : { turn: t, parts: t.render, stats: t.stats, running: false }), [turns, runTurn, live])
 
   const scroller = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -166,11 +167,7 @@ export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
         </div>
       )}
     </div>
-    {task && !empty && panelTurn && chat && (
-      <WorkPanel chatId={chat.id} turn={panelTurn} running={panelLive}
-                 parts={panelLive ? live?.parts ?? [] : panelTurn.render}
-                 stats={panelLive ? live?.stats ?? null : panelTurn.stats} />
-    )}
+    {task && !empty && chat && <WorkPanel chatId={chat.id} turns={panelTurns} />}
     </div>
     </TaskLayout.Provider>
   )

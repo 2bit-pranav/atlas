@@ -133,6 +133,12 @@ extension's side panel keeps the chat layout, so nothing there changed.
   read, the web sources, and with Details on (a per-browser pref) the tool
   calls, every file read and the run's stats. On narrow screens the panel is
   hidden and tool lines, approvals and files stay inline, as before.
+- **The panel covers the whole task:** the current turn's steps open, each
+  earlier turn folded under its question, and the files and sources of every
+  turn on the visible path (a file changed again shows once, newest).
+- **One Reasoning per stretch of work:** between two answer texts, the
+  reasoning of every model call is one block and the tool calls one group
+  (`features/chat/items.ts`), client-side only. The chat layout keeps each in place.
 - **Steps** come from `steps.ts`: each tool has a template filled from its
   arguments and result ("Read 3 invoices", "Saved invoices.xlsx", "Did not
   delete X · You said no"), consecutive calls of one tool are one step, and
