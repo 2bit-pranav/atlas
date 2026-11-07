@@ -132,8 +132,10 @@ MCP, skills, restart, pairing, the profile and chat import/export are the web
 UI's alone. In the panel, images and downloads are fetched with the header and
 shown from a blob (`features/chat/FileLink.tsx`).
 
-A message sent with `page: {url, title}` (from the extension) adds the page
-tools to that turn; a page tool emits `client_call {id, op, args}` and waits
+A message sent with `page: {url, title, content, kind}` (from the extension)
+carries the page itself (`agent/prompt/page.py`: marked as page content, the chat
+tainted at once, a long page saved to the workspace, an unchanged page not sent
+twice) and adds the page tools to that turn; a page tool emits `client_call {id, op, args}` and waits
 for the POST back, like an approval.
 
 ## The web UI

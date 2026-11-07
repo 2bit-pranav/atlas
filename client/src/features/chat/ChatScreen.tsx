@@ -22,7 +22,12 @@ import { TaskLayout } from "@/features/task/layout"
 
 /** `layout="task"`: the web app's task view, a home page and a work panel beside the answer.
  * The extension's narrow side panel keeps the chat layout. */
-export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
+export function ChatScreen({ layout = "chat", emptyView, placeholder }: {
+  layout?: "chat" | "task"
+  /** What an empty chat shows instead of the greeting, with the composer at the bottom (the extension's start screen). */
+  emptyView?: React.ReactNode
+  placeholder?: string
+}) {
   const task = layout === "task"
   const chat = useAtlas((s) => s.chat)
   const live = useAtlas((s) => s.live)
@@ -121,8 +126,8 @@ export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
     >
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className={cn("mx-auto flex w-full max-w-3xl flex-col px-4",
-                           empty && !task ? "h-full justify-center pb-24" : empty ? "" : "pb-10 pt-6")}>
-          {empty && task ? (
+                           empty && emptyView ? "" : empty && !task ? "h-full justify-center pb-24" : empty ? "" : "pb-10 pt-6")}>
+          {empty && emptyView ? emptyView : empty && task ? (
             <TaskHome />
           ) : empty ? (
             <div className="text-balance px-4 text-center">
@@ -147,7 +152,7 @@ export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
         </div>
       </div>
 
-      {!empty && (
+      {(!empty || emptyView) && (
         <div className="relative px-4 pb-4">
           <div className="pointer-events-none absolute inset-x-0 -top-24 h-24 bg-gradient-to-t from-background to-transparent" />
           {showDown && (
@@ -163,7 +168,7 @@ export function ChatScreen({ layout = "chat" }: { layout?: "chat" | "task" }) {
               This task has read outside content: commands, and changes outside its folder, ask you first.
             </p>
           ) : null}
-          <Composer look={task ? "follow" : "chat"} placeholder={task ? "Ask a follow-up, or tell Atlas what to change…" : undefined} />
+          <Composer look={task ? "follow" : "chat"} placeholder={placeholder ?? (task ? "Ask a follow-up, or tell Atlas what to change…" : undefined)} />
         </div>
       )}
 

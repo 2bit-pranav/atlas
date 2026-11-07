@@ -1011,3 +1011,19 @@ overrides that can only switch a capability off. Read with capped lengths
 (model files come from the internet), header only, cached per file version;
 about 0.2 s for a 260k-token vocabulary. A Files page was considered and
 dropped: it suggested files must be added before Atlas can read them.
+
+**The page goes with the message, as an accessibility tree** (2026-11-07). The
+side panel sent only a page's address; the model spent a tool call, and a model
+turn, reading it, and on canvas apps (Google Docs) and app-like pages it got
+nothing useful. Now the content script builds a snapshot when the message is
+sent and it goes with it: Google Docs, Sheets and Slides through their exports
+(with the user's session), articles through Readability (gated by its
+`isProbablyReaderable`, which a news front page fails), anything else as the
+accessibility tree, with roles and names from `dom-accessibility-api` and a ref
+per element (agent-browser's format; agent-browser itself drives its own
+browser and cannot run in an extension, and the browser's own tree needs the
+debugger permission and its warning bar). Measured in Edge on real pages: 4-156
+ms per snapshot; a form becomes one line per field ("[textbox: E-mail address
+(empty)](e3)"), Hacker News its table of stories. The chat is tainted as soon
+as page content is in the message. Approval cards after page content make No
+the main button.

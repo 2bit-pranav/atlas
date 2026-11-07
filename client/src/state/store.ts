@@ -260,6 +260,10 @@ class Store {
   origin: api.PageRef | null = null
   /** Runs before a message is sent: the extension attaches a PDF tab here. */
   beforeSend: (() => Promise<void>) | null = null
+  /** Reads the page when a message is sent, so it goes with it (no tool call to read it). */
+  pageContent: ((focus?: string) => Promise<{ content?: string; kind?: string } | null>) | null = null
+  /** A passage the next message is about (the selection chip): only the page around it is sent. */
+  pageFocus: string | null = null
   /** Runs a client call (a page operation) and returns its result. */
   onClientCall: ((op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null
 
@@ -279,6 +283,20 @@ class Store {
       await api.answerCall(run.id, event.id, result).catch(() => undefined)
     }
     void answer()
+  }
+
+  /** The page as it is now, for the message about to go. A failed read sends the page without content. */
+  private async pageNow(): Promise<api.PageRef | null> {
+    if (!this.page) return null
+    const focus = this.pageFocus ?? undefined
+    this.pageFocus = null
+    if (!this.pageContent) return this.page
+    try {
+      const read = await this.pageContent(focus)
+      return read ? { ...this.page, ...read } : this.page
+    } catch {
+      return this.page
+    }
   }
 
   private async ensureChat(): Promise<string> {
@@ -370,7 +388,7 @@ class Store {
     if (!text.trim() && !files.length) return false
     try {
       const chatId = await this.ensureChat()
-      const started = await api.send(chatId, { text, files, thinking: this.state.thinking, page: this.page })
+      const started = await api.send(chatId, { text, files, thinking: this.state.thinking, page: await this.pageNow() })
       this.set({ staged: [], stagedChat: null })
       this.begin(started)
       void this.refreshChats()
@@ -384,7 +402,7 @@ class Store {
   async retry(turnId: string) {
     if (this.busy) return
     try {
-      this.begin(await api.retry(turnId, this.state.thinking, this.page))
+      this.begin(await api.retry(turnId, this.state.thinking, await this.pageNow()))
     } catch (error) {
       this.fail(error)
     }
@@ -393,7 +411,7 @@ class Store {
   async edit(turnId: string, text: string, files?: ChatFile[]): Promise<boolean> {
     if (this.busy) return false
     try {
-      this.begin(await api.edit(turnId, { text, files, thinking: this.state.thinking, page: this.page }))
+      this.begin(await api.edit(turnId, { text, files, thinking: this.state.thinking, page: await this.pageNow() }))
       return true
     } catch (error) {
       this.fail(error)

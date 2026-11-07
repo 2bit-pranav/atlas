@@ -93,9 +93,11 @@ function listen() {
     switch (message.op) {
       case "ping":
         return reply({ ok: true })
-      case "read": {
+      case "read":
+      case "snapshot": {
+        // The PDF's text, page by page: sent with the message like any page's snapshot.
         const content = pageTexts.map((t, i) => `--- page ${i + 1} of ${pageTexts.length} ---\n${t || "(no text: a scanned page; use page_screenshot)"}`).join("\n\n")
-        return reply({ title: name, url: file, content })
+        return reply({ title: name, url: file, kind: "pdf", content })
       }
       case "find":
         return reply(find(String(args.text ?? "")))

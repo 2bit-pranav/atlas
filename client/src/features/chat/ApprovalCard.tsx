@@ -8,6 +8,10 @@ import { question } from "@/features/chat/approvalText"
 
 type ApprovalPart = Extract<Part, { kind: "approval" }>
 
+const BUTTON = "h-7 rounded-lg border px-3 text-xs font-medium leading-none disabled:opacity-50"
+const PRIMARY = "border-primary bg-primary text-primary-foreground"
+const PLAIN = "bg-card hover:bg-accent"
+
 /**
  * The agent wants to do something that needs the user: save or change a file
  * in their folders, delete one, run a command, install, or use a tool set to
@@ -26,6 +30,7 @@ export function ApprovalCard({ part, live }: { part: ApprovalPart; live: boolean
   }, [pending])
   const left = Math.max(0, Math.ceil((part.expires_at - now) / 1000))
   const { title, showCommand } = question(part)
+  const denyFirst = part.request === "page"
   const outcome = {
     pending: live ? null : "Not answered",
     allowed: "Allowed",
@@ -54,20 +59,21 @@ export function ApprovalCard({ part, live }: { part: ApprovalPart; live: boolean
       )}
       {pending && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" disabled={sent} onClick={() => answer(true)}
-                  className="h-7 rounded-lg border border-primary bg-primary px-3 text-xs font-medium leading-none text-primary-foreground disabled:opacity-50">
-            Allow
+          {/* After outside content the safe answer is the easy one: No comes first, as the main button. */}
+          {denyFirst && (
+            <button type="button" disabled={sent} onClick={() => answer(false)} className={cn(BUTTON, PRIMARY)}>No</button>
+          )}
+          <button type="button" disabled={sent} onClick={() => answer(true)} className={cn(BUTTON, denyFirst ? PLAIN : PRIMARY)}>
+            {denyFirst ? "Allow once" : "Allow"}
           </button>
           {part.chat && (
-            <button type="button" disabled={sent} onClick={() => answer(true, "chat")}
-                    className="h-7 rounded-lg border bg-card px-3 text-xs font-medium leading-none hover:bg-accent disabled:opacity-50">
+            <button type="button" disabled={sent} onClick={() => answer(true, "chat")} className={cn(BUTTON, PLAIN)}>
               Allow for this task
             </button>
           )}
-          <button type="button" disabled={sent} onClick={() => answer(false)}
-                  className="h-7 rounded-lg border bg-card px-3 text-xs font-medium leading-none hover:bg-accent disabled:opacity-50">
-            No
-          </button>
+          {!denyFirst && (
+            <button type="button" disabled={sent} onClick={() => answer(false)} className={cn(BUTTON, PLAIN)}>No</button>
+          )}
           <span className="ml-1 font-mono text-xs tabular-nums text-muted-foreground" title="No answer by then counts as No">{left}s</span>
         </div>
       )}

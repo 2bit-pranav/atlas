@@ -60,24 +60,27 @@ def _outline(markdown: str, limit: int = 40) -> str:
     return "\n".join(out) or markdown[:1500]
 
 
-def _file_name(title: str) -> str:
+def page_file_name(title: str) -> str:
     slug = re.sub(r"[^\w-]+", "-", title.lower()).strip("-")[:50] or "page"
     return f"page-{slug}.md"
 
 
 def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
                on_read: Callable[[], None]) -> list[Any]:
-    """`page_read`, `page_find`, `page_screenshot` and `page_image`, bound to one run's client calls."""
+    """`page_read`, `page_find`, `page_show`, `page_screenshot` and `page_image`, bound to one run's client calls."""
 
     @tool(name="page_read")
     async def page_read(view: str = "text") -> Any:
-        """Read the web page the user has open in the browser.
+        """Read the web page the user has open in the browser again, or one part of it.
+
+        The page usually comes with the user's message already; read it again only
+        when it may have changed (the user clicked or scrolled to load more).
 
         Args:
-            view: "text" for the page's readable content as Markdown, "elements"
-                for its form fields, buttons and links by name, "tables" for
-                each table's caption, header and size, or "images" for the
-                numbered images (look at one with page_image).
+            view: "text" for the page as text with its links and controls, "elements"
+                for only its links, buttons and fields (each with its ref, e.g. e12),
+                "tables" for each table's caption, header and size, or "images" for
+                the numbered images (look at one with page_image).
         """
         if view not in ("text", "elements", "tables", "images"):
             return _error('view must be "text", "elements", "tables" or "images"')
@@ -90,7 +93,7 @@ def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
         head = f"{UNTRUSTED}Page: {title}\nURL: {url}\n\n"
         if view != "text" or len(body) <= INLINE_CHARS:
             return _ok(head + body)
-        path = workspace / _file_name(title)
+        path = workspace / page_file_name(title)
         path.write_text(f"# {title}\n\nSource: {url}\n\n{body}", encoding="utf-8")
         return _ok(head + f"The page is long ({len(body):,} characters), so it was saved to "
                    f"{shown(path)}. Its outline:\n\n{_outline(body)}\n\n"
@@ -135,6 +138,20 @@ def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
         return {"status": "success",
                 "content": [{"text": note}, {"image": {"format": fmt, "source": {"bytes": base64.b64decode(data)}}}]}
 
+    @tool(name="page_show")
+    async def page_show(ref: str) -> Any:
+        """Show the user one link, button or field on the page: it is scrolled into view and outlined.
+
+        Args:
+            ref: The element's ref from the page text, e.g. "e12".
+        """
+        if not re.fullmatch(r"\[?e\d+\]?", ref.strip()):
+            return _error('give the ref of a link, button or field from the page text, e.g. "e12"')
+        result = await call("show", {"ref": ref.strip()})
+        if result.get("error") or not result.get("ok"):
+            return _error(str(result.get("error") or "that element is not on the page now"))
+        return _ok(f'Shown to the user: {result.get("name") or ref}.')
+
     @tool(name="page_screenshot")
     async def page_screenshot() -> Any:
         """Look at the part of the page the user can see right now, as an image.
@@ -153,7 +170,7 @@ def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
         """
         return await _image("image", {"index": int(number) - 1}, f"Image {number} from the page")
 
-    return [page_read, page_find, page_screenshot, page_image]
+    return [page_read, page_find, page_show, page_screenshot, page_image]
 
 
-__all__ = ["Call", "INLINE_CHARS", "UNTRUSTED", "page_tools"]
+__all__ = ["Call", "INLINE_CHARS", "UNTRUSTED", "page_file_name", "page_tools"]

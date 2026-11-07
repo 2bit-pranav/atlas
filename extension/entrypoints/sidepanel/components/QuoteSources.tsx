@@ -1,4 +1,4 @@
-/** Under an answer: the page passages it quoted, highlighted or marked not found. */
+/** Under an answer: the page passages it quoted, numbered, highlighted on the page, or marked not found. */
 
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { useAtlas } from "@/state/store"
@@ -12,14 +12,15 @@ import { tabCall } from "@ext/shared/tab"
 const QUOTE = /[“"]([^”"\n]{12,300})[”"]/g
 
 /**
- * The passages an answer quoted, found on the page and highlighted. A quote
- * the page does not contain is shown as such: with a small model, that is
- * how an unsupported claim becomes visible.
+ * The passages an answer quoted, found on the page and highlighted; a click
+ * scrolls to one. A quote the page does not contain is shown as such: with a
+ * small model, that is how an unsupported claim becomes visible.
  */
 export function QuoteSources({ turn, answer, tabId }: { turn: Turn; answer: string; tabId: number }) {
   const quotes = useMemo(() => Array.from(new Set(Array.from(answer.matchAll(QUOTE), (m) => m[1].trim()))).slice(0, 8), [answer])
   const latest = useAtlas((s) => s.chat?.turns.at(-1)?.id === turn.id)
   const [found, setFound] = useState<boolean[] | null>(null)
+  const [active, setActive] = useState<number | null>(null)
   const extrasActive = useContext(AnswerExtras) !== null
 
   const check = useCallback(async () => {
@@ -33,28 +34,28 @@ export function QuoteSources({ turn, answer, tabId }: { turn: Turn; answer: stri
 
   if (!quotes.length) return null
   return (
-    <div className="mt-3 rounded-lg border bg-muted/30 p-2 text-xs">
-      <p className="mb-1.5 font-medium text-muted-foreground">On this page</p>
-      <ul className="space-y-1">
-        {quotes.map((q, i) => {
-          const ok = found?.[i]
-          return (
-            <li key={q}>
-              <button type="button" disabled={found !== null && !ok}
-                      onClick={async () => {
-                        if (!found || !latest) await check()
-                        await tabCall(tabId, "scrollToQuote", { index: i })
-                      }}
-                      className={cn("w-full rounded-md px-2 py-1 text-left leading-snug hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent",
-                                    found !== null && !ok && "text-destructive")}>
-                <span className="mr-1">{found === null ? "·" : ok ? "✓" : "✗"}</span>
-                “{q.length > 110 ? `${q.slice(0, 110)}…` : q}”
-                {found !== null && !ok && <span className="ml-1 italic">not in the page's text (may be from an image)</span>}
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+    <div className="mt-3 flex flex-col gap-1.5">
+      {quotes.map((q, i) => {
+        const missing = found !== null && !found[i]
+        return (
+          <button key={q} type="button" disabled={missing}
+                  onClick={async () => {
+                    if (!found || !latest) await check()
+                    await tabCall(tabId, "scrollToQuote", { index: i })
+                    setActive(i)
+                  }}
+                  className={cn("flex gap-2 rounded-lg border px-2.5 py-2 text-left text-xs leading-snug transition-colors",
+                                missing ? "cursor-default border-dashed text-muted-foreground"
+                                  : active === i ? "border-run/40 bg-run/10" : "bg-card hover:bg-accent")}>
+            <span className={cn("flex h-4 min-w-4 shrink-0 items-center justify-center rounded px-1 text-[11px] font-semibold",
+                                missing ? "bg-muted" : "bg-run text-white")}>{i + 1}</span>
+            <span className="min-w-0">
+              “{q.length > 140 ? `${q.slice(0, 140)}…` : q}”
+              {missing && <span className="ml-1 italic">not found in the page's text (it may be in an image)</span>}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }

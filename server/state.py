@@ -21,11 +21,12 @@ from agent.model import server as llama
 from agent.model.sampling import RetryPlan
 from agent.platform.winpaths import model_path
 from agent.prompt.notes import clock_note, retry_hint
-from agent.prompt.page import page_note
+from agent.prompt.page import INLINE_CHARS as PAGE_INLINE_CHARS
+from agent.prompt.page import page_hash, page_note
 from agent.runtime.factory import build_agent
 from agent.store.chats import CANCELLED, COMPLETED, FAILED, ChatStore
 from agent.store.snapshots import SessionManager
-from agent.tools.page import page_tools
+from agent.tools.page import page_file_name, page_tools
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
 from server.schemas import Page
@@ -150,6 +151,36 @@ class Atlas:
         return page_tools(run.client_call, workspace, lambda p: model_path(str(p)),
                           on_read=lambda: self.taint(run))
 
+    def _page_text(self, run: Run, turn: dict[str, Any], workspace: Path) -> str:
+        """The page sent with the message, for the model: inline, or noted as already given."""
+        page = run.page or {}
+        content = str(page.get("content") or "")
+        if not content.strip():
+            return page_note(page)
+        digest = page_hash(content)
+        run.transcript.stats["page_hash"] = digest
+        self.taint(run)   # page content is in the message: outside content from the start
+        if digest in self._earlier_page_hashes(turn):
+            return page_note(page, already_sent=True)
+        saved = None
+        if len(content) > PAGE_INLINE_CHARS:
+            workspace.mkdir(parents=True, exist_ok=True)
+            path = workspace / page_file_name(str(page.get("title") or ""))
+            path.write_text(f"# {page.get('title') or ''}\n\nSource: {page.get('url') or ''}\n\n{content}", encoding="utf-8")
+            saved = model_path(str(path))
+        return page_note(page, saved_as=saved)
+
+    def _earlier_page_hashes(self, turn: dict[str, Any]) -> set[str]:
+        """Pages already in this turn's history: sent with a completed turn above it."""
+        seen: set[str] = set()
+        row = self.store.get_turn(turn["parent_turn_id"]) if turn.get("parent_turn_id") else None
+        while row is not None:
+            if row["status"] == "completed":
+                seen.add(str(json.loads(row["stats_json"] or "{}").get("page_hash") or ""))
+            row = self.store.get_turn(row["parent_turn_id"]) if row["parent_turn_id"] else None
+        seen.discard("")
+        return seen
+
     def taint(self, run: Run) -> None:
         """Outside content entered this run: ask before risky tools, now and in
         every later turn of the chat (the content stays in its history)."""
@@ -180,7 +211,7 @@ class Atlas:
             if links := _link_guidance(turn["user_text"], settings):
                 text = f"{text}\n\n{links}".strip()
             if run.page:
-                text = f"{text}\n\n{page_note(run.page)}".strip()
+                text = f"{text}\n\n{self._page_text(run, turn, workspace)}".strip()
             # Only the model sees this; the chat shows the user's own text.
             text = f"{text}\n\n{clock_note()}".strip()
             hint = retry_hint(settings, retry) if retry else ""

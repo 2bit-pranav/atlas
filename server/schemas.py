@@ -17,10 +17,16 @@ class CreateChat(BaseModel):
 
 
 class Page(BaseModel):
-    """The tab a side-panel message is about. Its presence turns on the page tools."""
+    """The tab a side-panel message is about. Its presence turns on the page tools.
+
+    `content` is the page itself, read in the browser (a Google file's text, an
+    article, or the accessibility tree), sent so the model needs no tool call to
+    read it; `kind` says which (`agent/prompt/page.py`)."""
 
     url: str = ""
     title: str = ""
+    content: str = Field(default="", max_length=600_000)
+    kind: str = Field(default="", max_length=40)
 
 
 class RenameChat(BaseModel):

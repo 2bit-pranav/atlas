@@ -120,6 +120,9 @@ export const listWorkspace = (chatId: string) => request<WorkspaceFile[]>(`/chat
 export interface PageRef {
   url: string
   title: string
+  /** The page itself, read in the browser and sent with the message (the extension). */
+  content?: string
+  kind?: string
 }
 
 export const send = (chatId: string, body: { text: string; files: ChatFile[]; thinking: boolean; page?: PageRef | null }) =>
