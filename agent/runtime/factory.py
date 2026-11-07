@@ -19,6 +19,7 @@ from agent.config.settings import Settings
 from agent.ingest.store import store_for
 from agent.integrations.skills.catalog import SkillManager
 from agent.model.sampling import RetryPlan, build_model
+from agent.model.server import effective as effective_caps
 from agent.platform.windows_shell import WindowsLocalEnvironment, default_environment
 from agent.platform.winpaths import shown_in
 from agent.prompt.system import _compose_instructions, _tool_sources
@@ -132,7 +133,7 @@ def build_agent(
     shown = shown_in(workspace_dir)
     store = store_for(paths.data_dir(settings))
     atlas_tools = [t for t in (*finding_tools(scope, resolve, shown, store),
-                               *read_tools(resolve, shown, settings.model.supports_vision),
+                               *read_tools(resolve, shown, bool(effective_caps(settings)["vision"])),
                                *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
                                *file_tools(resolve, shown),
                                # Not offered without a key: a tool that only fails wastes a turn.

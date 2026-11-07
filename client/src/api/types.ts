@@ -243,11 +243,20 @@ export interface RegistryServer {
 }
 
 /** A model in the models folder (one subfolder each). */
+export interface ModelCaps {
+  vision: boolean | null
+  audio: boolean | null
+  thinking: boolean | null
+  /** The longest context the model was trained for. */
+  context: number | null
+}
+
 export interface LocalModel {
   name: string
   file: string
   mmproj: string | null
   bytes: number
+  caps: ModelCaps
 }
 
 export interface ModelList {
@@ -278,6 +287,8 @@ export interface SettingsView {
   paths: { root: string; data: string }
   /** What the loaded model takes in, from llama-server's /props. */
   modalities: { vision?: boolean; audio?: boolean }
+  /** What the running model can do, read from its files (null: unknown). */
+  model?: ModelCaps
   /** Whether an Exa key is set; the key itself never leaves the backend. */
   web?: { exa_key_set: boolean }
 }

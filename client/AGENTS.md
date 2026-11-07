@@ -145,10 +145,13 @@ extension's side panel keeps the chat layout, so nothing there changed.
 - **The task list** in the sidebar has a dot per task: working, needs you,
   done, failed, stopped (`last_status` on `GET /chats`).
 - **The look** is the approved mockup's: a flat 248px task rail (brand, New task, pages,
-  tasks with a dot and a short time, "Running on this computer"; collapses to 48px), a top
+  tasks with a dot and a short time, and a footer card with the model and the access mode
+  (`app/ModeCard.tsx`: global, read when each message starts; switching to Work asks
+  first); collapses to 48px), a top
   bar with the task's name, the request as plain text under its status pill ("Done · 0:41"),
-  the answer under a rule headed "Atlas", a squarer composer ("Think first", Start on the
-  home page), and a sidebar-tinted work panel. Status colours are tokens (`run`, `ask`,
+  the answer under a rule headed "Atlas", a squarer composer (+ and "Think first" on the
+  left; the context ring, mic and Send or Start on the right), and a sidebar-tinted work
+  panel whose Files and Sources fold past three items. Status colours are tokens (`run`, `ask`,
   `ok` in `index.css`), never the accent. Step times show under Details.
 - **Type:** Inter for text, Poppins (`font-display`) for the app's own headings,
   both bundled from npm (`@fontsource`): no request to Google Fonts.

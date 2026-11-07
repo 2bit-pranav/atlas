@@ -1000,3 +1000,14 @@ are tested by calling the policy directly.
 hand; the development tests and benchmark live in an ignored `tests/`.
 
 > Reversed on 2026-10-30: *Tests are in the repository, with CI*.
+
+**What a model can do is read from its files** (2026-11-07). "Model can think" and
+"Model can see images" were toggles the user had to know to set; set wrong, they
+sent images or a thinking switch to a model that cannot take them. The GGUF
+headers say it: the projector's `clip.has_vision_encoder` / `clip.has_audio_encoder`
+(exact), the chat template taking `enable_thinking` (a heuristic: none is
+unknown), and the trained context length. The toggles stay under Advanced as
+overrides that can only switch a capability off. Read with capped lengths
+(model files come from the internet), header only, cached per file version;
+about 0.2 s for a 260k-token vocabulary. A Files page was considered and
+dropped: it suggested files must be added before Atlas can read them.

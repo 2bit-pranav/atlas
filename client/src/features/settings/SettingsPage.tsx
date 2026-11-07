@@ -10,7 +10,6 @@ import { cn } from "@/lib/cn"
 import { Group, SectionHead } from "@/features/settings/layout"
 import { FieldRow, OtherKeys } from "@/features/settings/FieldRow"
 import { GeneralSection } from "@/features/settings/sections/General"
-import { ExtensionsSection } from "@/features/settings/sections/SkillsAndMcp"
 import { ConversationsSection } from "@/features/settings/sections/Conversations"
 import { ShortcutsSection } from "@/features/settings/sections/Shortcuts"
 
@@ -19,7 +18,6 @@ const navItem = (id: string) => ({ id, title: SECTIONS.find((s) => s.id === id)?
 const NAV = [
   { id: "general", title: "General" },
   navItem("agent"),
-  { id: "extensions", title: "Skills & MCP" },
   navItem("access"),
   navItem("model"),
   { id: "conversations", title: "Conversations" },
@@ -162,7 +160,6 @@ export function SettingsPage() {
                 {s.id === "storage" && <OtherKeys values={values} value={value} set={set} tiers={settings?.tiers ?? {}} />}
               </div>
             ))}
-            {!q && section === "extensions" && <ExtensionsSection />}
             {!q && section === "conversations" && <ConversationsSection />}
             {!q && section === "shortcuts" && <ShortcutsSection />}
           </div>

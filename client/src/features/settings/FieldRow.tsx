@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import * as api from "@/api/client"
 import { HIDDEN, describedKeys, type Field } from "@/features/settings/schema"
 import { Switch } from "@/components/ui/Switch"
-import type { ModelList } from "@/api/types"
+import type { ModelCaps, ModelList } from "@/api/types"
 import { cn } from "@/lib/cn"
 import { Group, Row } from "@/features/settings/layout"
 import { atlas, useAtlas } from "@/state/store"
@@ -106,20 +106,35 @@ function ModelSelect({ value, onChange }: { value: string; onChange: (v: string)
   }, [])
   const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`
   const names = list?.models.map((m) => m.name) ?? []
+  const picked = list?.models.find((m) => m.name === value)
   return (
     <div className="flex flex-col items-end gap-1">
       <select value={value} onChange={(e) => onChange(e.target.value)} className={cn(inputClass, "w-64")}>
         {!names.includes(value) && <option value={value}>{value || "(none)"} - not found</option>}
         {list?.models.map((m) => (
           <option key={m.name} value={m.name}>
-            {m.name} ({gb(m.bytes)}{m.mmproj ? ", images" : ""}){m.name === list.loaded ? " - running" : ""}
+            {m.name} ({gb(m.bytes)}){m.name === list.loaded ? " - running" : ""}
           </option>
         ))}
       </select>
+      {picked && <CapsLine caps={picked.caps} />}
       {list && list.models.length === 0 && (
         <span className="text-[11px] text-muted-foreground">No models found. Put each model in its own folder under llm/.</span>
       )}
     </div>
+  )
+}
+
+/** What a model can do, read from its files: "Images · Audio · Thinking · up to 131k context". */
+function CapsLine({ caps }: { caps: ModelCaps }) {
+  const can = [caps.vision && "Images", caps.audio && "Audio", caps.thinking && "Thinking"].filter(Boolean)
+  return (
+    <span className="flex flex-wrap justify-end gap-1">
+      {can.map((c) => <span key={String(c)} className="rounded bg-muted px-1.5 py-px text-[11px] font-medium">{c}</span>)}
+      {!can.length && <span className="text-[11px] text-muted-foreground">Text only</span>}
+      {caps.thinking === null && <span className="text-[11px] text-muted-foreground">thinking unknown</span>}
+      {caps.context && <span className="text-[11px] text-muted-foreground">up to {Math.round(caps.context / 1024)}k context</span>}
+    </span>
   )
 }
 

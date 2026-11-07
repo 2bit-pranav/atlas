@@ -38,7 +38,8 @@ export const Composer = memo(function Composer({ edit, placeholder, look = "chat
   const staged = useAtlas((s) => s.staged)
   const thinking = useAtlas((s) => s.thinking)
   const focusTick = useAtlas((s) => s.focusTick)
-  const supportsThinking = useAtlas((s) => s.settings?.values["model.supports_thinking"] !== false)
+  // From the running model's files; the setting can only switch it off (agent/model/server.py).
+  const supportsThinking = useAtlas((s) => s.settings?.model?.thinking ?? s.settings?.values["model.supports_thinking"] !== false)
   const modelName = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
   const hearsAudio = useAtlas((s) => Boolean(s.settings?.modalities?.audio))
   const chatId = useAtlas((s) => s.chat?.id ?? s.stagedChat)
@@ -278,28 +279,29 @@ export const Composer = memo(function Composer({ edit, placeholder, look = "chat
               void addFiles(list)
             }} />
 
+            {supportsThinking && task && (
+              <Tip label="Slower, but better at tasks with several steps">
+                <button type="button" onClick={() => atlas.setThinking(!thinking)} aria-pressed={thinking}
+                        className={cn("flex h-8 items-center rounded-lg border bg-card px-2.5 text-xs font-medium transition-colors hover:bg-accent",
+                                      thinking ? "border-run/60 text-run" : "text-muted-foreground")}>
+                  Think first: {thinking ? "On" : "Off"}
+                </button>
+              </Tip>
+            )}
+            {supportsThinking && !task && (
+              <Tip label={thinking ? "Thinking on" : "Thinking off"}>
+                <button type="button" onClick={() => atlas.setThinking(!thinking)}
+                        aria-pressed={thinking}
+                        className={cn("flex h-8 items-center gap-1 rounded-full px-2 text-xs hover:bg-muted-foreground/10",
+                                      thinking ? "text-foreground" : "text-muted-foreground")}>
+                  {thinking ? <Lightbulb className="h-4 w-4" /> : <LightbulbOff className="h-4 w-4" />}
+                  {thinking && <span className="hidden sm:inline">Think</span>}
+                </button>
+              </Tip>
+            )}
+
             <div className="ml-auto flex items-center gap-1.5">
               {!edit && prefs.showContextMeter && <ContextGauge />}
-              {supportsThinking && task && (
-                <Tip label="Slower, but better at tasks with several steps">
-                  <button type="button" onClick={() => atlas.setThinking(!thinking)} aria-pressed={thinking}
-                          className={cn("flex h-8 items-center rounded-lg border bg-card px-2.5 text-xs font-medium transition-colors hover:bg-accent",
-                                        thinking ? "border-run/60 text-run" : "text-muted-foreground")}>
-                    Think first: {thinking ? "On" : "Off"}
-                  </button>
-                </Tip>
-              )}
-              {supportsThinking && !task && (
-                <Tip label={thinking ? "Thinking on" : "Thinking off"}>
-                  <button type="button" onClick={() => atlas.setThinking(!thinking)}
-                          aria-pressed={thinking}
-                          className={cn("flex h-8 items-center gap-1 rounded-full px-2 text-xs hover:bg-muted-foreground/10",
-                                        thinking ? "text-foreground" : "text-muted-foreground")}>
-                    {thinking ? <Lightbulb className="h-4 w-4" /> : <LightbulbOff className="h-4 w-4" />}
-                    {thinking && <span className="hidden sm:inline">Think</span>}
-                  </button>
-                </Tip>
-              )}
               {!edit && !task && modelName && (
                 <span className="hidden max-w-40 truncate rounded-sm bg-background px-1.5 py-1 text-xs shadow-sm dark:bg-muted-foreground/15 sm:inline" title={modelName}>
                   {modelName}

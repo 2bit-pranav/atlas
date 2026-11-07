@@ -44,8 +44,8 @@ export function GeneralSection() {
           <Switch checked={prefs.sendOnEnter} onChange={(v) => setPrefs({ sendOnEnter: v })} />
         </Row>
       </Group>
-      <Group title="Developer">
-        <Row label="Developer mode" help="Shows the tuning settings (recovery, sampling, llama-server, ports) and the extension's pairing token.">
+      <Group title="Advanced">
+        <Row label="Show advanced settings" help="Sampling, recovery and limits, llama-server and ports, the model overrides, and the extension's pairing token.">
           <Switch checked={prefs.devMode} onChange={(v) => setPrefs({ devMode: v })} />
         </Row>
       </Group>

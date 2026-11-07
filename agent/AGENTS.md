@@ -9,7 +9,8 @@ agent/
                 paths.py         every path, anchored to the app root (ATLAS_ROOT)
   model/        llamacpp.py      AtlasLlamaCppModel: thinking switch, streaming, timings
                 sampling.py      build_model, RetryPlan (sampling for a turn)
-                server.py        llama-server: its API key, the models folder
+                server.py        llama-server: its API key, the models folder, effective() capabilities
+                gguf.py          what a model can do, from its GGUF headers (capped reads, never loaded)
   prompt/       system.py        the system prompt: instructions, runtime facts, tool sources
                 notes.py         notes for the model only: the clock, a retry's hint
                 page.py          the note on a message sent from the extension

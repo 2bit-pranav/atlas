@@ -19,6 +19,7 @@ import { downloadJson, exportName } from "@/lib/download"
 import type { ChatSummary } from "@/api/types"
 import { cn } from "@/lib/cn"
 import { Tip } from "@/components/ui/tip"
+import { ModeCard } from "@/app/ModeCard"
 
 interface Props {
   open: boolean
@@ -37,7 +38,6 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
   const activeId = useAtlas((s) => s.chat?.id ?? s.stagedChat)
   const runningChat = useAtlas((s) => s.run?.chat_id ?? null)
   const waiting = useAtlas((s) => Boolean(s.live?.parts.some((p) => p.kind === "approval" && p.status === "pending")))
-  const modelName = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
   const now = useNow()
   const [query, setQuery] = useState("")
 
@@ -75,9 +75,8 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
                 <span className="flex h-6.5 w-6.5 items-center justify-center rounded-lg bg-primary font-display text-[13px] font-semibold text-primary-foreground">A</span>
                 <span className="font-display text-[15px] font-semibold tracking-tight">Atlas</span>
               </button>
-              <span className="ml-auto font-mono text-xs text-muted-foreground">local</span>
               <Tip label="Close sidebar" side="bottom">
-                <button type="button" onClick={onToggle} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
+                <button type="button" onClick={onToggle} className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
                   <PanelLeftClose className="hidden h-4 w-4 md:block" />
                   <X className="h-4 w-4 md:hidden" />
                 </button>
@@ -94,9 +93,9 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
 
         {open ? (
           <button type="button" onClick={newTask}
-                  className="mx-3 mb-2.5 mt-1 flex items-center gap-2 rounded-lg border bg-card px-2.5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent">
+                  className="group mx-3 mb-2.5 mt-1 flex items-center gap-2 rounded-lg border bg-card px-2.5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent">
             <SquarePen className="h-4 w-4" />New task
-            <kbd className="ml-auto font-mono text-[11px] font-normal text-muted-foreground">{shortcutKeys("newChat").join(" ")}</kbd>
+            <kbd className="ml-auto font-mono text-[11px] font-normal text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{shortcutKeys("newChat").join(" ")}</kbd>
           </button>
         ) : (
           <div className="flex flex-col items-center">
@@ -170,16 +169,7 @@ export function Sidebar({ open, onToggle, searching, setSearching, renaming, set
         )}
         {!open && <div className="flex-1" />}
 
-        {open && (
-          <div className="shrink-0 space-y-1 border-t px-4 py-3 text-xs text-muted-foreground">
-            <p>Running on this computer</p>
-            {modelName && (
-              <p className="flex justify-between gap-2">
-                <span>Model</span><span className="truncate font-medium text-foreground" title={modelName}>{modelName}</span>
-              </p>
-            )}
-          </div>
-        )}
+        {open && <ModeCard />}
       </aside>
     </>
   )

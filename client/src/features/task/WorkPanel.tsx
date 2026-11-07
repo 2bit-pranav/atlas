@@ -32,13 +32,27 @@ function StepIcon({ status }: { status: Step["status"] }) {
   return <span className={cn(ring, "bg-ok/10 text-ok")}><Check className="h-[11px] w-[11px]" strokeWidth={2.5} /></span>
 }
 
-function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+/** A panel section. With `count` it folds: open while short, folded past three items. */
+function Section({ title, aside, count, children }: {
+  title: string; aside?: React.ReactNode; count?: number; children: React.ReactNode
+}) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const open = count === undefined || (userOpen ?? count <= 3)
+  const head = "flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground"
   return (
     <section className="border-b px-4 py-3.5">
-      <h5 className="mb-2.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-        <span>{title}</span>{aside}
-      </h5>
-      {children}
+      {count === undefined ? (
+        <h5 className={cn(head, "mb-2.5")}><span>{title}</span>{aside}</h5>
+      ) : (
+        <h5 className={cn(head, open && "mb-2.5")}>
+          <button type="button" aria-expanded={open} onClick={() => setUserOpen(!open)}
+                  className="flex w-full items-center gap-1 uppercase hover:text-foreground">
+            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")} />
+            {title}<span className="ml-auto font-mono normal-case tracking-normal">{count}</span>
+          </button>
+        </h5>
+      )}
+      {open && children}
     </section>
   )
 }
@@ -156,7 +170,7 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
       </Section>
 
       {(made.length > 0 || read.length > 0) && (
-        <Section title="Files">
+        <Section title="Files" count={made.length + read.length}>
           <div className="grid gap-2">
             {made.map((f) => (
               <div key={f.name} className="grid grid-cols-[2.125rem_1fr_auto_auto] items-center gap-2.5 rounded-[10px] border bg-card p-2">
@@ -186,7 +200,7 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
       )}
 
       {web.length > 0 && (
-        <Section title="Sources">
+        <Section title="Sources" count={web.length}>
           <ol>
             {web.map((s, i) => (
               <li key={s.url} className="grid grid-cols-[1.375rem_1fr] gap-2 py-1.5">

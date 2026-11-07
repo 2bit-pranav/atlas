@@ -43,7 +43,6 @@ export function ApprovalCard({ part, live }: { part: ApprovalPart; live: boolean
       <div className="flex items-start gap-2 text-[13px] font-semibold">
         <ShieldAlert className={cn("mt-0.5 h-4 w-4 shrink-0", pending ? "text-ask" : "text-muted-foreground")} />
         <span className="font-display">{title}</span>
-        {pending && prefs.taskDetails && <span className="ml-auto font-mono text-xs text-muted-foreground">{left}s</span>}
         {outcome && (
           <span className={cn("ml-auto shrink-0 text-xs", part.status.startsWith("allowed") ? "text-ok" : "text-muted-foreground")}>
             {outcome}
@@ -56,19 +55,20 @@ export function ApprovalCard({ part, live }: { part: ApprovalPart; live: boolean
       {pending && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={sent} onClick={() => answer(true)}
-                  className="rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
+                  className="h-7 rounded-lg border border-primary bg-primary px-3 text-xs font-medium leading-none text-primary-foreground disabled:opacity-50">
             Allow
           </button>
           {part.chat && (
             <button type="button" disabled={sent} onClick={() => answer(true, "chat")}
-                    className="rounded-lg border bg-card px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
+                    className="h-7 rounded-lg border bg-card px-3 text-xs font-medium leading-none hover:bg-accent disabled:opacity-50">
               Allow for this task
             </button>
           )}
           <button type="button" disabled={sent} onClick={() => answer(false)}
-                  className="rounded-lg border bg-card px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
+                  className="h-7 rounded-lg border bg-card px-3 text-xs font-medium leading-none hover:bg-accent disabled:opacity-50">
             No
           </button>
+          <span className="ml-1 font-mono text-xs tabular-nums text-muted-foreground" title="No answer by then counts as No">{left}s</span>
         </div>
       )}
     </div>

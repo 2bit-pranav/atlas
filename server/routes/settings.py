@@ -44,6 +44,8 @@ def register(api: Any, state: Any) -> Any:
             "mcp": state.mcp.describe(),
             "paths": {"root": str(paths.ROOT), "data": str(paths.data_dir(state.settings))},
             "modalities": state.modalities(),
+            # What the running model can do, from its files (thinking shows the composer's switch).
+            "model": llama.effective(state.boot),
             # Whether a key is set, never the key: this view is open to the extension too.
             "web": {"exa_key_set": bool(read_key(paths.data_dir(state.settings)))},
         }
