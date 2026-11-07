@@ -105,3 +105,36 @@ describe("Google apps", () => {
     expect(cleanTitle("Academic calendar 2026 - Google Docs")).toBe("Academic calendar 2026")
   })
 })
+
+describe("what an answer points at", () => {
+  it("takes quotes and element refs in the order they come, once each", async () => {
+    const { pointers, wantsToGo } = await import("./pointers")
+    const answer = 'Your result is in the row "Sem V (Regular) · Pass". Download it with [Marksheet](e12), ' +
+                   'or see "Sem V (Regular) · Pass" again and the button (e40).'
+    expect(pointers(answer)).toEqual([{ quote: "Sem V (Regular) · Pass" }, { ref: "e12" }, { ref: "e40" }])
+    expect(pointers('Say "Yes" here')).toEqual([])                           // too short to be a passage
+    expect(wantsToGo("find semester V regular")).toBe(true)
+    expect(wantsToGo("summarise this page")).toBe(false)
+  })
+
+  it("finds a quote exactly, or the passage that says the same, and the element a ref names", async () => {
+    const { point } = await import("./highlight")
+    document.body.innerHTML = `<h2>Semester-V (Regular) Examination</h2><p>Results are out.</p><a href="/m.pdf">Download marksheet</a>`
+    const ref = /\[Download marksheet\]\((e\d+)\)/.exec(outline(document.body))![1]
+    const { places } = point([{ quote: "Results are out." }, { quote: "Semester V Regular Examination" }, { ref }, { quote: "nothing like this anywhere at all" }])
+    expect(places.map((p) => [p.how, p.kind])).toEqual([["exact", "Text"], ["similar", "Heading"], ["element", "Link"], ["none", "Text"]])
+    expect(places[2].href).toContain("/m.pdf")
+  })
+})
+
+describe("the page's text, as words", () => {
+  it("matches a quote exactly across bold and links, without doubled spaces", async () => {
+    const { point } = await import("./highlight")
+    document.body.innerHTML = `<p>It was established in 1857 as the <b>University of Bombay</b> following a dispatch.</p>` +
+      `<p><span>18</span><span>July</span> <span>1857</span></p>`
+    const { places } = point([{ quote: "established in 1857 as the University of Bombay following" }, { quote: "18 July 1857" }])
+    expect(places.map((p) => p.how)).toEqual(["exact", "exact"])                 // parts shown apart stay apart
+    expect(places[0].text).toContain("as the University of Bombay following")
+  })
+})
+

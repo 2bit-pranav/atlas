@@ -17,7 +17,7 @@ import worker from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import "pdfjs-dist/web/pdf_viewer.css"
 
 import { selectionChip } from "@ext/ui/chip"
-import { clearHighlights, find, highlight, scrollToQuote } from "@ext/page/highlight"
+import { clearHighlights, find, go, highlight, point, scrollToQuote, type Pointer } from "@ext/page/highlight"
 import { loadSettings } from "@ext/shared/settings"
 
 pdfjs.GlobalWorkerOptions.workerSrc = worker
@@ -105,6 +105,10 @@ function listen() {
         return reply(highlight((args.quotes as string[]) ?? []))
       case "scrollToQuote":
         return reply({ ok: scrollToQuote(Number(args.index ?? 0)) })
+      case "point":
+        return reply(point((args.pointers as Pointer[]) ?? []))
+      case "go":
+        return reply(go(Number(args.index ?? 0)))
       case "clear":
         clearHighlights()
         return reply({ ok: true })

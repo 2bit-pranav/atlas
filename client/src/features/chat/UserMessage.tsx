@@ -8,7 +8,7 @@ import { Composer } from "@/features/composer/Composer"
 import { formatBytes } from "@/lib/format"
 import { fullTime, timeAgo, useNow } from "@/lib/time"
 import { Action, CopyButton } from "@/features/chat/MessageActions"
-import { TaskLayout } from "@/features/task/layout"
+import { PanelLayout, TaskLayout } from "@/features/task/layout"
 import { TaskStatus } from "@/features/task/TaskStatus"
 
 // ------------------------------------------------------------------ user --
@@ -19,6 +19,7 @@ export function UserMessage({ turn, chatId, editing, setEditing, laterCount, par
 }) {
   const busy = useAtlas((s) => s.run !== null)
   const task = useContext(TaskLayout)
+  const panel = useContext(PanelLayout)
 
   if (editing) {
     return (
@@ -42,6 +43,24 @@ export function UserMessage({ turn, chatId, editing, setEditing, laterCount, par
             </span>
             <button type="button" onClick={() => setEditing(false)} className="rounded-md px-3 py-1 hover:bg-accent">Cancel</button>
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (panel) {
+    // The side panel: a compact bubble; copy and edit on hover, no time.
+    return (
+      <div className="group/request mt-5 flex flex-col items-end gap-1 first:mt-1">
+        {turn.files.length > 0 && <Attachments files={turn.files} chatId={chatId} />}
+        {turn.user_text && (
+          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[14px] rounded-br-[4px] bg-muted px-3 py-1.5 text-[13.5px] leading-relaxed">
+            <WithMentions text={turn.user_text} />
+          </div>
+        )}
+        <div className="flex h-5 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/request:opacity-100">
+          <CopyButton text={turn.user_text} />
+          <Action label="Edit" onClick={() => setEditing(true)} disabled={busy}><Pencil className="h-3 w-3" /></Action>
         </div>
       </div>
     )

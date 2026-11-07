@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Part } from "@/api/types"
-import { downloaded, sources, toSteps } from "@/features/task/steps"
+import { downloaded, sources, toSteps, workSummary } from "@/features/task/steps"
 
 const tool = (name: string, args: Record<string, unknown>, text = "", status: "success" | "error" | "running" = "success"): Part =>
   ({ kind: "tool", id: `${name}-${JSON.stringify(args)}`, name, args, status, text })
@@ -57,5 +57,17 @@ describe("steps", () => {
                            { kind: "approval", id: "1", command: "delete (to the Recycle Bin) C:/x", status: "denied", expires_at: 0 },
                            { kind: "text", text: "I did not delete it." }], false)
     expect(steps).toMatchObject([{ label: "Did not delete Resume 2022.pdf", status: "error", note: "You said no" }])
+  })
+})
+
+describe("the work line", () => {
+  it("says what was done in one line, and how much more", () => {
+    expect(workSummary([])).toBe("Thought it through")
+    expect(workSummary(["Read the page again"])).toBe("Read the page again")
+    expect(workSummary(["a", "b", "c", "d"])).toBe("a · b · 2 more")
+  })
+  it("names page searches by what was looked for", () => {
+    const steps = toSteps([tool("page_find", { text: "semester V" }, "[Page content…]\n2 passage(s) found and highlighted:")], false)
+    expect(steps[0].label).toBe('Searched the page for "semester V" · 2 found')
   })
 })

@@ -18,17 +18,20 @@ import { Composer } from "@/features/composer/Composer"
 import { cn } from "@/lib/cn"
 import { TaskHome } from "@/features/task/TaskHome"
 import { WorkPanel, type PanelTurn } from "@/features/task/WorkPanel"
-import { TaskLayout } from "@/features/task/layout"
+import { PanelLayout, TaskLayout } from "@/features/task/layout"
 
 /** `layout="task"`: the web app's task view, a home page and a work panel beside the answer.
  * The extension's narrow side panel keeps the chat layout. */
-export function ChatScreen({ layout = "chat", emptyView, placeholder }: {
-  layout?: "chat" | "task"
+export function ChatScreen({ layout = "chat", emptyView, placeholder, composerExtra }: {
+  layout?: "chat" | "task" | "panel"
+  /** Buttons beside the composer's + (the side panel's screenshot). */
+  composerExtra?: React.ReactNode
   /** What an empty chat shows instead of the greeting, with the composer at the bottom (the extension's start screen). */
   emptyView?: React.ReactNode
   placeholder?: string
 }) {
   const task = layout === "task"
+  const panel = layout === "panel"
   const chat = useAtlas((s) => s.chat)
   const live = useAtlas((s) => s.live)
   const runTurn = useAtlas((s) => s.run?.turn_id ?? null)
@@ -94,6 +97,7 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder }: {
 
   return (
     <TaskLayout.Provider value={task}>
+    <PanelLayout.Provider value={panel}>
     <div className="flex h-full min-h-0 flex-col">
     {task && (
       <header className="flex min-h-13 shrink-0 items-center gap-2 border-b py-2.5 pl-14 pr-4 text-sm md:pl-4">
@@ -125,8 +129,8 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder }: {
       }}
     >
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-        <div className={cn("mx-auto flex w-full max-w-3xl flex-col px-4",
-                           empty && emptyView ? "" : empty && !task ? "h-full justify-center pb-24" : empty ? "" : "pb-10 pt-6")}>
+        <div className={cn("mx-auto flex w-full max-w-3xl flex-col", panel ? "px-3" : "px-4",
+                           empty && emptyView ? "" : empty && !task ? "h-full justify-center pb-24" : empty ? "" : panel ? "pb-6 pt-2" : "pb-10 pt-6")}>
           {empty && emptyView ? emptyView : empty && task ? (
             <TaskHome />
           ) : empty ? (
@@ -153,22 +157,23 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder }: {
       </div>
 
       {(!empty || emptyView) && (
-        <div className="relative px-4 pb-4">
-          <div className="pointer-events-none absolute inset-x-0 -top-24 h-24 bg-gradient-to-t from-background to-transparent" />
+        <div className={cn("relative", panel ? "px-2.5 pb-2.5" : "px-4 pb-4")}>
+          <div className={cn("pointer-events-none absolute inset-x-0 bg-gradient-to-t from-background to-transparent", panel ? "-top-6 h-6" : "-top-24 h-24")} />
           {showDown && (
             <button type="button" onClick={() => { pinned.current = true; toBottom(true) }} aria-label="Scroll to bottom"
                     className="absolute -top-14 left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-border/20 bg-muted/60 shadow-sm backdrop-blur hover:bg-muted">
               <ArrowDown className="h-4 w-4" />
             </button>
           )}
-          {chat?.tainted ? (
+          {chat?.tainted && !panel ? (
             <p className="mx-auto mb-1.5 flex max-w-3xl items-center gap-1.5 px-1 text-xs text-muted-foreground"
                title="Text from outside (a web page, a fetched link, an untrusted MCP server) can carry instructions for the model. It stays in this chat's history, so this lasts for the whole chat.">
               <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
               This task has read outside content: commands, and changes outside its folder, ask you first.
             </p>
           ) : null}
-          <Composer look={task ? "follow" : "chat"} placeholder={placeholder ?? (task ? "Ask a follow-up, or tell Atlas what to change…" : undefined)} />
+          <Composer look={task ? "follow" : panel ? "panel" : "chat"} extra={composerExtra}
+                    placeholder={placeholder ?? (task ? "Ask a follow-up, or tell Atlas what to change…" : undefined)} />
         </div>
       )}
 
@@ -185,6 +190,7 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder }: {
     {task && !empty && chat && <WorkPanel chatId={chat.id} turns={panelTurns} />}
     </div>
     </div>
+    </PanelLayout.Provider>
     </TaskLayout.Provider>
   )
 }

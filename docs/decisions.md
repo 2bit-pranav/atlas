@@ -1027,3 +1027,14 @@ ms per snapshot; a form becomes one line per field ("[textbox: E-mail address
 (empty)](e3)"), Hacker News its table of stories. The chat is tainted as soon
 as page content is in the message. Approval cards after page content make No
 the main button.
+
+**The side panel answers by taking the user to the page** (2026-11-07). Asked to
+find "semester V regular", the model searched three times and said it was not
+there; nothing in the panel led to the page. The page is already in the message,
+so the model now points by quoting the page's own words or naming an element's
+ref, and the panel turns each into a Go to (exact or similar match, scrolled to
+and marked). The page's text index joined text nodes with a space each, which
+doubled spaces at every bold or link ("as the  University"), so quotes copied
+from the page matched only as similar; nodes now join with exactly one space.
+The panel no longer asks before following another tab (a banner users found
+an annoyance); it holds the tab only while an answer is being written.

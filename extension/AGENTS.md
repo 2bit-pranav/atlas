@@ -86,9 +86,22 @@ pdf.js is the viewer's alone.
    the result to `/api/runs/{id}/calls/{call_id}`.
 3. Page content is labelled untrusted, and once read, shell commands and
    writes outside the workspace need approval (`policy.py`, page taint).
-4. Under the answer, the panel finds each quote on the page: found ones are
-   highlighted (CSS Custom Highlight API) and clickable; missing ones are
-   marked "not found on the page".
+4. Answers point at the page: the model quotes the page's own words, or names
+   an element by its ref (`(e12)`). Under the answer, "On this page" lists each
+   place (`pointers.ts` reads them from the answer; `point` in `highlight.ts`
+   finds them: the exact words, else the passage holding most of them, marked
+   Exact or Similar, with what it is: heading, table row, link...). Go to
+   scrolls there and marks it, arrows step through, a link has Open. For
+   "find" and "where" questions the first place is gone to at once. A quote
+   the page does not hold is shown struck through: with a small model, that
+   is how an unsupported claim becomes visible.
+
+The panel's chat is `ChatScreen layout="panel"`: a compact answer
+(`PanelAnswer.tsx`: one live box while it works, then one work line; no stats,
+no times), a one-line composer with the screenshot button, and a page bar that
+shrinks to 36 px once the chat has started. The chat always follows the tab
+in front (no "this chat was about another page" banner); while an answer is
+being written it stays on the tab it started on.
 
 A PDF tab is different: the browser's PDF viewer runs no content script.
 Two ways in:

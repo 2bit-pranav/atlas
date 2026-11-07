@@ -17,7 +17,8 @@ def test_the_page_is_in_the_message_marked_as_data() -> None:
     note = page_note(PAGE)
     assert UNTRUSTED in note and "minimum of 75% attendance" in note
     assert note.index(UNTRUSTED) < note.index("<page>")              # the marking comes before the content
-    assert 'page_show("e12")' in note and "exact quote" in note
+    assert "Go to button" in note and "(e12)" in note and "copied exactly from the page text" in note
+    assert "do not search for what is already in it" in note
 
 
 def test_a_google_doc_and_a_selection_are_introduced_as_such() -> None:

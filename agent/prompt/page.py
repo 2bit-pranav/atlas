@@ -28,10 +28,13 @@ _INTRO = {
     "pdf": "The PDF's text:",
 }
 
-_HOW = ("Answer from the page. Back each statement about it with a short exact quote in double quotes, "
-        "so it can be highlighted for the user. Links and controls appear as [name](e12): to show the "
-        'user one, call page_show("e12"). page_find searches the page; page_screenshot looks at it '
-        "when what matters is an image.")
+_HOW = ("Answer from the page above; do not search for what is already in it. To point the user at a "
+        "place, quote the page's own words in double quotes, copied exactly from the page text (\"Sem-V "
+        "(Regular)\", not your own spelling), or name a link, button or field by its ref, like (e12). Each "
+        "quote and ref becomes a Go to button for the user, so asked to find something, list the matching "
+        "places this way, best first, and say if the exact words are not there. page_find is only for "
+        "what the page text above does not contain; page_screenshot looks at the page when what matters "
+        "is an image.")
 
 
 def page_hash(content: str) -> str:

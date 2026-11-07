@@ -102,7 +102,7 @@ def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
 
     @tool(name="page_find")
     async def page_find(text: str) -> Any:
-        """Find where the page says something; the matches are highlighted and the page scrolls to the first.
+        """Search the live page for words the page text you were given does not contain (it may have changed or loaded more).
 
         Args:
             text: Words to look for, ideally as the page would phrase them.

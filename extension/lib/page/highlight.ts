@@ -1,9 +1,11 @@
 /**
  * Finding and highlighting passages: the page's text indexed once, a phrase
  * located by its words, and marked with the CSS Custom Highlight API so the
- * page's own DOM is not changed.
+ * page's own DOM is not changed. `point` and `go` turn an answer's quotes and
+ * element refs into places the panel can take the user to.
  */
 
+import { byRef, refOf, show } from "@ext/page/ax"
 
 // -------------------------------------------------------- find, highlight --
 
@@ -38,9 +40,25 @@ function textIndex(): { text: string; orig: string; nodes: Node_[] } {
     // no passage crosses, so a match never runs from the menu into the text.
     const here = n.parentElement?.closest(BLOCKS) ?? null
     if (here !== block && orig) orig += `${BREAK} `
+    // Inside one block, text nodes are joined by exactly one space: "as the <b>University</b>
+    // following" has no doubled space, and "<span>18</span><span>July</span>" (parts the page
+    // shows apart) does not run together. A word split across tags matches as similar.
+    let text = fold(n.textContent ?? "")
+    let start = orig.length
+    if (here === block && orig && !orig.endsWith(" ")) {
+      if (text.startsWith(" ")) {
+        // the node's own space separates it
+      } else {
+        orig += " "
+        start += 1
+      }
+    } else if (here === block && orig.endsWith(" ") && text.startsWith(" ")) {
+      text = text.slice(1)
+      start -= 1
+    }
     block = here
-    nodes.push({ node: n as Text, start: orig.length })
-    orig += fold(n.textContent ?? "") + " "
+    nodes.push({ node: n as Text, start })
+    orig += text
   }
   return { text: orig.toLowerCase(), orig, nodes }
 }
@@ -131,7 +149,7 @@ function context(orig: string, from: number, to: number): string {
 let marked: Range[] = []
 
 function paint(ranges: Range[], active = 0) {
-  if (!("highlights" in CSS)) return
+  if (typeof CSS === "undefined" || !("highlights" in CSS)) return
   ensureStyle()
   const all = new Highlight(...ranges)
   CSS.highlights.set("atlas", all)
@@ -203,9 +221,74 @@ export function scrollToQuote(i: number): boolean {
 }
 
 export function clearHighlights() {
-  if ("highlights" in CSS) {
+  if (typeof CSS !== "undefined" && "highlights" in CSS) {
     CSS.highlights.delete("atlas")
     CSS.highlights.delete("atlas-active")
   }
   marked = []
+}
+
+// ------------------------------------------------------------ pointing --
+
+/** What an answer pointed at: a passage it quoted, or an element by its ref (`e12`). */
+export type Pointer = { quote: string } | { ref: string }
+
+export interface Place {
+  found: boolean
+  /** How a quote matched: the page's exact words, or the passage that says the same. Elements are "element". */
+  how: "exact" | "similar" | "element" | "none"
+  /** What it is on the page: Heading, Table row, Link, Button... */
+  kind: string
+  /** A short stretch of the page around it, or the element's name. */
+  text: string
+  /** A link's address, for "Open". */
+  href?: string
+}
+
+const KIND: [string, string][] = [["h1,h2,h3,h4,h5,h6,[role=heading]", "Heading"], ["tr,[role=row]", "Table row"],
+  ["li", "List item"], ["a[href]", "Link"], ["button,[role=button]", "Button"], ["label", "Label"],
+  ["input,select,textarea", "Field"], ["caption", "Table caption"]]
+const kindOf = (el: Element | null) => KIND.find(([sel]) => el?.closest(sel))?.[1] ?? "Text"
+
+let places: (Range | Element | null)[] = []
+
+/**
+ * Find each place an answer pointed at; highlight the passages. Quotes match
+ * the page's exact words first, else the passage holding most of their words
+ * ("similar": "Semester V regular" finds "Semester-V (Regular)").
+ */
+export function point(pointers: Pointer[]): { places: Place[] } {
+  const index = textIndex()
+  const out: Place[] = []
+  places = pointers.map((p) => {
+    if ("ref" in p) {
+      const el = byRef(p.ref)
+      out.push(el ? { found: true, how: "element", kind: kindOf(el), text: (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+                      href: el.tagName === "A" ? (el as HTMLAnchorElement).href : undefined }
+                  : { found: false, how: "none", kind: "Element", text: p.ref })
+      return el
+    }
+    const needle = norm(p.quote).trim()
+    const exactAt = needle ? index.text.indexOf(needle) : -1
+    const hit: [number, number] | null = exactAt >= 0 ? [exactAt, exactAt + needle.length] : locate(index, p.quote, true)
+    const range = hit && rangeFor(index, hit[0], hit[1])
+    out.push(range && hit
+      ? { found: true, how: exactAt >= 0 ? "exact" : "similar", kind: kindOf(range.startContainer.parentElement),
+          text: context(index.orig, hit[0], hit[1]).slice(0, 200) }
+      : { found: false, how: "none", kind: "Text", text: p.quote })
+    return range
+  })
+  marked = places.filter((x): x is Range => x instanceof Range)
+  paint(marked)
+  foundOrder = places.map((x) => (x instanceof Range ? marked.indexOf(x) : -1))
+  return { places: out }
+}
+
+/** Take the user to one place: scrolled to the middle of the view, highlighted or outlined. */
+export function go(i: number): { ok: boolean } {
+  const place = places[i]
+  if (!place) return { ok: false }
+  if (place instanceof Range) return { ok: scrollTo(marked.indexOf(place)) }
+  paint(marked, -1)
+  return { ok: show(refOf(place)).ok }
 }

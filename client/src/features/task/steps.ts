@@ -94,8 +94,17 @@ function label(name: string, calls: ToolPart[]): string {
     }
     case "skills": return `Loaded the ${arg(first, "skill_name") || "a"} skill`
     case "page_read":
-    case "page_find":
-      return "Read the page"
+      return "Read the page again"
+    case "page_find": {
+      const found = /^(\d+) passage/m.exec(first.text)?.[1]
+      return `Searched the page${arg(first, "text") ? ` for "${short(arg(first, "text"), 40)}"` : ""}` +
+             (first.status === "success" ? (found ? ` · ${found} found` : " · not found") : "")
+    }
+    case "page_show":
+      return failed ? "Could not show it on the page" : n === 1 ? "Showed it on the page" : `Showed ${n} places`
+    case "page_screenshot":
+    case "page_image":
+      return "Looked at the page"
     default:
       return `Used ${name.replace(/_/g, " ")}`
   }
@@ -170,6 +179,13 @@ export function sources(parts: Part[]): { url: string; title: string; site: stri
 export function downloaded(parts: Part[]): Set<string> {
   return new Set(parts.filter((p): p is ToolPart => p.kind === "tool" && READS.has(p.name) && /^https?:\/\//i.test(arg(p, "path")))
                       .map((p) => base(arg(p, "path").split("?")[0])))
+}
+
+/** One line for an answer's work: "Read the page · Found 3 places"; "Thought it through" when there were no steps. */
+export function workSummary(labels: string[]): string {
+  if (!labels.length) return "Thought it through"
+  const shown = labels.slice(0, 2).join(" · ")
+  return labels.length > 2 ? `${shown} · ${labels.length - 2} more` : shown
 }
 
 export { noun }

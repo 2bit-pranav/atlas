@@ -22,7 +22,7 @@ import { outline, show } from "@ext/page/ax"
 import { snapshot } from "@ext/page/snapshot"
 import { tables } from "@ext/page/tables"
 import { imageSrc, images } from "@ext/page/images"
-import { clearHighlights, find, highlight, scrollToQuote } from "@ext/page/highlight"
+import { clearHighlights, find, go, highlight, point, scrollToQuote, type Pointer } from "@ext/page/highlight"
 
 type Op = { type: "atlas:op"; op: string; args: Record<string, unknown> }
 
@@ -92,6 +92,10 @@ async function run(op: string, args: Record<string, unknown>): Promise<Record<st
     }
     case "show":
       return show(String(args.ref ?? ""))
+    case "point":
+      return point((args.pointers as Pointer[]) ?? [])
+    case "go":
+      return go(Number(args.index ?? 0))
     case "find":
       return find(String(args.text ?? ""))
     case "highlight":

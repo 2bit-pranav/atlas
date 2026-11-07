@@ -11,8 +11,10 @@
  *   accessibility tree), so the model reads it without a tool call; the page
  *   tools and the store's client calls run in that tab. "Can read" on the
  *   page card turns this off;
- * - switching tabs offers a new chat or re-attaching, never silently reading
- *   another page;
+ * - the chat is always about the tab in front: switch tabs and the next
+ *   message is about that page (no banner asking). While an answer is being
+ *   written it stays on the tab it started on, so its page operations never
+ *   land on another page;
  * - under each answer, the page passages it quoted, highlighted (or marked
  *   as not on the page);
  * - questions from the selection chip and the right-click menu;
@@ -29,7 +31,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ExternalLink, History, Plus, Settings } from "lucide-react"
+import { Camera, ExternalLink, History, Plus, Settings } from "lucide-react"
 import * as api from "@/api/client"
 import { atlas, useAtlas } from "@/state/store"
 import { AnswerExtras } from "@/state/slots"
@@ -57,8 +59,6 @@ export function Panel() {
   const [status, setStatus] = useState<Status>("loading")
   const [showSettings, setShowSettings] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  /** A reopened chat whose page is not this tab, after "Use this tab". */
-  const [keepTab, setKeepTab] = useState<string | null>(null)
   const [current, setCurrent] = useState<TabInfo | null>(null)
   const [attached, setAttached] = useState<TabInfo | null>(null)
   /** "Can read": each message carries the page. Off, messages are not about it. */
@@ -111,11 +111,12 @@ export function Panel() {
     }
   }, [])
 
-  // A new, empty chat follows the current tab; a chat with turns stays on its tab.
+  // The chat follows the tab in front, except while an answer is being written:
+  // that run's page operations stay on the page it started on.
+  const running = useAtlas((s) => s.run !== null)
   useEffect(() => {
-    if (!current) return
-    if (!chat || chat.turns.length === 0 || current.id === attached?.id) setAttached(current)
-  }, [current, chat, attached?.id])
+    if (current && !running) setAttached(current)
+  }, [current, running])
 
   const blockedReason = settings && attached ? blocked(attached.url, settings.neverRead) : null
   // A PDF in the browser's own viewer: sent as a file. In the Atlas viewer it is a readable page.
@@ -163,10 +164,9 @@ export function Panel() {
     })
   }, [status, current])
 
-  /** Reopen a past chat: on its page when that page is the current tab, else with a banner. */
+  /** Reopen a past chat. It goes on about the tab in front, like every chat. */
   const openPast = async (summary: ChatSummary) => {
     setShowHistory(false)
-    setKeepTab(null)
     await atlas.openChat(summary.id)
     if (current) setAttached(current)
   }
@@ -190,16 +190,19 @@ export function Panel() {
       />
     )
 
-  const elsewhere = chat && chat.turns.length > 0 && current && attached && current.id !== attached.id
-  // A reopened chat about a page that is not the attached tab.
-  const aboutOther = !elsewhere && chat && chat.turns.length > 0 && chat.page_url && attached &&
-    !sameUrl(chat.page_url, attached.url) && keepTab !== chat.id
+  const readable = Boolean(attached && !blockedReason && !pdf)
+  const takeScreenshot = async () => {
+    if (!attached) return
+    const shot = await screenshot(attached.id)
+    if ("error" in shot) return void atlas.fail(new Error(shot.error))
+    await atlas.attach_files([dataUrlToFile(`data:image/jpeg;base64,${shot.data}`, "screenshot.jpg")])
+  }
 
   if (showHistory) return <HistoryView onOpen={(c) => void openPast(c)} onClose={() => setShowHistory(false)} />
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="flex h-13 shrink-0 items-center gap-2 border-b pl-4 pr-1.5">
+      <header className="flex h-11 shrink-0 items-center gap-1.5 border-b pl-3 pr-1">
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary font-display text-xs font-semibold text-primary-foreground">A</span>
         <span className="min-w-0 flex-1 truncate font-display text-[15px] font-semibold">{chat?.title || "Atlas"}</span>
         <HeaderButton label="Chats in the browser" onClick={() => {
@@ -218,42 +221,9 @@ export function Panel() {
         <HeaderButton label="Settings" onClick={() => setShowSettings(true)}><Settings className="h-4 w-4" /></HeaderButton>
       </header>
       <PageCard tab={attached} blocked={blockedReason} pdf={pdf} reading={reading} onReading={setReading}
+                compact={Boolean(chat && chat.turns.length > 0)}
                 onViewer={() => attached && void browser.tabs.update(attached.id, { url: viewerUrl(attached.url) })}
-                onFill={() => attached && void suggestFill(attached, setFillStatus)}
-                onScreenshot={async () => {
-                  if (!attached) return
-                  const shot = await screenshot(attached.id)
-                  if ("error" in shot) return void atlas.fail(new Error(shot.error))
-                  await atlas.attach_files([dataUrlToFile(`data:image/jpeg;base64,${shot.data}`, "screenshot.jpg")])
-                }} />
-      {elsewhere && (
-        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
-          <span className="min-w-0 flex-1">This chat is about “{attached.title}”. You are on another tab now.</span>
-          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => {
-            atlas.newChat()
-            setAttached(current)
-          }}>New chat here</button>
-          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => setAttached(current)}>
-            Use this tab
-          </button>
-        </div>
-      )}
-      {aboutOther && (
-        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
-          <span className="min-w-0 flex-1">This chat was about “{chat.page_title || chat.page_url}”, not this tab.</span>
-          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={async () => {
-            const open = (await browser.tabs.query({})).find((t) => t.url && sameUrl(t.url, chat.page_url!))
-            const tab = open?.id !== undefined
-              ? await browser.tabs.update(open.id, { active: true })
-              : await browser.tabs.create({ url: chat.page_url! })
-            if (tab?.id !== undefined)
-              setAttached({ id: tab.id, url: chat.page_url!, title: tab.title || chat.page_title || "", favIconUrl: tab.favIconUrl })
-          }}>Open that page</button>
-          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => setKeepTab(chat.id)}>
-            Use this tab
-          </button>
-        </div>
-      )}
+                onFill={() => attached && void suggestFill(attached, setFillStatus)} />
       {fillStatus && (
         <div className="flex items-start gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
           <span className="min-w-0 flex-1 whitespace-pre-wrap">{fillStatus}</span>
@@ -268,7 +238,13 @@ export function Panel() {
       )}
       <main className="min-h-0 flex-1">
         <AnswerExtras.Provider value={extras}>
-          <ChatScreen emptyView={<PanelHome tab={attached && !blockedReason ? attached : null} reading={reading} blocked={blockedReason}
+          <ChatScreen layout="panel" composerExtra={readable && (
+                        <button type="button" aria-label="Attach a screenshot of the page" title="Attach a screenshot of the page" onClick={takeScreenshot}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
+                          <Camera className="h-4 w-4" />
+                        </button>
+                      )}
+                      emptyView={<PanelHome tab={attached && !blockedReason ? attached : null} reading={reading} blocked={blockedReason}
                                             onOpen={(c) => void openPast(c)} />}
                       placeholder={reading && attached && !blockedReason ? "Ask about this page…" : "Ask Atlas…"} />
         </AnswerExtras.Provider>
