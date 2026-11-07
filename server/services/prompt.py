@@ -145,7 +145,13 @@ def _agent_text(user_text: str, files: list[dict[str, Any]],
             # create_document even when asked to merge or convert it.
             skill = Path(name).suffix.lower().lstrip(".").replace("xlsm", "xlsx")
             line += f" (to merge, split, combine or convert it instead, load the {skill} skill first)"
-        elif _media_kind(f) is None:  # images and audio are sent to the model as they are
+        elif _media_kind(f) == "image":
+            # Sent with the message, so seen at once; named so it can be looked at again
+            # later. Unnamed, the model guessed "image.png" on a follow-up (2026-11-07).
+            line += f": shown to you with this message. To look at it again later, read_image(path=\"{name}\")"
+        elif _media_kind(f) == "audio":
+            line += ": sent to you with this message, to listen to"
+        elif _media_kind(f) is None:
             line += f". Read it with read_text(path=\"{name}\")"
             # A long file read from the top is answered from its first lines ("no errors in
             # this log"); told the size and the search form up front, the model searches.

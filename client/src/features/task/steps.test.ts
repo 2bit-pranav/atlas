@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Part } from "@/api/types"
-import { readFiles, sources, toSteps } from "@/features/task/steps"
+import { downloaded, sources, toSteps } from "@/features/task/steps"
 
 const tool = (name: string, args: Record<string, unknown>, text = "", status: "success" | "error" | "running" = "success"): Part =>
   ({ kind: "tool", id: `${name}-${JSON.stringify(args)}`, name, args, status, text })
@@ -27,7 +27,8 @@ describe("steps", () => {
     ])
     expect(steps[2].internal).toBe(true)
     expect(steps[1].detail).toEqual(["read_pdf invoice-5821.pdf", "read_pdf invoice-5820.pdf", "read_pdf invoice-5819.pdf"])
-    expect(readFiles(parts)).toEqual(["invoice-5821.pdf", "invoice-5820.pdf", "invoice-5819.pdf"])
+    expect([...downloaded(parts)]).toEqual([])                       // read from the folders: nothing downloaded
+    expect([...downloaded([tool("read_pdf", { path: "https://x.org/brief.pdf?v=2" })])]).toEqual(["brief.pdf"])
   })
 
   it("marks the call an approval holds as waiting, and the answer as being written", () => {

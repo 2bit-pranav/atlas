@@ -228,3 +228,11 @@ def test_recycle_moves_a_file_to_the_recycle_bin(tmp_path) -> None:
     target.write_text("restore me")
     recycle(target)
     assert not target.exists()
+
+
+@pytest.mark.parametrize("path", ["/", "C:/", "Docs/../.."])
+def test_finding_outside_the_folders_asks(home, path) -> None:
+    """find_files walks whatever folder it is given: the root of a drive asks first (2026-11-07)."""
+    policy, asked = _policy(home, answer="denied")
+    assert _call(policy, "find_files", {"query": "image", "path": path})   # refused: the user said no
+    assert asked.calls and asked.calls[-1][1]["action"] == "read"

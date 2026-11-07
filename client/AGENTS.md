@@ -33,8 +33,8 @@ src/
                              transcript.ts (fold run events into parts; mirrors server/transcript.py)
   features/composer/         Composer, FileChip, MentionMenu; audio.ts (record the microphone,
                              re-encode as 16 kHz mono WAV)
-  features/settings/         SettingsPage, FieldRow, layout, sections/ (General, SkillsAndMcp,
-                             Conversations, Shortcuts); schema.ts (how settings.json is grouped)
+  features/settings/         SettingsPage, FieldRow, layout, sections/ (General, Conversations,
+                             Shortcuts); schema.ts (how settings.json is grouped)
   features/skills/, mcp/, extension-page/   the Skills, MCP and Browser extension pages
   components/ui/             one component per file: Button, Switch, Notice, Empty, PageShell, Kbd, tip
   lib/                       cn.ts, format.ts, download.ts, time.ts, shortcuts.ts (the shortcut table)
@@ -94,11 +94,13 @@ Where Atlas differs on purpose:
 - Regenerate appears on the last answer only.
 - Skills and MCP are full pages.
 
-Settings are ordered by what changes results most: Agent, Skills & MCP,
-Access, Model; Recovery & context, Generation, and Server & storage are under
-Advanced. "Restart now" appears at the top of Settings only when saved settings
-wait for a restart or the last restart failed; it applies a new model or any
-other restart setting, and a notice shows on every page while it runs.
+Settings are ordered by what changes results most: Agent, Access, Model;
+Recovery & context, Generation, and Server & storage are under Advanced (Skills
+and MCP are switched on their own pages). One bar at the bottom of every
+settings page saves, then, while saved settings wait for a restart, names them
+with **Restart now** until the restart has happened; the button spins while it
+runs and becomes Try again if it failed. No banners. During a restart Send is
+disabled and the sidebar card says "Restarting…".
 
 Shared with the browser extension: `api.configureApi({base, token})` (the
 extension's backend and pairing token), `atlas.page` and `atlas.onClientCall`
@@ -108,8 +110,12 @@ them. The Browser extension page (`features/extension-page/ExtensionPage.tsx`, `
 the extension and connects it with `postMessage` (`atlas:hello`, `atlas:pair`;
 the content script answers `atlas:here`), and holds "Your details".
 
-Developer mode (Settings > General, a per-browser pref) shows the Advanced
-settings sections and the raw pairing token; it is off by default.
+"Show advanced settings" (Settings > General, a per-browser pref) shows the Advanced
+sections, the model overrides and the raw pairing token; it is off by default.
+
+The tab's icon (`app/favicon.ts`) is the A mark with a dot: blue and pulsing
+while a task works, amber when it needs the user, green when one finished while
+the tab was in the background (until the tab is seen).
 
 Control: Settings > Access holds the allowed folders, whether to ask outside
 them, and the approval timeout. The MCP page sets each tool On / Ask / Off.
@@ -132,9 +138,10 @@ extension's side panel keeps the chat layout, so nothing there changed.
   read, the web sources, and with Details on (a per-browser pref) the tool
   calls, every file read and the run's stats. On narrow screens the panel is
   hidden and tool lines, approvals and files stay inline, as before.
-- **The panel covers the whole task:** the current turn's steps open, each
-  earlier turn folded under its question, and the files and sources of every
-  turn on the visible path (a file changed again shows once, newest).
+- **The panel covers the whole task:** every turn is a line with its question,
+  the newest open, each expanding to its steps; Files holds the cards of what any
+  turn made or changed (a file changed again shows once, newest; only a file
+  downloaded in order to be read is left out); Sources collects every turn's.
 - **One Reasoning per stretch of work:** between two answer texts, the
   reasoning of every model call is one block and the tool calls one group
   (`features/chat/items.ts`), client-side only. The chat layout keeps each in place.

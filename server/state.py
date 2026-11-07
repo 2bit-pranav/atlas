@@ -174,8 +174,7 @@ class Atlas:
             refs = [{**r, "path": r.get("path") or str(workspace / str(r.get("file", "")))}
                     for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
             media = [f for f in files if _media_kind(f) and Path(str(f.get("path", ""))).is_file()]
-            text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs,
-                               workspace=workspace)
+            text = _agent_text(turn["user_text"], files, refs, workspace=workspace)
             if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
                 text = f"{text}\n\n{guidance}".strip()
             if links := _link_guidance(turn["user_text"], settings):

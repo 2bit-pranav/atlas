@@ -133,3 +133,13 @@ def test_a_downloaded_input_is_not_listed_as_made(store) -> None:
                       stats={"files": [{"name": "brief.pdf", "size": 1, "change": "created"},
                                        {"name": "summary.docx", "size": 2, "change": "created"}]})
     assert [f["name"] for f in store.recent_files()] == ["summary.docx"]
+
+
+def test_a_file_read_then_edited_is_listed_as_made(store) -> None:
+    """Only a file downloaded to be read is an input; reading then editing an attachment made something."""
+    chat = store.create_chat("Settings")["id"]
+    t = store.insert_turn(chat, "tune it", parent_turn_id=None, before_snap=None)
+    store.finish_turn(t["id"], "completed",
+                      render=[{"kind": "tool", "name": "read_text", "args": {"path": "system.xml"}, "status": "success", "text": ""}],
+                      stats={"files": [{"name": "system.xml", "size": 9, "change": "modified"}]})
+    assert [f["name"] for f in store.recent_files()] == ["system.xml"]

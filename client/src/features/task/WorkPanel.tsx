@@ -16,7 +16,7 @@ import { setPrefs, usePrefs } from "@/state/prefs"
 import { ApprovalCard } from "@/features/chat/ApprovalCard"
 import { FileLink } from "@/features/chat/FileLink"
 import { FileBadge } from "@/features/task/FileBadge"
-import { readFiles, sources, toSteps, type Step } from "@/features/task/steps"
+import { downloaded, sources, toSteps, type Step } from "@/features/task/steps"
 import { formatBytes } from "@/lib/format"
 import { clock } from "@/lib/time"
 import { cn } from "@/lib/cn"
@@ -81,18 +81,26 @@ function StepList({ steps, details }: { steps: Step[]; details: boolean }) {
   )
 }
 
-/** An earlier turn: its question, folded; opened, the steps it took. */
-function Earlier({ turn, steps, details }: { turn: Turn; steps: Step[]; details: boolean }) {
-  const [open, setOpen] = useState(false)
+/** One turn: its question, and opened, the steps it took. The newest starts open. */
+function TurnSteps({ turn, steps, details, running, defaultOpen }: {
+  turn: Turn; steps: Step[]; details: boolean; running: boolean; defaultOpen: boolean
+}) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const open = userOpen ?? defaultOpen
   return (
     <div>
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
+      <button type="button" aria-expanded={open} onClick={() => setUserOpen(!open)}
               className="flex w-full items-center gap-1.5 py-1 text-left text-sm text-muted-foreground hover:text-foreground">
         <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-        <span className="min-w-0 flex-1 truncate" title={turn.user_text}>{turn.user_text || "Attachment"}</span>
-        <span className="shrink-0 text-xs">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"}` : "answered"}</span>
+        <span className={cn("min-w-0 flex-1 truncate", open && "text-foreground")} title={turn.user_text}>{turn.user_text || "Attachment"}</span>
+        <span className="shrink-0 text-xs">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"}` : running ? "" : "answered"}</span>
       </button>
-      {open && steps.length > 0 && <div className="mb-2 ml-1 mt-1"><StepList steps={steps} details={details} /></div>}
+      {open && (
+        <div className="mb-2 ml-1 mt-1">
+          {steps.length ? <StepList steps={steps} details={details} />
+            : <p className="pl-5 text-xs text-muted-foreground">{running ? "Getting started…" : "Answered directly, without using any tools."}</p>}
+        </div>
+      )}
     </div>
   )
 }
@@ -123,22 +131,20 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
   const { taskDetails: details, showStats } = usePrefs()
   const { parts, stats, running } = turns[turns.length - 1]
   const visible = (steps: Step[]) => (details ? steps : steps.filter((s) => !s.internal))
-  const steps = useMemo(() => toSteps(parts, running), [parts, running])
-  const shown = visible(steps)
-  const earlier = useMemo(() => turns.slice(0, -1).map((t) => ({ turn: t.turn, steps: toSteps(t.parts, false) })), [turns])
+  const perTurn = useMemo(() => turns.map((t) => ({ ...t, steps: toSteps(t.parts, t.running) })), [turns])
   const pending = running ? parts.filter((p): p is Extract<Part, { kind: "approval" }> => p.kind === "approval" && p.status === "pending") : []
   const allParts = useMemo(() => turns.flatMap((t) => t.parts), [turns])
-  const read = useMemo(() => readFiles(allParts), [allParts])
-  // What the task made, newest first, once each (a later turn's change replaces an earlier entry).
-  // A PDF read_pdf downloaded is an input, not something the task made.
+  const inputs = useMemo(() => downloaded(allParts), [allParts])
+  // What the task made or changed, newest first, once each (a later turn's change replaces an
+  // earlier entry). Only a file downloaded to be read is left out: an input, not a result.
   const made = useMemo(() => {
     const byName = new Map<string, ChangedFile>()
     for (const t of turns) for (const f of t.stats?.files ?? []) {
       byName.delete(f.name)
       byName.set(f.name, f)
     }
-    return [...byName.values()].reverse().filter((f) => !read.includes(f.name))
-  }, [turns, read])
+    return [...byName.values()].reverse().filter((f) => !(f.change === "created" && inputs.has(f.name)))
+  }, [turns, inputs])
   const web = useMemo(() => sources(allParts), [allParts])
   const size = stats?.context_size ?? 0
   const used = stats?.context_used ?? 0
@@ -156,21 +162,17 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
         <button type="button" aria-pressed={details} onClick={() => setPrefs({ taskDetails: !details })}
                 className={cn("text-[11px] font-medium normal-case tracking-normal underline underline-offset-[3px] hover:text-foreground",
                               details ? "text-foreground" : "text-muted-foreground")}>
-          Details
+          {details ? "Hide details" : "Show details"}
         </button>
       }>
-        {earlier.length > 0 && (
-          <div className="mb-3 border-b pb-2.5">
-            {earlier.map((e) => <Earlier key={e.turn.id} turn={e.turn} steps={visible(e.steps)} details={details} />)}
-          </div>
-        )}
-        {shown.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{running ? "Getting started…" : "Answered directly, without using any tools."}</p>
-        ) : <StepList steps={shown} details={details} />}
+        {perTurn.map((t, i) => (
+          <TurnSteps key={t.turn.id} turn={t.turn} steps={visible(t.steps)} details={details} running={t.running}
+                     defaultOpen={i === perTurn.length - 1} />
+        ))}
       </Section>
 
-      {(made.length > 0 || read.length > 0) && (
-        <Section title="Files" count={made.length + read.length}>
+      {made.length > 0 && (
+        <Section title="Files" count={made.length}>
           <div className="grid gap-2">
             {made.map((f) => (
               <div key={f.name} className="grid grid-cols-[2.125rem_1fr_auto_auto] items-center gap-2.5 rounded-[10px] border bg-card p-2">
@@ -186,15 +188,6 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
                 </FileLink>
               </div>
             ))}
-            {read.length > 0 && (details
-              ? read.map((n) => (
-                  <div key={n} className="grid grid-cols-[2.125rem_1fr_auto] items-center gap-2.5 rounded-[10px] border bg-card p-2">
-                    <FileBadge name={n} />
-                    <span className="min-w-0 truncate text-sm font-medium" title={n}>{n}</span>
-                    <Tag tone="read">read</Tag>
-                  </div>
-                ))
-              : <p className="text-xs text-muted-foreground">Read {read.length === 1 ? read[0] : `${read.length} files`}.</p>)}
           </div>
         </Section>
       )}

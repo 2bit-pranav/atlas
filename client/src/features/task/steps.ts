@@ -165,11 +165,11 @@ export function sources(parts: Part[]): { url: string; title: string; site: stri
   return [...out.values()]
 }
 
-/** Files a run read (not made): for the "Read 3 invoices" line under Files. */
-export function readFiles(parts: Part[]): string[] {
-  const names = parts.filter((p): p is ToolPart => p.kind === "tool" && READS.has(p.name) && p.status === "success")
-                     .map((p) => base(arg(p, "path")))
-  return [...new Set(names.filter(Boolean))]
+/** Files a read tool downloaded from a link (read_pdf on an https URL): inputs, not made.
+ * A file read and then edited is something the task made, and keeps its card. */
+export function downloaded(parts: Part[]): Set<string> {
+  return new Set(parts.filter((p): p is ToolPart => p.kind === "tool" && READS.has(p.name) && /^https?:\/\//i.test(arg(p, "path")))
+                      .map((p) => base(arg(p, "path").split("?")[0])))
 }
 
 export { noun }

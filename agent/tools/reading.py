@@ -102,7 +102,8 @@ def _search(name: str, lines: list[str], query: str) -> str:
 DOCUMENTS = {".pdf": "read_pdf", ".docx": "read_docx", ".xlsx": "read_xlsx", ".xlsm": "read_xlsx"}
 
 
-def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str], vision: bool) -> list[Any]:
+def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str], vision: bool,
+               workspace: Path | None = None) -> list[Any]:
     """The two tools, for one chat. `resolve` places a path as every file tool
     does (`placement.locate`)."""
 
@@ -153,6 +154,11 @@ def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str], vis
         if not vision:
             return _failed("this model cannot see images.")
         if not target.is_file():
+            # A guessed name: say which images there are, so the next call is right.
+            there = sorted(p.name for p in workspace.iterdir() if p.suffix.lower() in IMAGES) if workspace and workspace.is_dir() else []
+            if there:
+                return _failed(f"no image {target.name}. Images in your workspace: "
+                               + ", ".join(f'"{n}"' for n in there[:10]) + ".")
             return _missing(target)
         if target.stat().st_size > MAX_IMAGE:
             return _failed(f"{target.name} is larger than {MAX_IMAGE // 1024 // 1024} MB.")

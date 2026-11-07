@@ -133,7 +133,7 @@ def build_agent(
     shown = shown_in(workspace_dir)
     store = store_for(paths.data_dir(settings))
     atlas_tools = [t for t in (*finding_tools(scope, resolve, shown, store),
-                               *read_tools(resolve, shown, bool(effective_caps(settings)["vision"])),
+                               *read_tools(resolve, shown, bool(effective_caps(settings)["vision"]), workspace_dir),
                                *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
                                *file_tools(resolve, shown),
                                # Not offered without a key: a tool that only fails wastes a turn.

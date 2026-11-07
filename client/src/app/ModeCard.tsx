@@ -6,7 +6,7 @@
 
 import { useState } from "react"
 import * as Dropdown from "@radix-ui/react-dropdown-menu"
-import { Check, ChevronsUpDown } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2 } from "lucide-react"
 import { atlas, useAtlas } from "@/state/store"
 import { cn } from "@/lib/cn"
 
@@ -20,6 +20,7 @@ const MODES: { id: Mode; label: string; text: string }[] = [
 
 export function ModeCard() {
   const model = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
+  const restarting = useAtlas((s) => s.restarting)
   const mode = useAtlas((s) => (s.settings?.values["access.mode"] ?? "ask") as Mode)
   const [confirming, setConfirming] = useState(false)
   const set = (next: Mode) => void atlas.saveSettings({ "access.mode": next })
@@ -29,7 +30,9 @@ export function ModeCard() {
     <div className="shrink-0 border-t px-3 py-3 text-xs">
       <div className="flex items-center justify-between gap-2 px-1">
         <span className="text-muted-foreground">Model</span>
-        <span className="truncate font-medium" title={model}>{model || "none"}</span>
+        {restarting ? (
+          <span className="flex items-center gap-1.5 font-medium text-run"><Loader2 className="h-3 w-3 animate-spin" />Restarting…</span>
+        ) : <span className="truncate font-medium" title={model}>{model || "none"}</span>}
       </div>
       <Dropdown.Root onOpenChange={(open) => !open && setConfirming(false)}>
         <Dropdown.Trigger asChild>

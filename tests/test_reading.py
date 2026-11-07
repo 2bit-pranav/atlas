@@ -78,3 +78,16 @@ def test_a_long_text_attachment_is_announced_with_its_search_form(tmp_path) -> N
     assert tmp_path.as_posix() not in text and tmp_path.name not in text   # no workspace path to mistype
     assert 'it has 400 lines, so to find something use read_text(path="long.log", search="words")' in text
     assert "pic.png" in text and 'read_text(path="pic.png")' not in text   # images go to the model as they are
+
+
+def test_an_attached_image_is_named_and_a_wrong_name_gets_the_right_one(tmp_path) -> None:
+    """Unnamed, the model guessed "image.png" on a follow-up and gave up (2026-11-07)."""
+    from server.services.prompt import _agent_text
+
+    shot = "Screenshot 2026-11-01 142100.png"
+    (tmp_path / shot).write_bytes(b"\x89PNG")
+    text = _agent_text("q", [{"path": str(tmp_path / shot), "name": shot, "size": 4}], workspace=tmp_path)
+    assert f'shown to you with this message. To look at it again later, read_image(path="{shot}")' in text
+    _, image = read_tools(lambda p: tmp_path / p, lambda p: p.name, True, tmp_path)
+    wrong = image(path="image.png")
+    assert wrong["status"] == "error" and f'Images in your workspace: "{shot}"' in text_of(wrong)

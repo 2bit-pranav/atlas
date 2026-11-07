@@ -107,15 +107,16 @@ class TreeError(Exception):
 _READ_TOOLS = {"read_text", "read_image", "read_pdf", "read_docx", "read_xlsx"}
 
 
-def _read_names(render_json: str | None) -> set[str]:
-    """The file names (last path or URL segment) a turn's read tools were pointed at."""
+def _downloaded_names(render_json: str | None) -> set[str]:
+    """The file names a turn's read tools downloaded from a link (read_pdf on an https URL).
+    Only those are inputs; a file read and then edited is something the run made."""
     names: set[str] = set()
     for part in json.loads(render_json or "[]"):
         if isinstance(part, dict) and part.get("kind") == "tool" and part.get("name") in _READ_TOOLS:
             args = part.get("args")
-            path = str(args.get("path") or "").rstrip("/\\") if isinstance(args, dict) else ""
-            if path:
-                names.add(path.replace("\\", "/").split("/")[-1])
+            path = str(args.get("path") or "").rstrip("/") if isinstance(args, dict) else ""
+            if path.lower().startswith(("http://", "https://")):
+                names.add(path.split("?")[0].split("/")[-1])
     return names
 
 
@@ -193,10 +194,10 @@ class ChatStore:
         out: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
         for r in rows:
-            read = _read_names(r["render_json"])
+            downloaded = _downloaded_names(r["render_json"])
             for f in (json.loads(r["stats_json"] or "{}").get("files") or []):
                 key = (r["chat_id"], str(f.get("name")))
-                if key in seen or not f.get("name") or f["name"] in read:   # a downloaded input, not something made
+                if key in seen or not f.get("name") or f["name"] in downloaded:   # an input, not something made
                     continue
                 seen.add(key)
                 out.append({"chat_id": r["chat_id"], "chat_title": r["title"], "name": f["name"],
