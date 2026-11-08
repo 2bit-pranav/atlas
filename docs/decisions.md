@@ -1038,3 +1038,14 @@ doubled spaces at every bold or link ("as the  University"), so quotes copied
 from the page matched only as similar; nodes now join with exactly one space.
 The panel no longer asks before following another tab (a banner users found
 an annoyance); it holds the tab only while an answer is being written.
+
+**Files for upload fields: a basket the user drags from** (2026-11-08). Fill
+finds files for a form's upload fields (find_files' search, picked in the same
+single model call) and shows them as cards; the user drags one onto the page.
+Atlas never uploads by itself. Before building, a spike in Edge proved the
+parts that depend on the browser: a drag from an extension page carries a
+custom marker to the page; the content script can turn a trusted drop into a
+real file for an upload field (`input.files` from a DataTransfer) and for a
+react-dropzone-style zone (a replayed file drop); a drop faked by a page
+script is untrusted and refused. Not proven: Google Forms' upload dialog (it
+needs a sign-in), which has Download as its fallback.

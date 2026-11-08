@@ -49,6 +49,7 @@ import { Centered } from "./components/Centered"
 import { SettingsView } from "./components/SettingsView"
 import { HistoryView } from "./components/HistoryView"
 import { PageCard } from "./components/PageCard"
+import { FileBasket } from "./components/FileBasket"
 import { PanelHome } from "./components/PanelHome"
 import { bindPage } from "./actions/bindPage"
 import { exportUrl, googleTarget } from "@ext/page/google"
@@ -171,6 +172,17 @@ export function Panel() {
     if (current) setAttached(current)
   }
   const [fillStatus, setFillStatus] = useState("")
+  // Files Fill found for upload fields: kept for the browser session, so they outlive the panel closing.
+  const [basket, setBasket] = useState<api.BasketCard[]>([])
+  useEffect(() => {
+    void browser.storage.session.get("basket").then(({ basket: kept }) => Array.isArray(kept) && setBasket(kept as api.BasketCard[]))
+  }, [])
+  const keepBasket = useCallback((cards: api.BasketCard[]) => {
+    setBasket(cards)
+    void browser.storage.session.set({ basket: cards })
+  }, [])
+  const fill = useCallback((tab: TabInfo) => suggestFill(tab, setFillStatus, (found) =>
+    keepBasket([...found, ...basket.filter((b) => !found.some((f) => f.name === b.name && f.folder === b.folder))])), [basket, keepBasket])
 
   const extras = useMemo(() => (attached && !blockedReason && !pdf && reading
     ? (turn: Turn, answer: string) => <QuoteSources turn={turn} answer={answer} tabId={attached.id} />
@@ -223,7 +235,8 @@ export function Panel() {
       <PageCard tab={attached} blocked={blockedReason} pdf={pdf} reading={reading} onReading={setReading}
                 compact={Boolean(chat && chat.turns.length > 0)}
                 onViewer={() => attached && void browser.tabs.update(attached.id, { url: viewerUrl(attached.url) })}
-                onFill={() => attached && void suggestFill(attached, setFillStatus)} />
+                onFill={() => attached && void fill(attached)} />
+      <FileBasket cards={basket} onClear={() => keepBasket([])} />
       {fillStatus && (
         <div className="flex items-start gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
           <span className="min-w-0 flex-1 whitespace-pre-wrap">{fillStatus}</span>
@@ -245,7 +258,7 @@ export function Panel() {
                         </button>
                       )}
                       emptyView={<PanelHome tab={attached && !blockedReason ? attached : null} reading={reading} blocked={blockedReason}
-                                            onOpen={(c) => void openPast(c)} onFill={() => attached && void suggestFill(attached, setFillStatus)} />}
+                                            onOpen={(c) => void openPast(c)} onFill={() => attached && void fill(attached)} />}
                       placeholder={reading && attached && !blockedReason ? "Ask about this page…" : "Ask Atlas…"} />
         </AnswerExtras.Provider>
       </main>

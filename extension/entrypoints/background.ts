@@ -48,6 +48,12 @@ export default defineBackground(() => {
       void saveTable(message).then(reply)
       return true
     }
+    if (message?.type === "atlas:basketFile" && sender.tab?.id !== undefined) {
+      // A basket card dropped on a page: the file comes from the local Atlas with the
+      // pairing token, which never reaches the page. Only basket ids are accepted.
+      void basketFile(String(message.id ?? "")).then(reply)
+      return true
+    }
     if ((message?.type === "atlas:status" || message?.type === "atlas:pair") && localHttp(sender.url) && localHttp(message.base)) {
       void (message.type === "atlas:pair" ? pair(message.base, String(message.token ?? "")) : status(message.base)).then(reply)
       return true
@@ -115,3 +121,25 @@ async function saveTable(message: { rows: string[][]; title: string; url: string
     return { error: "Atlas is not running (`atlas start`)" }
   }
 }
+
+/** One basket file, read from Atlas now, as base64 for the content script to hand to the page. */
+async function basketFile(id: string): Promise<{ name?: string; type?: string; b64?: string; error?: string }> {
+  if (!/^b-[\w-]{8,40}$/.test(id)) return { error: "not a basket file" }
+  const settings = await loadSettings()
+  if (!settings.token) return { error: "the extension is not paired: open the Atlas panel" }
+  try {
+    const response = await fetch(`${settings.base.replace(/\/$/, "")}/api/extension/basket/${id}`, {
+      headers: { Authorization: `Bearer ${settings.token}` },
+    })
+    if (!response.ok) return { error: ((await response.json().catch(() => ({}))) as { detail?: string }).detail ?? `Atlas answered ${response.status}` }
+    const name = decodeURIComponent(/filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "file")
+    const blob = await response.blob()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    let binary = ""
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    return { name, type: blob.type || "application/octet-stream", b64: btoa(binary) }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+

@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from agent.extension import form_fill
+from agent.extension import basket, form_fill
 from agent.extension.table_export import write_table
 from server.schemas import (
     FillBody,
@@ -56,9 +56,30 @@ def register(api: Any, state: Any, pairing: Any, ports: Any) -> None:
     async def fill(body: FillBody) -> dict[str, Any]:
         """Suggested values for a form's fields, from the user's details. Nothing is filled here."""
         try:
-            return await asyncio.to_thread(form_fill.suggest, state.settings, body.fields, body.title)
+            return await asyncio.to_thread(form_fill.suggest, state.settings, body.fields, body.title, state.basket)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @api.get("/extension/basket")
+    async def basket_cards(ids: str = "") -> list[dict[str, Any]]:
+        """The basket's cards as they are now: still there, changed since Fill found them, or gone."""
+        out = []
+        for key in [k for k in ids.split(",") if k][:40]:
+            entry = state.basket.get(key)
+            out.append(basket.card(state.settings, key, entry) if entry
+                       else {"id": key, "available": False, "problem": "expired: run Fill again"})
+        return out
+
+    @api.get("/extension/basket/{key}")
+    async def basket_file(key: str) -> Any:
+        """One basket file's bytes, read now. Only ids Fill handed out, only files still in the
+        allowed folders, never Atlas's own: checked again on every request."""
+        entry = state.basket.get(key)
+        if entry is None:
+            raise HTTPException(404, "That file card has expired: run Fill again.")
+        if why := basket.refusal(state.settings, entry.path):
+            raise HTTPException(409, why)
+        return FileResponse(entry.path, filename=entry.path.name)
 
     @api.get("/extension/pdf")
     async def open_pdf(url: str) -> Any:

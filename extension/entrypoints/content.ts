@@ -20,6 +20,8 @@ import { selectionChip } from "@ext/ui/chip"
 import * as fill from "@ext/fill/fill"
 import { outline, show } from "@ext/page/ax"
 import { snapshot } from "@ext/page/snapshot"
+import { basketDrops } from "@ext/page/basket"
+import { toast } from "@ext/ui/overlay"
 import { tables } from "@ext/page/tables"
 import { imageSrc, images } from "@ext/page/images"
 import { clearHighlights, find, go, highlight, point, scrollToQuote, type Pointer } from "@ext/page/highlight"
@@ -29,6 +31,8 @@ type Op = { type: "atlas:op"; op: string; args: Record<string, unknown> }
 export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_idle",
+  // In frames too, for basket drops only: Google Forms' upload dialog is a frame of another Google site.
+  allFrames: true,
   async main() {
     let settings: ExtensionSettings = await loadSettings()
     browser.storage.onChanged.addListener((changes) => {
@@ -37,6 +41,9 @@ export default defineContentScript({
     // After the extension is reloaded or updated, this copy is cut off from it
     // (`runtime.id` goes away) and a fresh one is injected: this one goes quiet.
     const off = () => !browser.runtime?.id || blocked(location.href, settings.neverRead) !== null
+    basketDrops((text, failed) => toast(text, failed, 6000), off)
+    // Everything else is the top page's alone: a frame never answers for the page.
+    if (window !== window.top) return
 
     browser.runtime.onMessage.addListener((message: Op, _sender, reply) => {
       if (message?.type !== "atlas:op") return

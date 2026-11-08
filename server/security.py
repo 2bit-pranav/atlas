@@ -51,6 +51,7 @@ EXTENSION_ROUTES: list[tuple[set[str], re.Pattern[str]]] = [
     ({"POST"}, re.compile(rf"/api/runs/{_ID}/cancel")),
     ({"POST"}, re.compile(r"/api/extension/(fill|table)")),
     ({"GET"}, re.compile(r"/api/extension/pdf")),
+    ({"GET"}, re.compile(r"/api/extension/basket(/b-[\w-]{8,40})?")),
 ]
 
 

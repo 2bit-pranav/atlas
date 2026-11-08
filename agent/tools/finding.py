@@ -63,6 +63,66 @@ def _skipped(name: str) -> bool:
     return name.startswith(".") or name.lower() in SKIP
 
 
+def _walk(bases: list[Path], never: list[Path]):
+    """(base, file path, stat) for every file under the bases, within the limits."""
+    seen, start = 0, time.monotonic()
+    for base in bases:
+        for top, dirs, files in os.walk(base):
+            dirs[:] = sorted(d for d in dirs if not _skipped(d) and (Path(top) / d) not in never)
+            for name in files:
+                seen += 1
+                if seen > MAX_ENTRIES or time.monotonic() - start > MAX_SECONDS:
+                    return
+                p = Path(top) / name
+                try:
+                    yield base, p, p.stat()
+                except OSError:
+                    continue
+
+
+def search_roots(scope: Scope, resolve: Callable[[str], Path], path: str = "") -> list[Path]:
+    """Where a search looks: the given folder, else the workspace and every allowed folder."""
+    return [p.resolve() for p in ([resolve(path)] if path else [scope.workspace, *scope.folders])]
+
+
+def rank(scope: Scope, bases: list[Path], query: str, kind: str = "",
+         store: Any = None) -> list[tuple[Path, dict[str, Any]]]:
+    """Files under `bases` matching `query` (words in the name, folder or text) and `kind`, best
+    first: most words matched, then in the name, then newest. Atlas's own data is never searched.
+    Shared by find_files and the extension's file basket (agent/extension/form_fill.py)."""
+    never = [p.resolve() for p in ((scope.protected.data, scope.protected.root) if scope.protected else ()) if p]
+    words, kinds = _words(query), _kinds(kind)
+    found: dict[Path, dict[str, Any]] = {}
+    texts = 0
+    for base, p, st in _walk([b for b in bases if b.is_dir()], never):
+        if kinds and p.suffix.lower() not in kinds:
+            continue
+        name = p.stem.lower()
+        where = str(p.parent.relative_to(base)).lower() if p.parent != base else ""
+        hits_name = {w for w in words if w in name}
+        hits = hits_name | {w for w in words if w in where}
+        if (p.suffix.lower() in TEXT and len(hits) < len(words) and texts < MAX_TEXT_FILES
+                and st.st_size <= MAX_TEXT_BYTES):
+            texts += 1
+            try:
+                body = p.read_text(encoding="utf-8", errors="replace").lower()
+            except OSError:
+                body = ""
+            hits |= {w for w in words if w in body}
+        if hits or (not words and kinds):
+            found[p] = {"hits": hits, "name": len(hits_name), "mtime": st.st_mtime, "size": st.st_size}
+    if store is not None and words:
+        for doc, text in store.find_text(" ".join(words)):
+            p = Path(doc)
+            if (kinds and p.suffix.lower() not in kinds) or not p.is_file() or not any(
+                    b in p.parents for b in bases):
+                continue
+            entry = found.setdefault(p, {"hits": set(), "name": 0, "mtime": p.stat().st_mtime,
+                                         "size": p.stat().st_size})
+            entry["hits"] = entry["hits"] | {w for w in words if w in text.lower()}
+    return sorted(found.items(), key=lambda kv: (-len(kv[1]["hits"]), -kv[1]["name"], -kv[1]["mtime"]))
+
+
 def finding_tools(scope: Scope, resolve: Callable[[str], Path], shown: Callable[[Path], str],
                   store: Any = None) -> list[Any]:
     """`scope` gives the folders to search; `store` (the ingest store) the text of
@@ -70,26 +130,10 @@ def finding_tools(scope: Scope, resolve: Callable[[str], Path], shown: Callable[
     never = [p.resolve() for p in ((scope.protected.data, scope.protected.root) if scope.protected else ()) if p]
 
     def roots(path: str) -> list[Path]:
-        return [p.resolve() for p in ([resolve(path)] if path else [scope.workspace, *scope.folders])]
+        return search_roots(scope, resolve, path)
 
     def pruned(folder: Path) -> bool:
         return any(folder == p for p in never)
-
-    def walk(bases: list[Path]):
-        """(base, file path, stat) for every file under the bases, within the limits."""
-        seen, start = 0, time.monotonic()
-        for base in bases:
-            for top, dirs, files in os.walk(base):
-                dirs[:] = sorted(d for d in dirs if not _skipped(d) and not pruned(Path(top) / d))
-                for name in files:
-                    seen += 1
-                    if seen > MAX_ENTRIES or time.monotonic() - start > MAX_SECONDS:
-                        return
-                    p = Path(top) / name
-                    try:
-                        yield base, p, p.stat()
-                    except OSError:
-                        continue
 
     @tool(name="find_files")
     def find_files(query: str, path: str = "", kind: str = "") -> Any:
@@ -111,40 +155,13 @@ def finding_tools(scope: Scope, resolve: Callable[[str], Path], shown: Callable[
         missing = [b for b in bases if not b.is_dir()]
         if path and missing:
             return f"Error: there is no folder {shown(missing[0])}. Call list_folder() to see the folders."
-        found: dict[Path, dict[str, Any]] = {}
-        texts = 0
-        for base, p, st in walk([b for b in bases if b.is_dir()]):
-            if kinds and p.suffix.lower() not in kinds:
-                continue
-            name = p.stem.lower()
-            where = str(p.parent.relative_to(base)).lower() if p.parent != base else ""
-            hits_name = {w for w in words if w in name}
-            hits = hits_name | {w for w in words if w in where}
-            if (p.suffix.lower() in TEXT and len(hits) < len(words) and texts < MAX_TEXT_FILES
-                    and st.st_size <= MAX_TEXT_BYTES):
-                texts += 1
-                try:
-                    body = p.read_text(encoding="utf-8", errors="replace").lower()
-                except OSError:
-                    body = ""
-                hits |= {w for w in words if w in body}
-            if hits or (not words and kinds):
-                found[p] = {"hits": hits, "name": len(hits_name), "mtime": st.st_mtime, "size": st.st_size}
-        if store is not None and words:
-            for doc, text in store.find_text(" ".join(words)):
-                p = Path(doc)
-                if (kinds and p.suffix.lower() not in kinds) or not p.is_file() or not any(
-                        b in p.parents for b in bases):
-                    continue
-                entry = found.setdefault(p, {"hits": set(), "name": 0, "mtime": p.stat().st_mtime,
-                                             "size": p.stat().st_size})
-                entry["hits"] = entry["hits"] | {w for w in words if w in text.lower()}
+        ranked = rank(scope, bases, query, kind, store)
+        found = dict(ranked)
         if not found:
             places = ", ".join(shown(b) for b in bases)
             return (f"No file matching {query!r}{f' of type {kind}' if kind else ''} in {places}. Try fewer or "
                     "other words, or list_folder() to look around. If it is not there, tell the user; do not "
                     "search the web for it.")
-        ranked = sorted(found.items(), key=lambda kv: (-len(kv[1]["hits"]), -kv[1]["name"], -kv[1]["mtime"]))
         lines = [f"{len(found)} file(s) found, best first:" if len(found) <= MAX_RESULTS
                  else f"{len(found)} files found; the best {MAX_RESULTS}:"]
         for p, e in ranked[:MAX_RESULTS]:

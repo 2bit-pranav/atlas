@@ -10,7 +10,7 @@
  * time, the user pressing Next. Submit is never pressed.
  */
 
-export type GKind = "text" | "textarea" | "date" | "radio" | "checkbox" | "dropdown"
+export type GKind = "text" | "textarea" | "date" | "radio" | "checkbox" | "dropdown" | "file"
 
 export interface GQuestion {
   item: HTMLElement
@@ -53,6 +53,9 @@ export function questions(root: ParentNode = document): GQuestion[] {
     else if (listbox) out.push({ item, kind: "dropdown", label, required,
                                  options: Array.from(listbox.querySelectorAll('[role="option"]')).map(optionOf).filter((o) => o && o !== "Choose") })
     else if (area) out.push({ item, kind: "textarea", label, required, options: [], input: area })
+    // A file upload question opens Google's own picker: found, so the basket can offer files for it.
+    else if (Array.from(item.querySelectorAll('[role="button"], button')).some((b) => /add file/i.test(`${b.textContent ?? ""} ${b.getAttribute("aria-label") ?? ""}`)))
+      out.push({ item, kind: "file", label, required, options: [] })
     else if (input) out.push({ item, kind: input.type === "date" ? "date" : "text", label, required, options: [], input })
   }
   return out

@@ -49,7 +49,8 @@ agent/
                 snapshots.py     where Strands writes snapshots; deleting them on edit
   integrations/ mcp/             pool.py (connections, per-tool switches), registry.py (search)
                 skills/          catalog.py (which exist), installer.py, requirements.py
-  extension/    form_fill.py     fill suggestions from the user's details
+  extension/    form_fill.py     fill suggestions from the user's details (one model call)
+                basket.py        files found for upload fields, handed out by short-lived id
                 table_export.py  a web page's table as xlsx or csv, no model
   common/       ids.py           sortable ids
                 redact.py        credentials in free text (install output), hidden before the UI

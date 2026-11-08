@@ -143,6 +143,25 @@ and each answer checked afterwards: one that did not take is reported on Apply.
 A checkbox question takes any of its options. Only the section on screen;
 Next and Submit are the user's.
 
+**The file basket** (`components/FileBasket.tsx`, `lib/page/basket.ts`,
+`agent/extension/basket.py`). Fill also looks for files for the form's upload
+fields: the same search as `find_files` (words of the field's label, the types
+it accepts) in the allowed folders, the candidates offered to the same single
+model call as the field's options. The picked files become cards in "Related
+files", each a reference (a random id, two hours) to a file, not a copy. A
+card is dragged onto the page: its drag carries only the id; the content
+script takes over a drop carrying it, fetches the file through the background
+worker (which holds the token) from `GET /api/extension/basket/{id}`, and
+hands it over as a desktop drag would (an upload field gets it as its file, a
+drop zone gets a file drop). Download is there for Google's upload dialog and
+anything else that refuses a drop. Safety: only drops the browser marks as
+the user's own (a page can fake one; it is ignored); the backend serves only
+ids it handed out, re-checking each time that the file is still there, in the
+allowed folders, not Atlas's own, under 25 MB; the content script runs in
+frames too, for drops only. Tested end to end in Edge with a stand-in model:
+a plain field, a drop zone and a styled label's hidden field all received the
+file; a faked drop got nothing.
+
 **Fill suggestions.** The Fill button sends the form's fields (labels,
 types, options; never their contents) to `/api/extension/fill`. The backend
 asks the model once, constrained by a JSON schema of those fields and their

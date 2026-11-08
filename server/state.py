@@ -16,6 +16,7 @@ from agent.config import paths
 from agent.config.settings import (
     load_settings,
 )
+from agent.extension.basket import Basket
 from agent.integrations.mcp.pool import McpManager
 from agent.model import server as llama
 from agent.model.sampling import RetryPlan
@@ -58,6 +59,8 @@ class Atlas:
         self._modalities: dict[str, bool] | None = None
         # "Allow for this chat" answers, per chat. In memory: a restart asks again.
         self.chat_grants: dict[str, list] = {}
+        #: Files Fill found for upload fields, as cards the extension drags onto a page (in memory).
+        self.basket = Basket()
         if n := self.store.mark_interrupted():
             logger.info("%d turn(s) left running by a previous process are now interrupted", n)
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)

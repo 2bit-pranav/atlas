@@ -54,6 +54,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+/** A file's bytes (with the token in the header, never in the URL). */
+async function requestBlob(path: string): Promise<Blob> {
+  let response: Response
+  try {
+    response = await fetch(`${BASE}${path}`, { headers: auth() })
+  } catch {
+    throw new ApiError("Cannot reach the Atlas backend. Is `atlas start` running?", 0)
+  }
+  if (!response.ok) throw new ApiError(await describe(response), response.status)
+  return response.blob()
+}
+
 /** FastAPI's `detail` is the message the backend wrote for a person to read. */
 async function describe(response: Response): Promise<string> {
   try {
@@ -190,8 +202,27 @@ export const getPairing = () => request<{ token: string; base: string }>("/pairi
 export const getProfile = () => request<{ text: string }>("/profile")
 export const putProfile = (text: string) => request<{ text: string }>("/profile", json("PUT", { text }))
 /** Suggested values for a form's fields; `missing` lists the labels the details do not answer. */
+/** A file Atlas found for an upload field: a reference the extension's basket shows as a card. */
+export interface BasketCard {
+  id: string
+  name?: string
+  folder?: string
+  /** The upload field it was found for. */
+  field?: string
+  size?: number
+  available: boolean
+  /** Why it cannot be used now: moved, outside the allowed folders, expired. */
+  problem?: string | null
+  /** Changed on disk since Fill found it. */
+  changed?: boolean
+}
+
 export const suggestFill = (fields: { id: string; label: string }[], title: string) =>
-  request<{ values: Record<string, string>; missing: string[] }>("/extension/fill", json("POST", { fields, title }))
+  request<{ values: Record<string, string>; missing: string[]; files?: BasketCard[] }>("/extension/fill", json("POST", { fields, title }))
+/** The basket's cards as they are now. */
+export const basketCards = (ids: string[]) => request<BasketCard[]>(`/extension/basket?ids=${ids.map(encodeURIComponent).join(",")}`)
+/** One basket file, for a download. */
+export const basketFile = (id: string) => requestBlob(`/extension/basket/${encodeURIComponent(id)}`)
 export const resetPairing = () => request<{ token: string }>("/pairing/reset", json("POST"))
 /** Set (or, empty, clear) the Exa key for web search. Write-only: it is never read back. */
 export const putExaKey = (key: string) => request<{ exa_key_set: boolean }>("/secrets/exa", json("PUT", { key }))

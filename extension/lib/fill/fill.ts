@@ -17,6 +17,29 @@ export interface Field {
   type: string
   options?: string[]
   required?: boolean
+  /** An upload field's accepted types (".pdf,image/*"): Atlas looks for matching files (the basket). */
+  accept?: string
+}
+
+/**
+ * Upload fields, for the file basket: they get no value, Atlas finds files for
+ * them. A styled upload button usually hides the real field: it counts when
+ * the label or box the user would click is visible, since that is where a
+ * card is dropped. One with nothing visible to drop on is left out.
+ */
+function uploadFields(start: number): Field[] {
+  const out: Field[] = []
+  for (const el of Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'))) {
+    if (el.disabled) continue
+    const label = (el.labels?.[0] ?? null) as Element | null
+    const seen = [el, label, el.parentElement].some((x) => x && visible(x))
+    if (!seen) continue
+    const name = (fieldName(el) || label?.textContent || el.name || "File upload").replace(/\s+/g, " ").trim().slice(0, 120)
+    if (secret(el, name)) continue
+    out.push({ id: `f${start + out.length + 1}`, label: name, type: "file", ...(el.accept ? { accept: el.accept } : {}),
+               ...(el.required ? { required: true } : {}) })
+  }
+  return out
 }
 
 const SECRET = /pass(word)?|otp|one.?time|cvv|cvc|card.?(no|number)|\bpin\b|captcha|security.?code/i
@@ -41,10 +64,15 @@ export function formFields(): Field[] {
   const out: Field[] = []
   if (isGoogleForm()) {
     // Its questions are not form fields: read them from their roles (gforms.ts).
-    const TYPE = { text: "text", textarea: "textarea", date: "date", radio: "radio", checkbox: "checkbox", dropdown: "select" } as const
+    const TYPE = { text: "text", textarea: "textarea", date: "date", radio: "radio", checkbox: "checkbox", dropdown: "select", file: "file" } as const
     for (const [i, q] of questions().entries()) {
       if (SECRET.test(q.label)) continue
       const id = `g${i + 1}`
+      if (q.kind === "file") {
+        // Google's upload dialog takes the file: a basket card, never a value.
+        out.push({ id, label: q.label.slice(0, 160), type: "file" })
+        continue
+      }
       fields.set(id, q)
       out.push({ id, label: q.label.slice(0, 160), type: TYPE[q.kind], ...(q.options.length ? { options: q.options } : {}),
                  ...(q.required ? { required: true } : {}) })
@@ -81,6 +109,7 @@ export function formFields(): Field[] {
     fields.set(id, group)
     out.push({ id, label, type: "radio", options: group.map((r) => fieldName(r).trim() || r.value) })
   }
+  out.push(...uploadFields(n))
   return out.slice(0, 60)
 }
 
