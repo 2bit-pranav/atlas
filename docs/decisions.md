@@ -1059,3 +1059,15 @@ offers fixed pills for the page kind (the starters not asked yet, plus
 Atlas no longer outlines a target: on Google Forms the outline sat on the
 "Add file" button, which ignores drops, and looked like a valid target. The
 page's own drop styling is the only signal now.
+
+**Key moments: a ready-made turn, not an agent run** (2026-11-08). "Key moments"
+on a YouTube video saves a finished turn ("Found N key moments in <title>",
+then one "[m:ss] label" per moment, which the panel shows as Play-from-here
+rows) with no run and nothing streamed. It persists like any answer, and later
+questions see it in the history. Source: the description's chapters when the
+video has them (YouTube's rule: three or more, from 0:00, in order), with no
+model; otherwise one model call over the transcript whose times are limited
+to the transcript's own by a schema enum and checked again. Labels are page
+text: markdown is stripped so they cannot add links or extra times, and the
+chat is marked as having read outside content. A custom question about the
+video is still a normal turn.

@@ -9,18 +9,23 @@ import { isYouTubeVideo } from "@ext/page/youtube"
 import { isGoogleForm } from "@ext/fill/gforms"
 import { type TabInfo } from "@ext/shared/tab"
 
-type Starter = { icon: typeof Search; label: string; send?: string; prefill?: string; fill?: boolean; wide?: boolean; hint?: string }
+/** Panel actions a starter can run instead of sending a message: they report in a card, or add a ready-made turn. */
+export type PanelAction = "fill" | "moments"
+/** The text of the turn a "moments" action adds (server/routes/extension.py), so it is not offered again. */
+const MOMENTS_ASKED = "Key moments of this video"
+
+type Starter = { icon: typeof Search; label: string; send?: string; prefill?: string; action?: PanelAction; wide?: boolean; hint?: string }
 
 /** Starters by what the page is. Ones that need the user's words prefill the box; the rest send. */
 export function startersFor(url: string): Starter[] {
   const app = googleTarget(url)?.app
   if (isYouTubeVideo(url)) return [
     { icon: ListTree, label: "Summarise this video", send: "Summarise this video in a few points, with the time of each." },
-    { icon: Clock, label: "Key moments", send: "List the key moments of this video, each with its time." },
+    { icon: Clock, label: "Key moments", action: "moments" },
     { icon: Search, label: "Find where they say…", prefill: "Where in the video do they talk about " },
     { icon: Sparkles, label: "Explain simply", send: "Explain what this video teaches in simple words." }]
   if (isGoogleForm(url)) return [
-    { icon: TextCursorInput, label: "Fill it from my details", fill: true, wide: true,
+    { icon: TextCursorInput, label: "Fill it from my details", action: "fill", wide: true,
       hint: "Shown on the form first; nothing is filled until you Apply, never submitted" },
     { icon: ListTree, label: "What does it ask for?", send: "What does this form ask for? List the questions, and which are required." },
     { icon: Sparkles, label: "Explain a question", prefill: "Explain this question on the form: " }]
@@ -51,8 +56,8 @@ const hostOf = (url: string) => {
   }
 }
 
-export function PanelHome({ tab, reading, blocked, onOpen, onFill }: {
-  tab: TabInfo | null; reading: boolean; blocked: string | null; onOpen: (c: ChatSummary) => void; onFill: () => void
+export function PanelHome({ tab, reading, blocked, onOpen, onAction }: {
+  tab: TabInfo | null; reading: boolean; blocked: string | null; onOpen: (c: ChatSummary) => void; onAction: (a: PanelAction) => void
 }) {
   const chats = useAtlas((s) => s.chats)
   const now = useNow()
@@ -76,7 +81,7 @@ export function PanelHome({ tab, reading, blocked, onOpen, onFill }: {
         <div className="grid grid-cols-2 gap-2">
           {startersFor(tab.url).map((s) => (
             <button key={s.label} type="button"
-                    onClick={() => (s.fill ? onFill() : s.send ? void atlas.send(s.send) : atlas.prefillComposer(s.prefill ?? ""))}
+                    onClick={() => (s.action ? onAction(s.action) : s.send ? void atlas.send(s.send) : atlas.prefillComposer(s.prefill ?? ""))}
                     className={`flex min-h-[4.25rem] flex-col gap-1.5 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-accent ${s.wide ? "col-span-2" : ""}`}>
               <s.icon className="h-4 w-4 text-run" />
               <span className="text-[13px] font-medium">{s.label}</span>
@@ -119,18 +124,18 @@ const ABOUT_ANSWER: Starter[] = [
  * Fixed per page kind (no model call): the starters not asked yet, then
  * "Simpler" and "Translate…". Ones that need the user's words prefill the box.
  */
-export function FollowUps({ url, asked, onFill }: { url: string; asked: string[]; onFill: () => void }) {
+export function FollowUps({ url, asked, onAction }: { url: string; asked: string[]; onAction: (a: PanelAction) => void }) {
   const done = new Set(asked.map((a) => a.trim()))
-  const pills = [...startersFor(url).filter((s) => !s.wide || s.fill).filter((s) => !s.send || !done.has(s.send)).slice(0, 3),
-                 ...ABOUT_ANSWER.filter((s) => !s.send || !done.has(s.send))]
+  const fresh = (s: Starter) => !done.has(s.send ?? (s.action === "moments" ? MOMENTS_ASKED : ""))
+  const pills = [...startersFor(url).filter((s) => !s.wide || s.action).filter(fresh).slice(0, 3), ...ABOUT_ANSWER.filter(fresh)]
   return (
     <div aria-label="Ask next" className="flex flex-wrap gap-1.5 pb-2 pt-1">
       {pills.map((s) => (
         <button key={s.label} type="button"
-                onClick={() => (s.fill ? onFill() : s.send ? void atlas.send(s.send) : atlas.prefillComposer(s.prefill ?? ""))}
+                onClick={() => (s.action ? onAction(s.action) : s.send ? void atlas.send(s.send) : atlas.prefillComposer(s.prefill ?? ""))}
                 className="flex h-7 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs text-foreground/90 transition-colors hover:bg-accent">
           <s.icon className="h-3.5 w-3.5 text-run" />
-          {s.fill ? "Fill this form" : s.label}
+          {s.action === "fill" ? "Fill this form" : s.label}
         </button>
       ))}
     </div>

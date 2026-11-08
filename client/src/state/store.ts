@@ -399,6 +399,21 @@ class Store {
     }
   }
 
+  /**
+   * The attached video's key moments, added to the chat as a finished turn: no
+   * run, nothing streamed (`server/routes/extension.py`). Throws with the
+   * server's reason, for the caller to show.
+   */
+  async keyMoments(): Promise<void> {
+    if (this.busy) throw new Error("Wait for the answer being written to finish.")
+    const page = await this.pageNow()
+    if (!page?.content) throw new Error("Could not read the video. Reload the page and try again.")
+    const chatId = await this.ensureChat()
+    const { chat } = await api.keyMoments(chatId, page)
+    this.set({ chat, stagedChat: this.state.stagedChat === chatId ? null : this.state.stagedChat })
+    void this.refreshChats()
+  }
+
   async retry(turnId: string) {
     if (this.busy) return
     try {

@@ -43,7 +43,7 @@ EXTENSION_ROUTES: list[tuple[set[str], re.Pattern[str]]] = [
     ({"GET", "POST"}, re.compile(r"/api/chats")),
     ({"GET", "PATCH", "DELETE"}, re.compile(rf"/api/chats/{_ID}")),
     ({"GET"}, re.compile(rf"/api/chats/{_ID}/workspace")),
-    ({"POST"}, re.compile(rf"/api/chats/{_ID}/(messages|files|files/import)")),
+    ({"POST"}, re.compile(rf"/api/chats/{_ID}/(messages|moments|files|files/import)")),
     ({"GET", "DELETE"}, re.compile(rf"/api/chats/{_ID}/files/.+")),
     ({"POST"}, re.compile(rf"/api/turns/{_ID}/(retry|edit|select)")),
     ({"GET"}, re.compile(rf"/api/runs/{_ID}(/events)?")),

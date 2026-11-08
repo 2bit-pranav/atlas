@@ -68,6 +68,11 @@ class ProfileBody(BaseModel):
     text: str
 
 
+class MomentsBody(BaseModel):
+    #: The video as the panel read it (`youtube.ts`): description and transcript in `content`.
+    page: Page
+
+
 class FillBody(BaseModel):
     #: [{id, label, type, options?, required?}]; never the fields' contents.
     fields: list[dict[str, Any]]

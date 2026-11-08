@@ -18,6 +18,9 @@ export const isYouTubeVideo = (href = location.href) => {
 }
 
 const clean = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim()
+/** An element's text with its line breaks kept (innerText: what is shown; jsdom has only textContent). */
+const textLines = (el: HTMLElement | null) =>
+  (el?.innerText || el?.textContent || "").split("\n").map(clean).filter(Boolean).join("\n")
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** "12:34" or "1:02:03" in seconds. */
@@ -108,8 +111,9 @@ export async function youtube(): Promise<{ title: string; content: string }> {
   const lastStamp = /^\[([\d:]+)\]/.exec(lines.at(-1) ?? "")?.[1]
   const length = video && !ad && Number.isFinite(video.duration) ? clockOf(video.duration) : lastStamp ? `about ${lastStamp}` : ""
   // The first match in page order is an empty "#description"; the text is in the inline expander.
+  // Line by line: a chapter list ("0:00 Intro") is one line per chapter (agent/extension/moments.py).
   const described = ["ytd-text-inline-expander", "#description-inline-expander", "ytd-expandable-video-description-body-renderer"]
-    .map((sel) => clean(document.querySelector(sel)?.textContent)).find(Boolean) ?? ""
+    .map((sel) => textLines(document.querySelector<HTMLElement>(sel))).find(Boolean) ?? ""
   const description = described.slice(0, 3000)
   const content = [
     `# ${title}`,

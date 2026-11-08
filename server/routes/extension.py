@@ -10,10 +10,12 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from agent.extension import basket, form_fill
+from agent.extension import basket, form_fill, moments
+from agent.store.chats import COMPLETED
 from agent.extension.table_export import write_table
 from server.schemas import (
     FillBody,
+    MomentsBody,
     ProfileBody,
     TableBody,
 )
@@ -51,6 +53,44 @@ def register(api: Any, state: Any, pairing: Any, ports: Any) -> None:
             raise HTTPException(403, "edit your details in Atlas, not in the extension")
         await asyncio.to_thread(form_fill.write_profile, state.settings, body.text)
         return {"text": body.text}
+
+    @api.post("/chats/{chat_id}/moments")
+    async def key_moments(chat_id: str, body: MomentsBody) -> dict[str, Any]:
+        """A video's key moments, saved as a finished turn of the chat: no agent run, no streaming.
+
+        From the description's chapters when it has them (no model), else one
+        model call over the transcript (`agent/extension/moments.py`)."""
+        state.require_chat(chat_id)
+        if body.page.kind != "youtube":
+            raise HTTPException(422, "key moments are for a YouTube video")
+
+        def leaf_now() -> dict[str, Any] | None:
+            state.ensure_run_slot()
+            leaf = state.store.leaf(chat_id)
+            if leaf is not None and leaf["status"] != COMPLETED:
+                raise HTTPException(409, "the last answer did not complete: retry or edit it first")
+            return leaf
+
+        leaf_now()
+        content = body.page.content
+        first = content.split("\n", 1)[0]
+        title = (first[2:].strip() if first.startswith("# ") else "") or body.page.title.removesuffix(" - YouTube")
+        try:
+            made = await asyncio.to_thread(moments.key_moments, state.settings, title, content)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        # Again: a message may have been sent while the model was answering. Nothing awaits
+        # from here on, so the turn goes in right after the leaf read now.
+        leaf = leaf_now()
+        snap = leaf["after_snap"] if leaf else None
+        turn = state.store.insert_turn(chat_id, "Key moments of this video",
+                                       parent_turn_id=leaf["id"] if leaf else None, before_snap=snap)
+        state.store.finish_turn(turn["id"], COMPLETED, after_snap=snap,
+                                render=[{"kind": "text", "text": moments.answer_text(title, made)}])
+        state.store.set_title(chat_id, f"Key moments: {title}"[:60], only_if_empty=True)
+        state.store.mark_tainted(chat_id)   # the labels come from the page
+        state.store.touch(chat_id)
+        return {"chat": state.view(chat_id)}
 
     @api.post("/extension/fill")
     async def fill(body: FillBody) -> dict[str, Any]:
