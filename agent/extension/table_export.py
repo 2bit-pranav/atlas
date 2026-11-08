@@ -19,7 +19,7 @@ def _cell(value: str) -> Any:
 
 
 def _csv_cell(value: str) -> str:
-    """B19: a spreadsheet opening a CSV runs a cell starting with = + - @ as a
+    """A spreadsheet opening a CSV runs a cell starting with = + - @ as a
     formula; a leading ' keeps it text. Negative numbers are left alone."""
     if value[:1] in ("=", "+", "-", "@", "\t", "\r") and not _NUMBER.fullmatch(value.strip()):
         return "'" + value
@@ -63,7 +63,7 @@ def write_table(rows: list[list[str]], title: str, url: str, fmt: str, folder: s
         ws.append([_cell(c) if r else c for c in row])
     for line in ws.iter_rows():
         for cell in line:
-            if cell.data_type == "f":    # B19: page text starting with = stays text
+            if cell.data_type == "f":    # page text starting with = stays text
                 cell.data_type = "s"
     for cell in ws[1]:
         cell.font = Font(bold=True)

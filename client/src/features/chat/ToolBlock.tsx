@@ -1,40 +1,79 @@
 /**
- * One tool call, collapsible: the tool's name and status in a row, and its
- * arguments and output when opened. Shell results arrive as JSON
- * (`{output, error, exit_code}`) and are shown as the text they contain.
+ * Tool calls, compact. One call is one line: status, name, what it acted on;
+ * a click shows its arguments and output. Calls in a row fold into a single
+ * summary line ("3 tool calls · read_pdf, read_docx · 1 failed") that opens to
+ * those lines, so a long run of calls takes one line of the answer, not a box
+ * each. Shell results arrive as JSON (`{output, error, exit_code}`) and are
+ * shown as the text they contain.
  */
 
 import { memo, useState } from "react"
-import { CheckCircle2, ChevronDown, Loader2, Wrench, XCircle } from "lucide-react"
+import { CheckCircle2, ChevronRight, Loader2, XCircle } from "lucide-react"
 
 import type { Part } from "@/api/types"
 import { cn } from "@/lib/cn"
 
-type ToolPart = Extract<Part, { kind: "tool" }>
+export type ToolPart = Extract<Part, { kind: "tool" }>
 
-export const ToolBlock = memo(function ToolBlock({ part, defaultOpen }: { part: ToolPart; defaultOpen: boolean }) {
+function StatusIcon({ status }: { status: ToolPart["status"] }) {
+  if (status === "running") return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+  if (status === "error") return <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+  return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+}
+
+/** A run of tool calls: one call as its own line, several folded under a summary line. */
+export const ToolGroup = memo(function ToolGroup({ parts, defaultOpen }: { parts: ToolPart[]; defaultOpen: boolean }) {
+  const [open, setOpen] = useState<boolean | null>(null)
+  if (parts.length === 1) return <div className="my-1.5"><ToolLine part={parts[0]} defaultOpen={defaultOpen} /></div>
+  const isOpen = open ?? defaultOpen
+  const running = parts.some((p) => p.status === "running")
+  const failed = parts.filter((p) => p.status === "error").length
+  const names = [...new Set(parts.map((p) => p.name))]
+  return (
+    <div className="my-1.5">
+      <button type="button" onClick={() => setOpen(!isOpen)} aria-expanded={isOpen}
+              className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-muted/50">
+        <StatusIcon status={running ? "running" : failed ? "error" : "success"} />
+        <span className={cn("shrink-0 text-xs font-medium text-foreground/80", running && "shimmer-text")}>
+          {parts.length} tool calls
+        </span>
+        <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+          {names.join(", ")}{failed > 0 && <span className="text-destructive"> · {failed} failed</span>}
+        </span>
+        <ChevronRight className={cn("ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
+      </button>
+      {isOpen && (
+        <div className="ml-3 border-l pl-2">
+          {parts.map((p, i) => <ToolLine key={p.id || i} part={p} defaultOpen={false} />)}
+        </div>
+      )}
+    </div>
+  )
+})
+
+/** One tool call as a line; its arguments and output when opened. */
+const ToolLine = memo(function ToolLine({ part, defaultOpen }: { part: ToolPart; defaultOpen: boolean }) {
   const [open, setOpen] = useState<boolean | null>(null)
   const isOpen = open ?? defaultOpen
   const args = part.args as Record<string, unknown> | null
   const summary = args && typeof args === "object"
-    ? String(args.command ?? args.path ?? args.skill_name ?? args.url ?? Object.values(args)[0] ?? "")
+    ? String(args.command ?? args.path ?? args.skill_name ?? args.search ?? Object.values(args)[0] ?? "")
     : ""
   const { body, note } = readable(part.text)
 
   return (
-    <div className="my-2 rounded-lg border bg-muted/30">
-      <button type="button" onClick={() => setOpen(!isOpen)}
-              className="group flex w-full items-center gap-2 px-3 py-2 text-left">
-        {part.status === "running" ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-          : part.status === "error" ? <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-          : <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
-        <Wrench className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-        <span className={cn("shrink-0 font-mono text-xs font-medium", part.status === "running" && "shimmer-text")}>{part.name}</span>
+    <div>
+      <button type="button" onClick={() => setOpen(!isOpen)} aria-expanded={isOpen}
+              className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-muted/50">
+        <StatusIcon status={part.status} />
+        <span className={cn("shrink-0 font-mono text-xs font-medium text-foreground/80", part.status === "running" && "shimmer-text")}>
+          {part.name}
+        </span>
         <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{summary}</span>
-        <ChevronDown className={cn("ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-180")} />
+        <ChevronRight className={cn("ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
       </button>
       {isOpen && (
-        <div className="space-y-2 border-t px-3 py-2.5">
+        <div className="mb-2 ml-3 space-y-2 border-l pl-3 pt-1">
           <Section title="Arguments">{JSON.stringify(part.args, null, 2)}</Section>
           {part.status !== "running" && <Section title={part.status === "error" ? "Error" : "Output"}>{body || "(no output)"}</Section>}
           {note && <p className="text-[11px] italic text-muted-foreground">{note}</p>}

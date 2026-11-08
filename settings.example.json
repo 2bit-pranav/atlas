@@ -38,12 +38,9 @@
   "tools": {
     "interventions": false,
     "builtin": {
-      "read": true,
       "write": true,
       "edit": true,
-      "shell": true,
-      "web_fetch": false,
-      "subagent": false
+      "shell": true
     }
   },
   "skills": {
@@ -85,6 +82,11 @@
     "tool_crash_retries": 1,
     "tool_failure_limit": 3,
     "nudge_after_failure": true
+  },
+  "limits": {
+    "max_model_calls": 40,
+    "max_minutes": 15,
+    "repeat_limit": 3
   },
   "system_prompt": "You are Atlas, a local assistant running entirely on this machine.\n\n- Read files with the skills before answering about them. Do not guess.\n- If a tool result is truncated, say so rather than filling the gap.\n- Prefer fetching a number again over recalling it from an earlier summary.",
   "approvals": {

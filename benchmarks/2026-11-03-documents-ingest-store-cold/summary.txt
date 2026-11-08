@@ -1,0 +1,18 @@
+FAIL pdf-long    think=off    5.1s calls=4 ctx=5637 tools=3 failed=2 wrong_tool=0  missing: ['4.183']
+PASS pdf-long    think=on    10.2s calls=3 ctx=6965 tools=2 failed=0 wrong_tool=0
+PASS pdf-scan    think=off   21.1s calls=4 ctx=6188 tools=3 failed=0 wrong_tool=0
+PASS pdf-scan    think=on    14.9s calls=3 ctx=6240 tools=2 failed=0 wrong_tool=0
+PASS pdf-short   think=off    3.6s calls=3 ctx=5830 tools=2 failed=0 wrong_tool=0
+PASS pdf-short   think=on     5.6s calls=2 ctx=5222 tools=1 failed=0 wrong_tool=0
+PASS docx-table  think=off    5.6s calls=4 ctx=6882 tools=3 failed=0 wrong_tool=0
+PASS docx-table  think=on     7.6s calls=2 ctx=5987 tools=1 failed=0 wrong_tool=0
+PASS xlsx-sum    think=off   10.2s calls=8 ctx=6871 tools=7 failed=1 wrong_tool=0
+FAIL xlsx-sum    think=on   271.2s calls=6 ctx=8567 tools=5 failed=4 wrong_tool=0  missing: ['12450.75']
+PASS text-long   think=off    3.3s calls=2 ctx=4960 tools=1 failed=0 wrong_tool=0
+PASS text-long   think=on     8.7s calls=2 ctx=5425 tools=1 failed=0 wrong_tool=0
+FAIL docx-edit   think=off    8.9s calls=4 ctx=7109 tools=3 failed=1 wrong_tool=1  missing: ['18 days present', '23 days gone']
+PASS docx-edit   think=on    15.8s calls=4 ctx=7715 tools=3 failed=0 wrong_tool=0
+PASS xlsx-edit   think=off    4.3s calls=4 ctx=6107 tools=3 failed=0 wrong_tool=0
+PASS xlsx-edit   think=on    22.2s calls=4 ctx=7573 tools=3 failed=0 wrong_tool=0
+
+13/16 passed. Traces: C:\Users\prana\AppData\Local\Temp\ab\bench\docs-20261103-214807

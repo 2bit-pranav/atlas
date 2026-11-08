@@ -8,8 +8,9 @@ agent/
   config/       settings.py      settings.json schema, LIVE vs RESTART tiers. The only schema.
                 paths.py         every path, anchored to the app root (ATLAS_ROOT)
   model/        llamacpp.py      AtlasLlamaCppModel: thinking switch, streaming, timings
-                sampling.py      build_model, build_summarizer, RetryPlan (sampling for a turn)
-                server.py        llama-server: its API key, the models folder
+                sampling.py      build_model, RetryPlan (sampling for a turn)
+                server.py        llama-server: its API key, the models folder, effective() capabilities
+                gguf.py          what a model can do, from its GGUF headers (capped reads, never loaded)
   prompt/       system.py        the system prompt: instructions, runtime facts, tool sources
                 notes.py         notes for the model only: the clock, a retry's hint
                 page.py          the note on a message sent from the extension
@@ -17,25 +18,39 @@ agent/
                 restore.py       restoring from a Strands snapshot, then re-setting the prompt
                 memory.py        long-term memory: off, and why
   safety/       policy.py        ToolPolicy: every check before a tool runs, in one order; TaintTracker
+                grid.py          the permission grid: (place, action) -> run, ask or refuse, per mode
                 scope.py         Scope: the workspace and allowed folders; where a path argument lands
                 placement.py     locate(): the one rule for relative paths, never outside its folder
                 call_paths.py    which paths a call touches; the path rewrites before the checks
                 approvals.py     the Approver type
-                installs.py      what counts as an install command
+                shell.py         a shell command parsed (tree-sitter-bash): read, write, delete, install, other
+                installs.py      the install rules, applied by shell.py to each simple command
+                rules.toml       the floor: shell commands refused in every tier (rules.py loads and checks it)
+                limits.py        RunLimits: model calls, minutes and repeated calls per message
   recovery/     model_retry.py   LocalModelRetry: model calls that fail or come back empty
                 tool_recovery.py ToolFailureRecovery: crashed tools, non-zero exits, giving up
   platform/     windows_shell.py WindowsLocalEnvironment: the shell, stoppable commands
                 winpaths.py      path forms (/c/... for the model, C:/... for Python), finding Git Bash
   tools/        manager.py       which built-in and Atlas tools are on
-                documents/       create_document / edit_document: markdown.py parses, docx.py,
+                documents/       create_document, edit_docx, set_cell: markdown.py parses, docx.py,
                                  pdf.py and xlsx.py write, base.py writes atomically, tool.py is the tool
                 maths/           calculate / dates: evaluator.py (the safe evaluator), dates.py, tool.py
+                reading.py       read_text / read_image: capped, typed reads (the harness `read` is off)
+                doc_reading.py   read_pdf / read_docx / read_xlsx: fetch from the ingest store
+                files.py         delete_file (to the Recycle Bin, the agent's only way to delete),
+                                 copy_file, move_file (never over an existing file)
+                finding.py       find_files (words in name, folder or contents), list_folder (a tree)
+                web.py           web_search / read_url through Exa: shaped, labelled, cited results
                 page.py          page_read / page_find for the browser extension, via client calls
+  ingest/       store.py         the ingest store: parse at upload, one worker, SQLite + FTS5, per-chat ownership
+                parse.py         a pdf/docx/xlsx into blocks whose ids the edit tools address
+                ocr.py           OCR of scanned pages and pictures (RapidOCR)
   store/        chats.py         ChatStore: the chat tree and display transcripts (SQLite)
                 snapshots.py     where Strands writes snapshots; deleting them on edit
   integrations/ mcp/             pool.py (connections, per-tool switches), registry.py (search)
-                skills/          catalog.py (which exist), installer.py, requirements.py, readers.py
-  extension/    form_fill.py     fill suggestions from the user's details
+                skills/          catalog.py (which exist), installer.py, requirements.py
+  extension/    form_fill.py     fill suggestions from the user's details (one model call)
+                basket.py        files found for upload fields, handed out by short-lived id
                 table_export.py  a web page's table as xlsx or csv, no model
   common/       ids.py           sortable ids
                 redact.py        credentials in free text (install output), hidden before the UI
@@ -144,7 +159,7 @@ The stock `LlamaCppModel` needed five things:
   Gemma's template keeps the current turn's reasoning and drops older turns'
   by itself; stripping it all made the model forget its plan after every tool
   call and repeat its steps.
-- `document` blocks (what the harness `read` tool returns for a pdf/docx/xlsx)
+- `document` blocks (a pdf/docx/xlsx some tools return)
   become a text note pointing at the skill; llama-server answers them with a 400.
 
 ## Documents (`tools/documents/`)
@@ -156,18 +171,50 @@ file is written to a temp file, reopened by its own library to prove it
 parses, and only then moved into place. A failure returns an *error* tool
 result in words the model can act on, so `ToolFailureRecovery` counts it.
 
-`edit_document` replaces exact text inside a docx paragraph or table cell, an
-xlsx cell, or a text file. A PDF cannot be edited in place; the model is told
-to create it again.
+`edit_docx` replaces one paragraph or table cell, by the id `read_docx`
+printed (`b12`, `t1.r3.c3`); `set_cell` sets one cell (`Mar!B2`), a number as
+a number and text starting `=` as text (blocks.py). Both work only on a
+version of the file this chat attached or read, and re-ingest it after. A PDF
+cannot be edited in place. `create_document` never replaces a file: an
+existing name gets `-2`, so a failed edit cannot turn into a regenerated copy
+over the original.
+
+**These tools come with skills** (`runtime/skill_tools.py`): loading the pdf,
+docx or xlsx skill registers its writing tools (`SKILL_TOOLS`), effective from
+the next model call. The skills plugin keeps the loaded skills in the agent's
+state, saved with each snapshot, so later turns are built with the same tools,
+always in `SKILL_TOOLS` order (the list is part of llama.cpp's cached prefix).
+A call to one before its skill is loaded is answered "load the docx skill".
 
 The policy's documents step refuses the plain `write`/`edit` tools on
 .docx/.xlsx/.pdf/.pptx (writing text into one is how corrupt documents
-happened), and answers `read` on one at once with the command that does read it.
+happened). `read_text` answers a pdf/docx/xlsx with the tool that reads it.
 
-Images: the pdf and docx readers save a document's images into a hidden
-`.atlas-images/<name>/` folder beside it and print each as `![caption](path)`.
-`create_document` embeds such lines in docx and pdf, so a rewrite keeps its
-figures. Images that cannot be found are left out and named in the result.
+Images: ingest saves a document's images in the store and the readers print
+each as `![caption](asset:<sha12>/<file>)`. `create_document` embeds such
+lines in docx and pdf, so a rewrite keeps its figures; an `asset:` image
+resolves only for a chat that owns the document. Images that cannot be
+found are left out and named in the result.
+
+## Reading documents (`ingest/`, `tools/doc_reading.py`)
+
+**Ingest is not reading.** An upload or import submits the file to the
+store (`store_for(data_dir)`), which returns at once; one worker thread
+parses it into blocks in `<data>/parsed/index.db`, images under
+`<data>/parsed/<sha>/`. A PDF's text layer is published first (`partial`),
+then each scanned page as OCR finishes, pages a read waits for first. The
+read tools only fetch: they wait briefly for pages in progress and never
+parse. Every write is a transaction; an interrupted PDF resumes at the next
+submit.
+
+Entries are shared by content hash but owned per chat (`owners`), written
+when the chat attaches or reads the file, after the policy's access check.
+Deleting a chat drops its ownership and every entry nobody else owns.
+`read_pdf` downloads an https link into the workspace and taints the chat;
+it refuses `file://`, which would slip past the access check.
+
+Block ids are the edit tools' addresses: `p27.3` (pdf), `b12` and `t1`
+(docx body paragraph and table; a cell is `t1.r3.c3`), `Mar!A1:C51` (xlsx).
 
 ## Arithmetic and dates (`tools/maths/`)
 
@@ -179,9 +226,9 @@ allow-list (numbers, quoted dates, `+ - * / // **`, a few named functions);
 nothing is executed. Numbers are `Decimal`, so money is exact. The docstrings
 carry examples, which a 2B model copies. Nothing yet forces their use.
 
-Atlas's own tools (these two and the document tools) are switched one by one
+Atlas's own tools are switched one by one
 in `tools.atlas` (Settings > Agent > Built-in tools); `ToolManager.atlas_tools()`
-resolves them. An older `tools.documents` switch still loads.
+resolves them.
 
 ## Tool policy (`safety/policy.py`)
 
@@ -190,19 +237,52 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 
 1. **normalise**: paths in the form each tool takes. MCP arguments get Windows
    paths (`/c/Users/x` -> `C:/Users/x`) and relative paths placed by `locate`;
-   `read`/`write`/`edit` get `/c/...` for a pasted `C:\...`; unquoted `C:\...` in
+   `write`/`edit` get `/c/...` for a pasted `C:\...` and a relative path placed
+   like every tool's; unquoted `C:\...` in
    a shell command becomes `C:/...` (bash eats the backslashes).
-2. **access**: a path outside the scope asks the user (kind `access`).
-3. **install**: a `shell` command that installs asks (kind `install`).
-4. **page taint**: once outside content is in the **chat** (the extension's page
-   tools, `web_fetch`, an MCP tool from an untrusted server), shell commands and
-   writes outside the workspace ask (kind `page`), in that turn and every later
-   one: the content stays in the history. Stored on the chat (`chats.tainted`);
-   `TaintTracker` marks it after such a tool returns. An MCP server is trusted
-   when Atlas points it only at the allowed folders (`{atlas:folders}`) or it is
-   marked `"atlas": {"trusted": true}` in mcp.json.
-5. **sensitive**: an MCP tool set to "ask" on the MCP page asks (kind `tool`).
-6. **documents**: `read`/`write`/`edit` on a binary document is redirected.
+2. **floor**: refused outright, no card: Atlas's own files (protected.py), the
+   floor's shell rules (rules.toml), and shell writes or deletes that land in
+   Atlas's data or another chat (relative paths placed from the workspace).
+3. **documents**: `write`/`edit` on a binary document is redirected, before
+   the grid, so a call that would be redirected never shows a card.
+4. **grid** (`safety/grid.py`): every call, of any tool, is described as
+   (place, action) pairs and each is looked up in the grid of `access.mode`:
+
+   | | read | create | change | delete | run |
+   |---|---|---|---|---|---|
+   | workspace | run | run | run | run | ask (skill scripts run) |
+   | folders | run | run | ask | ask | ask |
+   | elsewhere | ask | ask | ask | ask | ask |
+   | system | ask | refused | refused | refused | refused |
+
+   That is the default, **ask**. **Look** refuses everything but reads (and
+   asks to read outside); **work** runs changes and commands in the folders
+   and still asks to delete. Atlas's own files never get here (the floor).
+   How a call is described: Atlas's tools declare their action
+   (`TOOL_ACTIONS`); `write` is create or change by whether the file exists;
+   shell commands are parsed (`shell.py`), their targets placed with `~`,
+   `$HOME` and `%USERPROFILE%` as the home folder and anything else that
+   cannot be placed (another variable, a path after `cd`) as elsewhere; an
+   MCP tool by its server's labels (`read_only_hint`, `destructive_hint`),
+   unlabelled as a change. A shell delete outside the workspace is refused and
+   pointed to `delete_file` (Recycle Bin). One card per call (kind `access`
+   with a path, `tool` for a command); Allow covers that action, or a lesser
+   one, in that folder (that program, for a command) for the rest of the turn.
+   **Outside content in the chat** (the extension's page tools, a PDF
+   `read_pdf` downloads, an MCP tool from an untrusted server) makes every
+   run, change and delete, every create outside the workspace and every
+   shell command ask (kind `page`), in that turn and later ones. Stored on the
+   chat (`chats.tainted`); `TaintTracker` marks it after such a tool returns.
+   An MCP server is trusted when Atlas points it only at the allowed folders
+   (`{atlas:folders}`) or it is marked `"atlas": {"trusted": true}` in mcp.json.
+   A create or change outside the folders whose folder does not exist, but whose
+   end names one that does in the user's folders (`Reports/a.xlsx`), is refused
+   with the real path, no card: the model typed a full path from memory.
+5. **install**: a `shell` command that installs asks (kind `install`).
+6. **sensitive**: a tool set to Ask asks (kind `tool`): every MCP tool unless
+   set On on the MCP page (stored as `atlas.on` in mcp.json), and any tool
+   named in `tools.ask` (by default the web tools). Skipped when the grid
+   already asked about the call.
 
 Recovery after a tool runs stays in `recovery/`.
 
@@ -213,11 +293,11 @@ workspace (always), `access.folders` (Settings > Access, subfolders included),
 and, read-only, the skills folder and Python install so scripts can be read.
 What is checked:
 
-- `read`, `write`, `edit`, `create_document`, `edit_document`: an absolute
-  `path` argument. A relative path is placed by `safety/placement.locate`: the
+- every tool that takes a `path` (and `destination`, for copy and move): an absolute
+  one as given. A relative path is placed by `safety/placement.locate`: the
   workspace first, then each allowed folder (an existing file wins; a new
-  one goes where its folder exists). The filesystem MCP server, the skill
-  scripts (`$ATLAS_FOLDERS`) and the `read` hint follow the same rule, so
+  one goes where its folder exists). The file tools, the skill scripts
+  (`$ATLAS_FOLDERS`) and MCP arguments follow the same rule, so
   `Demo/Invoices/x.pdf` means one file to every tool.
 - `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
   quoted or bare). `/tmp` and other POSIX paths are the shell's own.
@@ -240,7 +320,12 @@ any path it builds itself.
 
 Steps call `approver(kind, detail)`. The run emits `approval_request`, the UI
 shows Allow / Deny, and no answer within `approvals.timeout` seconds (60)
-counts as Deny, as does cancelling the run. The model is then told not to try
+counts as Deny, as does cancelling the run. Where the card's `chat` is true it
+also offers **Allow for this chat** (`allowed_chat`): the grant goes into the
+chat's list (`Atlas.chat_grants`, in memory, so a restart asks again) and
+covers later turns too, until outside content enters the chat. Never offered
+after outside content, for a delete, for a command (`run:python` for a whole
+chat would be any code at all) or for an install. The model is then told not to try
 another way. Python packages are installed with `python -m pip`, so they land
 in Atlas's own venv.
 
@@ -251,13 +336,37 @@ in SKILL.md code fences (`npm install -g x`, `pip install y`), each with its
 installed status. The Skills page lists them and installs the missing ones.
 That click is the approval; the model never has to.
 
+## The web (`tools/web.py`)
+
+`web_search(query, recent)` and `read_url(url, question)`, through Exa's API
+(httpx, no SDK). Code shapes what the model sees: two results per site at
+most, only results whose highlights (Exa's query-relevant sentences) answer
+the query, five kept, each labelled with its site, date and kind (official,
+reference, news, forum, other), with "cite as [1]" and "prefer official
+sources". `read_url` is fetched by Exa, never from this machine; addresses
+that are not public are refused before sending, a PDF goes to `read_pdf`.
+
+Both send the user's words to a third party: they ask (`tools.ask`), and
+"Allow for this chat" covers them for the whole chat, even after their own
+results taint it (otherwise every search after the first would ask). What a
+page could make a query carry out is limited instead: queries over 300
+characters, holding a file path or `$ATLAS_WORKSPACE`, or a long number are
+refused. Their results taint the chat, like an untrusted MCP server's.
+
+The key is in `<data>/secrets/exa.key` (`PUT /api/secrets/exa`, the web UI's
+alone): never in settings.json, never an environment variable (every shell
+command would inherit it), and the agent can never read the data folder.
+Without a key the tools are not offered.
+
 ## Windows (`platform/`)
 
-- Every shell command starts in the **chat's workspace**, `$ATLAS_SKILLS`
+- Every shell command starts in the **chat's workspace** (`$ATLAS_WORKSPACE`,
+  set per turn; the model is never shown the workspace's own path, whose chat id
+  it copied wrong into another chat's folder, now refused), `$ATLAS_SKILLS`
   points at the skills folder and `$ATLAS_FOLDERS` lists the allowed folders. An attached file is named by its name alone
   (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
-  `python "$ATLAS_SKILLS/pdf/scripts/read_pdf.py" "<file>"`. The attachment
-  list gives each pdf/docx/xlsx's exact command.
+  `python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" ...`. The attachment
+  list gives each file's exact read call.
 - **Stop ends a running command.** Strands stops a turn only at its safe
   points, and a running shell command is not one. The environment watches the
   agent's cancel signal (set on it in `build_agent`) and, on Stop or timeout,
@@ -269,7 +378,7 @@ That click is the approval; the model never has to.
   works unquoted in bash, as an argument to `python.exe` (MSYS converts it),
   and in the harness file tools, which reject any path not starting with `/`.
   `_resolve_path` turns it back into `C:/Users/...` for Python's file calls.
-  Other POSIX paths (`/tmp/...`, which `web_fetch` writes through curl) are
+  Other POSIX paths (`/tmp/...`) are
   resolved with Git's `cygpath`.
 - Strands' default callback handler printed every token to the console; under
   a cp1252 console an emoji failed the run. It is off (`callback_handler=None`)
@@ -313,5 +422,5 @@ keep it, and its tools, out of the request.
 
 `python tests/check.py` runs every offline check (ruff, pyright, pytest, and
 the TypeScript checks); CI runs the same on every push. The real-model checks
-(`tests/bench.py`, `tests/live/`) need the GPU and are run by hand at every
-checkpoint. See [tests/README.md](../tests/README.md).
+(`tests/live/suite.py`) need the GPU and are run by hand before and after a change;
+results are kept in `benchmarks/`. See [tests/README.md](../tests/README.md).

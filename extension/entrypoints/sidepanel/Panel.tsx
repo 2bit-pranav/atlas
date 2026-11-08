@@ -6,16 +6,21 @@
  *
  * - pairing with the backend: "Connect" opens Atlas's Browser extension page,
  *   which hands the token to the extension (the background worker keeps it);
- * - attaching the chat to one tab: messages carry that page, which turns on
- *   the page tools, and the store's client calls run in that tab;
- * - switching tabs offers a new chat or re-attaching, never silently reading
- *   another page;
+ * - attaching the chat to one tab: each message carries that page as it is
+ *   when sent (its snapshot: a Google file's text, an article, or the
+ *   accessibility tree), so the model reads it without a tool call; the page
+ *   tools and the store's client calls run in that tab. "Can read" on the
+ *   page card turns this off;
+ * - the chat is always about the tab in front: switch tabs and the next
+ *   message is about that page (no banner asking). While an answer is being
+ *   written it stays on the tab it started on, so its page operations never
+ *   land on another page;
  * - under each answer, the page passages it quoted, highlighted (or marked
  *   as not on the page);
  * - questions from the selection chip and the right-click menu;
- * - a PDF tab (the browser's viewer runs no content script) is sent as a file:
- *   before the chat's first message the PDF is attached, and the pdf skill
- *   reads it (OCR included);
+ * - a PDF tab (the browser's viewer runs no content script), or a PDF on a
+ *   Google Drive file page, is sent as a file: before the chat's first message
+ *   it is attached, and the pdf reader takes it (OCR included);
  * - looking: `page_screenshot` / `page_image` are answered here (capturing a
  *   tab and fetching images are extension powers), and the camera button
  *   attaches a screenshot to the next message;
@@ -26,7 +31,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Camera, ExternalLink, History, Plus, Settings, TextCursorInput } from "lucide-react"
+import { Camera, ExternalLink, History, Plus, Settings } from "lucide-react"
 import * as api from "@/api/client"
 import { atlas, useAtlas } from "@/state/store"
 import { AnswerExtras } from "@/state/slots"
@@ -37,25 +42,29 @@ import { activeTab, viewerUrl, type TabInfo } from "@ext/shared/tab"
 import { dataUrlToFile, screenshot } from "@ext/shared/capture"
 import { Status } from "./status"
 import { isPdf, pdfName, savePdf } from "./actions/pdf"
-import { pageCall } from "./actions/pageCall"
 import { usePendingAsks } from "./hooks/usePendingAsks"
 import { sameUrl } from "./url"
 import { QuoteSources } from "./components/QuoteSources"
 import { Centered } from "./components/Centered"
 import { SettingsView } from "./components/SettingsView"
 import { HistoryView } from "./components/HistoryView"
-import { PageChip } from "./components/PageChip"
-import { suggestFill } from "./actions/suggestFill"
+import { PageCard } from "./components/PageCard"
+import { FileBasket } from "./components/FileBasket"
+import { FollowUps, PanelHome, type PanelAction } from "./components/PanelHome"
+import { ActionNote } from "./components/ActionNote"
+import { bindPage } from "./actions/bindPage"
+import { exportUrl, googleTarget } from "@ext/page/google"
+import { suggestFill, type FillNote } from "./actions/suggestFill"
 
 export function Panel() {
   const [settings, setSettings] = useState<ExtensionSettings | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [showSettings, setShowSettings] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  /** A reopened chat whose page is not this tab, after "Use this tab". */
-  const [keepTab, setKeepTab] = useState<string | null>(null)
   const [current, setCurrent] = useState<TabInfo | null>(null)
   const [attached, setAttached] = useState<TabInfo | null>(null)
+  /** "Can read": each message carries the page. Off, messages are not about it. */
+  const [reading, setReading] = useState(true)
   const chat = useAtlas((s) => s.chat)
   const error = useAtlas((s) => s.error)
 
@@ -104,31 +113,38 @@ export function Panel() {
     }
   }, [])
 
-  // A new, empty chat follows the current tab; a chat with turns stays on its tab.
+  // The chat follows the tab in front, except while an answer is being written:
+  // that run's page operations stay on the page it started on.
+  const running = useAtlas((s) => s.run !== null || s.pending !== null)
   useEffect(() => {
-    if (!current) return
-    if (!chat || chat.turns.length === 0 || current.id === attached?.id) setAttached(current)
-  }, [current, chat, attached?.id])
+    if (current && !running) setAttached(current)
+  }, [current, running])
 
   const blockedReason = settings && attached ? blocked(attached.url, settings.neverRead) : null
   // A PDF in the browser's own viewer: sent as a file. In the Atlas viewer it is a readable page.
   const pdf = attached !== null && !attached.viewer && !blockedReason && isPdf(attached.url)
+  // A file on Google Drive: downloaded with the user's session and attached, like a PDF tab.
+  const drive = attached && !blockedReason ? googleTarget(attached.url) : null
+  const driveId = drive?.app === "drive-file" ? drive.id : null
 
   // The store sends the attached page with each message and runs client calls there.
   // A PDF has no content script: it goes as a file instead, attached once per chat.
   const sentPdfs = useRef(new Set<string>())
   useEffect(() => {
-    const readable = attached && !blockedReason && !pdf
     atlas.origin = attached && !blockedReason ? { url: attached.url, title: attached.title } : null
-    atlas.page = readable ? { url: attached.url, title: attached.title } : null
-    atlas.onClientCall = readable ? (op, args) => pageCall(attached.id, op, args) : null
-    atlas.beforeSend = pdf && attached ? async () => {
+    bindPage(attached && !blockedReason && !pdf ? attached : null, reading)
+    const named = (title: string) => `${title.replace(/\s+-\s+Google Drive$/i, "").replace(/\.pdf$/i, "") || "document"}.pdf`
+    const file = !reading || !attached ? null
+      : pdf ? { url: attached.url, name: pdfName(attached.url) }
+      : driveId ? { url: exportUrl({ app: "drive-file", id: driveId }), name: named(attached.title) }
+      : null
+    atlas.beforeSend = file ? async () => {
       const chatId = atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""
-      if (sentPdfs.current.has(`${chatId}|${attached.url}`)) return
-      await atlas.attachSaved(pdfName(attached.url), (id) => savePdf(id, attached.url))
-      sentPdfs.current.add(`${atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""}|${attached.url}`)
+      if (sentPdfs.current.has(`${chatId}|${file.url}`)) return
+      await atlas.attachSaved(file.name, (id) => savePdf(id, file.url, file.name))
+      sentPdfs.current.add(`${atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""}|${file.url}`)
     } : null
-  }, [attached, blockedReason, pdf])
+  }, [attached, blockedReason, pdf, reading, driveId])
 
   usePendingAsks(status === "ready", setAttached)
 
@@ -150,18 +166,44 @@ export function Panel() {
     })
   }, [status, current])
 
-  /** Reopen a past chat: on its page when that page is the current tab, else with a banner. */
+  /** Reopen a past chat. It goes on about the tab in front, like every chat. */
   const openPast = async (summary: ChatSummary) => {
     setShowHistory(false)
-    setKeepTab(null)
     await atlas.openChat(summary.id)
     if (current) setAttached(current)
   }
-  const [fillStatus, setFillStatus] = useState("")
+  // An action's progress and result (Fill, Key moments): about one page, so another page in front closes it.
+  const [note, setNote] = useState<FillNote | null>(null)
+  useEffect(() => setNote(null), [attached?.id, attached?.url])
+  // Files Fill found for upload fields: kept for the browser session, so they outlive the panel closing.
+  const [basket, setBasket] = useState<api.BasketCard[]>([])
+  useEffect(() => {
+    void browser.storage.session.get("basket").then(({ basket: kept }) => Array.isArray(kept) && setBasket(kept as api.BasketCard[]))
+  }, [])
+  const keepBasket = useCallback((cards: api.BasketCard[]) => {
+    setBasket(cards)
+    void browser.storage.session.set({ basket: cards })
+  }, [])
+  const fill = useCallback((tab: TabInfo) => suggestFill(tab, setNote, (found) =>
+    keepBasket([...found, ...basket.filter((b) => !found.some((f) => f.name === b.name && f.folder === b.folder))])), [basket, keepBasket])
+  /** Key moments: a ready-made turn (chapters, or one model call), not an agent run. The card shows only while it works. */
+  const moments = useCallback(async () => {
+    setNote({ state: "working", title: "Finding the key moments…" })
+    try {
+      await atlas.keyMoments()
+      setNote(null)
+    } catch (error) {
+      setNote({ state: "failed", title: "No key moments", lines: [error instanceof Error ? error.message : String(error)] })
+    }
+  }, [])
+  const act = useCallback((a: PanelAction) => {
+    if (!attached) return
+    void (a === "fill" ? fill(attached) : moments())
+  }, [attached, fill, moments])
 
-  const extras = useMemo(() => (attached && !blockedReason && !pdf
+  const extras = useMemo(() => (attached && !blockedReason && !pdf && reading
     ? (turn: Turn, answer: string) => <QuoteSources turn={turn} answer={answer} tabId={attached.id} />
-    : null), [attached, blockedReason, pdf])
+    : null), [attached, blockedReason, pdf, reading])
 
   if (!settings || status === "loading") return <Centered>Connecting to Atlas…</Centered>
   if (showSettings || status === "unpaired" || status === "offline")
@@ -177,84 +219,46 @@ export function Panel() {
       />
     )
 
-  const elsewhere = chat && chat.turns.length > 0 && current && attached && current.id !== attached.id
-  // A reopened chat about a page that is not the attached tab.
-  const aboutOther = !elsewhere && chat && chat.turns.length > 0 && chat.page_url && attached &&
-    !sameUrl(chat.page_url, attached.url) && keepTab !== chat.id
+  const readable = Boolean(attached && !blockedReason && !pdf)
+  // Ask-next pills under the newest answer, once it is done.
+  const last = chat?.turns.at(-1)
+  const followUps = readable && reading && attached && !running && last?.status === "completed"
+    ? <FollowUps url={attached.url} asked={chat!.turns.map((t) => t.user_text)} onAction={act} />
+    : null
+  const takeScreenshot = async () => {
+    if (!attached) return
+    const shot = await screenshot(attached.id)
+    if ("error" in shot) return void atlas.fail(new Error(shot.error))
+    await atlas.attach_files([dataUrlToFile(`data:image/jpeg;base64,${shot.data}`, "screenshot.jpg")])
+  }
 
   if (showHistory) return <HistoryView onOpen={(c) => void openPast(c)} onClose={() => setShowHistory(false)} />
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="flex items-center gap-2 border-b px-3 py-2">
-        <PageChip tab={attached} blocked={blockedReason} pdf={pdf} />
-        {attached && pdf && (
-          <button type="button" title="Open in the Atlas viewer: read, find and highlight beside this chat"
-                  onClick={() => void browser.tabs.update(attached.id, { url: viewerUrl(attached.url) })}
-                  className="shrink-0 rounded-md border px-2 py-1 text-xs hover:bg-accent">Open in Atlas viewer</button>
-        )}
-        {attached && !blockedReason && !pdf && (
-          <>
-            <button type="button" title="Attach a screenshot of the page to your next message" onClick={async () => {
-              const shot = await screenshot(attached.id)
-              if ("error" in shot) return void atlas.fail(new Error(shot.error))
-              await atlas.attach_files([dataUrlToFile(`data:image/jpeg;base64,${shot.data}`, "screenshot.jpg")])
-            }} className="rounded-md p-1.5 hover:bg-accent"><Camera className="h-4 w-4" /></button>
-            {!attached.viewer && (
-              <button type="button" title="Suggest values for this page's form from your details" onClick={() => void suggestFill(attached, setFillStatus)}
-                      className="rounded-md p-1.5 hover:bg-accent"><TextCursorInput className="h-4 w-4" /></button>
-            )}
-          </>
-        )}
-        <button type="button" title="New chat about this page" onClick={() => {
-          atlas.newChat()
-          if (current) setAttached(current)
-        }} className="rounded-md p-1.5 hover:bg-accent"><Plus className="h-4 w-4" /></button>
-        {chat && (
-          <button type="button" title="Continue in Atlas" onClick={() => void browser.tabs.create({ url: `${settings.base}/c/${chat.id}` })}
-                  className="rounded-md p-1.5 hover:bg-accent"><ExternalLink className="h-4 w-4" /></button>
-        )}
-        <button type="button" title="Browser chats" onClick={() => {
+      <header className="flex h-11 shrink-0 items-center gap-1.5 border-b pl-3 pr-1">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary font-display text-xs font-semibold text-primary-foreground">A</span>
+        <span className="min-w-0 flex-1 truncate font-display text-[15px] font-semibold">{chat?.title || "Atlas"}</span>
+        <HeaderButton label="Chats in the browser" onClick={() => {
           setShowHistory(true)
           void atlas.refreshChats()
-        }} className="rounded-md p-1.5 hover:bg-accent"><History className="h-4 w-4" /></button>
-        <button type="button" title="Settings" onClick={() => setShowSettings(true)}
-                className="rounded-md p-1.5 hover:bg-accent"><Settings className="h-4 w-4" /></button>
+        }}><History className="h-4 w-4" /></HeaderButton>
+        <HeaderButton label="New chat about this page" onClick={() => {
+          atlas.newChat()
+          if (current) setAttached(current)
+        }}><Plus className="h-4 w-4" /></HeaderButton>
+        {chat && (
+          <HeaderButton label="Continue in Atlas" onClick={() => void browser.tabs.create({ url: `${settings.base}/c/${chat.id}` })}>
+            <ExternalLink className="h-4 w-4" />
+          </HeaderButton>
+        )}
+        <HeaderButton label="Settings" onClick={() => setShowSettings(true)}><Settings className="h-4 w-4" /></HeaderButton>
       </header>
-      {elsewhere && (
-        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
-          <span className="min-w-0 flex-1">This chat is about “{attached.title}”. You are on another tab now.</span>
-          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => {
-            atlas.newChat()
-            setAttached(current)
-          }}>New chat here</button>
-          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => setAttached(current)}>
-            Use this tab
-          </button>
-        </div>
-      )}
-      {aboutOther && (
-        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
-          <span className="min-w-0 flex-1">This chat was about “{chat.page_title || chat.page_url}”, not this tab.</span>
-          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={async () => {
-            const open = (await browser.tabs.query({})).find((t) => t.url && sameUrl(t.url, chat.page_url!))
-            const tab = open?.id !== undefined
-              ? await browser.tabs.update(open.id, { active: true })
-              : await browser.tabs.create({ url: chat.page_url! })
-            if (tab?.id !== undefined)
-              setAttached({ id: tab.id, url: chat.page_url!, title: tab.title || chat.page_title || "", favIconUrl: tab.favIconUrl })
-          }}>Open that page</button>
-          <button type="button" className="rounded-md border px-2 py-1 hover:bg-accent" onClick={() => setKeepTab(chat.id)}>
-            Use this tab
-          </button>
-        </div>
-      )}
-      {fillStatus && (
-        <div className="flex items-start gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
-          <span className="min-w-0 flex-1 whitespace-pre-wrap">{fillStatus}</span>
-          <button type="button" onClick={() => setFillStatus("")}>×</button>
-        </div>
-      )}
+      <PageCard tab={attached} blocked={blockedReason} pdf={pdf} reading={reading} onReading={setReading}
+                compact={Boolean(chat && chat.turns.length > 0)}
+                onViewer={() => attached && void browser.tabs.update(attached.id, { url: viewerUrl(attached.url) })}
+                onFill={() => act("fill")} />
+      <FileBasket cards={basket} onClear={() => keepBasket([])} />
       {error && (
         <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <span className="min-w-0 flex-1 whitespace-pre-wrap">{error}</span>
@@ -263,9 +267,28 @@ export function Panel() {
       )}
       <main className="min-h-0 flex-1">
         <AnswerExtras.Provider value={extras}>
-          <ChatScreen />
+          <ChatScreen layout="panel" tail={followUps}
+                      composerTop={note && <ActionNote note={note} onClose={() => setNote(null)} />}
+                      composerExtra={readable && (
+                        <button type="button" aria-label="Attach a screenshot of the page" title="Attach a screenshot of the page" onClick={takeScreenshot}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
+                          <Camera className="h-4 w-4" />
+                        </button>
+                      )}
+                      emptyView={<PanelHome tab={attached && !blockedReason ? attached : null} reading={reading} blocked={blockedReason}
+                                            onOpen={(c) => void openPast(c)} onAction={act} />}
+                      placeholder={reading && attached && !blockedReason ? "Ask about this page…" : "Ask Atlas…"} />
         </AnswerExtras.Provider>
       </main>
     </div>
+  )
+}
+
+function HeaderButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" aria-label={label} title={label} onClick={onClick}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
+      {children}
+    </button>
   )
 }

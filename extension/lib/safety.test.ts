@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { typedState } from "./page/read"
 import { samePlace } from "./shared/settings"
 
-describe("B28: pairing only with the Atlas the extension is set to", () => {
+describe("pairing only with the Atlas the extension is set to", () => {
   it("accepts the address it is set to, written either way", () => {
     expect(samePlace("http://127.0.0.1:8000", "http://127.0.0.1:8000/")).toBe(true)
   })
@@ -16,7 +16,7 @@ describe("B28: pairing only with the Atlas the extension is set to", () => {
   })
 })
 
-describe("B29: what the user typed into a field never reaches the model", () => {
+describe("what the user typed into a field never reaches the model", () => {
   const field = (value: string, defaultValue = "", autocomplete = "", type = "text") =>
     ({ value, defaultValue, autocomplete, type })
 

@@ -7,10 +7,12 @@
 import {
   ApiError,
   type ChatFile,
+  type IngestStatus,
   type ChatSummary,
   type ChatView,
   type McpServer,
   type ModelList,
+  type RecentOutput,
   type RegistryServer,
   type RestartStatus,
   type RunEvent,
@@ -52,6 +54,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+/** A file's bytes (with the token in the header, never in the URL). */
+async function requestBlob(path: string): Promise<Blob> {
+  let response: Response
+  try {
+    response = await fetch(`${BASE}${path}`, { headers: auth() })
+  } catch {
+    throw new ApiError("Cannot reach the Atlas backend. Is `atlas start` running?", 0)
+  }
+  if (!response.ok) throw new ApiError(await describe(response), response.status)
+  return response.blob()
+}
+
 /** FastAPI's `detail` is the message the backend wrote for a person to read. */
 async function describe(response: Response): Promise<string> {
   try {
@@ -81,20 +95,29 @@ export const deleteChat = (id: string) => request<{ deleted: string }>(`/chats/$
 export const exportChat = (id: string) => request<Record<string, unknown>>(`/chats/${id}/export`)
 export const importChat = (data: unknown) => request<ChatSummary>("/chats/import", json("POST", data))
 
+export const ingestStatus = (chatId: string, names: string[]) =>
+  request<Record<string, IngestStatus>>(`/chats/${chatId}/ingest?names=${encodeURIComponent(names.join(","))}`)
+
 export async function uploadFile(chatId: string, file: File): Promise<ChatFile> {
   const form = new FormData()
   form.append("file", file)
   return request<ChatFile>(`/chats/${chatId}/files`, { method: "POST", body: form })
 }
 
-/** A workspace file. `name` may contain folders; each segment is encoded. A URL
- * carries no header, so the extension's token goes in the query. */
+/** A workspace file. `name` may contain folders; each segment is encoded. Never
+ * carries the token: where one is needed (the extension), see `fetchFile`. */
 export function fileUrl(chatId: string, name: string, download = false): string {
-  const query = new URLSearchParams()
-  if (download) query.set("download", "1")
-  if (TOKEN) query.set("token", TOKEN)
-  const qs = query.toString()
-  return `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${qs ? `?${qs}` : ""}`
+  return `${BASE}/chats/${chatId}/files/${name.split("/").map(encodeURIComponent).join("/")}${download ? "?download=1" : ""}`
+}
+
+/** True in the extension: a plain link to the backend would not be let in. */
+export const needsToken = () => Boolean(TOKEN)
+
+/** A workspace file fetched with the token in a header, never in its URL. */
+export async function fetchFile(chatId: string, name: string): Promise<Blob> {
+  const response = await fetch(fileUrl(chatId, name), { headers: auth() })
+  if (!response.ok) throw new ApiError(await describe(response), response.status)
+  return await response.blob()
 }
 /** A PDF by its link (`file://` or web) copied into the chat's workspace by the backend. */
 export const importFile = (chatId: string, url: string) =>
@@ -109,10 +132,16 @@ export const listWorkspace = (chatId: string) => request<WorkspaceFile[]>(`/chat
 export interface PageRef {
   url: string
   title: string
+  /** The page itself, read in the browser and sent with the message (the extension). */
+  content?: string
+  kind?: string
 }
 
 export const send = (chatId: string, body: { text: string; files: ChatFile[]; thinking: boolean; page?: PageRef | null }) =>
   request<StartedRun>(`/chats/${chatId}/messages`, json("POST", body))
+/** A video's key moments as a finished turn, made without an agent run (the side panel's Key moments). */
+export const keyMoments = (chatId: string, page: PageRef) =>
+  request<{ chat: ChatView }>(`/chats/${chatId}/moments`, json("POST", { page }))
 export const retry = (turnId: string, thinking: boolean, page?: PageRef | null) =>
   request<StartedRun>(`/turns/${turnId}/retry`, json("POST", { thinking, page }))
 export const edit = (turnId: string, body: { text: string; files?: ChatFile[]; thinking: boolean; page?: PageRef | null }) =>
@@ -122,8 +151,8 @@ export const answerCall = (runId: string, callId: string, result: Record<string,
   request<unknown>(`/runs/${runId}/calls/${callId}`, json("POST", result))
 export const select = (turnId: string, delta: number) =>
   request<ChatView>(`/turns/${turnId}/select`, json("POST", { delta }))
-export const answerApproval = (runId: string, approvalId: string, allow: boolean) =>
-  request<unknown>(`/runs/${runId}/approvals/${approvalId}`, json("POST", { allow }))
+export const answerApproval = (runId: string, approvalId: string, allow: boolean, scope: "once" | "chat" = "once") =>
+  request<unknown>(`/runs/${runId}/approvals/${approvalId}`, json("POST", { allow, scope }))
 export const cancel = (runId: string) => request<unknown>(`/runs/${runId}/cancel`, json("POST"))
 export const getRun = (runId: string) =>
   request<{ status: string; error: string | null }>(`/runs/${runId}`)
@@ -176,12 +205,32 @@ export const getPairing = () => request<{ token: string; base: string }>("/pairi
 export const getProfile = () => request<{ text: string }>("/profile")
 export const putProfile = (text: string) => request<{ text: string }>("/profile", json("PUT", { text }))
 /** Suggested values for a form's fields; `missing` lists the labels the details do not answer. */
+/** A file Atlas found for an upload field: a reference the extension's basket shows as a card. */
+export interface BasketCard {
+  id: string
+  name?: string
+  folder?: string
+  /** The upload field it was found for. */
+  field?: string
+  size?: number
+  available: boolean
+  /** Why it cannot be used now: moved, outside the allowed folders, expired. */
+  problem?: string | null
+  /** Changed on disk since Fill found it. */
+  changed?: boolean
+}
+
 export const suggestFill = (fields: { id: string; label: string }[], title: string) =>
-  request<{ values: Record<string, string>; missing: string[] }>("/extension/fill", json("POST", { fields, title }))
+  request<{ values: Record<string, string>; missing: string[]; files?: BasketCard[] }>("/extension/fill", json("POST", { fields, title }))
+/** The basket's cards as they are now. */
+export const basketCards = (ids: string[]) => request<BasketCard[]>(`/extension/basket?ids=${ids.map(encodeURIComponent).join(",")}`)
+/** One basket file, for a download. */
+export const basketFile = (id: string) => requestBlob(`/extension/basket/${encodeURIComponent(id)}`)
 export const resetPairing = () => request<{ token: string }>("/pairing/reset", json("POST"))
-/** A web page's table saved as xlsx/csv by the backend; no model involved. */
-export const saveTable = (body: { rows: string[][]; title: string; url: string; format: "xlsx" | "csv"; folder?: string }) =>
-  request<{ path: string; rows: number }>("/extension/table", json("POST", body))
+/** Set (or, empty, clear) the Exa key for web search. Write-only: it is never read back. */
+export const putExaKey = (key: string) => request<{ exa_key_set: boolean }>("/secrets/exa", json("PUT", { key }))
+/** Files runs made lately, across chats (web UI only). */
+export const listOutputs = () => request<RecentOutput[]>("/outputs")
 export const listModels = () => request<ModelList>("/models")
 export const restartStatus = () => request<RestartStatus>("/restart")
 export const restart = () => request<{ ok: boolean }>("/restart", json("POST"))

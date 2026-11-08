@@ -1,5 +1,5 @@
-"""Offline tests for the chat tree (agent/store/chats.py): send, retry, edit,
-version switching and crash recovery."""
+"""The chat tree (agent/store/chats.py): send, retry, edit, version switching
+and crash recovery."""
 
 from __future__ import annotations
 
@@ -103,3 +103,43 @@ def test_delete_chat_returns_its_snapshots(store) -> None:
     _turn(store, chat, "b", a)
     assert sorted(store.delete_chat(chat)) == ["snap-a", "snap-b"]
     assert store.get_chat(chat) is None and store.path(chat) == []
+
+
+def test_the_task_list_carries_each_chats_last_status(store) -> None:
+    chat = store.create_chat("t")["id"]
+    first = store.insert_turn(chat, "a", parent_turn_id=None, before_snap=None)
+    store.finish_turn(first["id"], "failed", error="x")
+    assert next(c for c in store.list_chats() if c["id"] == chat)["last_status"] == "failed"
+
+
+def test_recent_files_are_newest_first_and_once_each(store) -> None:
+    chat = store.create_chat("Invoices")["id"]
+    a = store.insert_turn(chat, "a", parent_turn_id=None, before_snap=None)
+    store.finish_turn(a["id"], "completed", stats={"files": [{"name": "old.xlsx", "size": 1, "change": "created"}]})
+    b = store.insert_turn(chat, "b", parent_turn_id=a["id"], before_snap=None)
+    store.finish_turn(b["id"], "completed", stats={"files": [{"name": "new.docx", "size": 2, "change": "created"},
+                                                             {"name": "old.xlsx", "size": 3, "change": "modified"}]})
+    files = store.recent_files()
+    assert [f["name"] for f in files] == ["new.docx", "old.xlsx"] and files[0]["chat_title"] == "Invoices"
+
+
+def test_a_downloaded_input_is_not_listed_as_made(store) -> None:
+    """read_pdf downloads a linked PDF into the workspace: the run read it, it did not make it."""
+    chat = store.create_chat("Brief")["id"]
+    t = store.insert_turn(chat, "summarise", parent_turn_id=None, before_snap=None)
+    store.finish_turn(t["id"], "completed",
+                      render=[{"kind": "tool", "name": "read_pdf", "args": {"path": "http://127.0.0.1:9/web/brief.pdf"},
+                               "status": "success", "text": ""}],
+                      stats={"files": [{"name": "brief.pdf", "size": 1, "change": "created"},
+                                       {"name": "summary.docx", "size": 2, "change": "created"}]})
+    assert [f["name"] for f in store.recent_files()] == ["summary.docx"]
+
+
+def test_a_file_read_then_edited_is_listed_as_made(store) -> None:
+    """Only a file downloaded to be read is an input; reading then editing an attachment made something."""
+    chat = store.create_chat("Settings")["id"]
+    t = store.insert_turn(chat, "tune it", parent_turn_id=None, before_snap=None)
+    store.finish_turn(t["id"], "completed",
+                      render=[{"kind": "tool", "name": "read_text", "args": {"path": "system.xml"}, "status": "success", "text": ""}],
+                      stats={"files": [{"name": "system.xml", "size": 9, "change": "modified"}]})
+    assert [f["name"] for f in store.recent_files()] == ["system.xml"]

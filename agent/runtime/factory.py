@@ -16,24 +16,32 @@ from strands_harness import create_harness
 
 from agent.config import paths
 from agent.config.settings import Settings
+from agent.ingest.store import store_for
 from agent.integrations.skills.catalog import SkillManager
-from agent.integrations.skills.readers import reader_command
-from agent.model.sampling import RetryPlan, build_model, build_summarizer
+from agent.model.sampling import RetryPlan, build_model
+from agent.model.server import effective as effective_caps
 from agent.platform.windows_shell import WindowsLocalEnvironment, default_environment
-from agent.platform.winpaths import model_path
+from agent.platform.winpaths import shown_in
 from agent.prompt.system import _compose_instructions, _tool_sources
 from agent.recovery.model_retry import LocalModelRetry
 from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
 from agent.runtime.restore import _restore
+from agent.runtime.skill_tools import SkillTools
 from agent.safety.approvals import Approver
+from agent.safety.limits import RunLimits
 from agent.safety.policy import TaintTracker, ToolPolicy
 from agent.safety.protected import Protected
 from agent.safety.scope import Scope
 from agent.store.snapshots import SessionManager
+from agent.tools.doc_reading import doc_read_tools
 from agent.tools.documents.tool import document_tools
+from agent.tools.files import file_tools
+from agent.tools.finding import finding_tools
 from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
+from agent.tools.reading import read_tools
+from agent.tools.web import read_key, web_tools
 
 CONVERSATION_MANAGERS = {
     "null": "NullConversationManager",
@@ -81,6 +89,7 @@ def build_agent(
     observer: Callable[[dict[str, Any]], None] | None = None,
     approver: Approver | None = None,
     sensitive: Callable[[str], bool] | None = None,
+    chat_grants: list | None = None,
     tainted: Callable[[], bool] | None = None,
     untrusted: Callable[[str], bool] | None = None,
     on_taint: Callable[[], None] | None = None,
@@ -97,7 +106,8 @@ def build_agent(
         approver: asks the user (installs, paths outside the allowed folders,
             sensitive MCP tools). Without one, those calls are refused with an
             explanation.
-        sensitive: whether an MCP tool, by its agent-facing name, must ask first.
+        sensitive: whether a tool, by its agent-facing name, must ask first.
+        chat_grants: the chat's "Allow for this chat" answers, kept across turns.
         tainted: whether outside content (a web page, a fetch) has entered the chat.
         untrusted: whether an MCP tool, by its agent-facing name, returns outside content.
         on_taint: called when a tool brings outside content in (`TaintTracker`).
@@ -117,10 +127,22 @@ def build_agent(
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
     enabled = set(tool_manager.atlas_tools())
-    atlas_tools = [t for t in (*document_tools(paths.chat_dir(settings, chat_id), model_path,
-                                               _scope(settings, paths.chat_dir(settings, chat_id)).folders),
+    scope = _scope(settings, workspace_dir)
+    # The tools place a path exactly as the policy checks it: one rule (Scope.place).
+    resolve = scope.place
+    shown = shown_in(workspace_dir)
+    store = store_for(paths.data_dir(settings))
+    atlas_tools = [t for t in (*finding_tools(scope, resolve, shown, store),
+                               *read_tools(resolve, shown, bool(effective_caps(settings)["vision"]), workspace_dir),
+                               *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
+                               *file_tools(resolve, shown),
+                               # Not offered without a key: a tool that only fails wastes a turn.
+                               *(web_tools(paths.data_dir(settings)) if read_key(paths.data_dir(settings)) else []),
                                *maths_tools())
                    if t.tool_name in enabled]
+    # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
+    skill_tools = SkillTools({name: t for name, t in document_tools(
+        workspace_dir, shown, resolve, store, chat_id).items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
@@ -131,16 +153,13 @@ def build_agent(
         # up from `agent.sandbox` with no other change.
         sandbox=sandbox if sandbox is not None else default_environment(
             cwd=paths.chat_dir(settings, chat_id), skills=paths.skills_dir(settings),
-            folders=_scope(settings, workspace_dir).folders),
+            folders=scope.folders),
         instructions=instructions or None,
         session=session_manager,
         skills=[s["path"] for s in skills] or False,
         interventions=tool_manager.interventions(),
         tools=[*tool_manager.extra_tools(), *atlas_tools, *(tools or [])],
-        # A mapping rather than a list, so web_fetch gets its own summarizer.
-        builtin_tools={"*": False, **{name: True for name in builtin},
-                       **({"web_fetch": {"model": build_summarizer(settings)}}
-                          if "web_fetch" in builtin else {})},
+        builtin_tools={"*": False, **{name: True for name in builtin}},
         # The four off-switches, together. Any one of them alone is not enough.
         **memory_manager.harness_args(),
         conversation_manager=build_conversation_manager(settings),
@@ -152,12 +171,14 @@ def build_agent(
         callback_handler=None,
         # Recovery is hooks, not prompt text: see agent/recovery/.
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
-        # Before a tool runs: one ordered policy (policy.py). After: recovery.
-        hooks=[ToolPolicy(_scope(settings, workspace_dir), approver=approver,
+        # Before a tool runs: the run's limits, then one ordered policy
+        # (policy.py), so a refused repeat never shows a card. After: recovery.
+        hooks=[RunLimits(settings.limits, notify=observer),
+               ToolPolicy(scope, approver=approver,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
-                          reader=lambda p: reader_command(settings, p, _shown(
-                              p, workspace_dir, _scope(settings, workspace_dir).folders))),
+                          mode=settings.access.mode, chat_grants=chat_grants),
                ToolFailureRecovery(settings.resilience, notify=observer),
+               skill_tools,
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )
 
@@ -165,6 +186,7 @@ def build_agent(
         agent.sandbox.cancel_signal = agent.cancel_signal  # Stop ends a running command too
     if restore_snapshot_id:
         _restore(agent, session_manager, restore_snapshot_id, instructions)
+    skill_tools.sync(agent)  # the skills earlier turns loaded bring their tools again
 
     return agent
 
@@ -183,23 +205,8 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
         readable=[paths.skills_dir(settings), Path(sys.executable).resolve().parents[1]],
         protected=Protected(root=paths.ROOT, data=paths.data_dir(settings),
                             mcp_config=paths.mcp_config(settings), venv=Path(sys.prefix),
-                            skills=paths.skills_dir(settings)),
+                            skills=paths.skills_dir(settings), workspace=workspace),
     )
-
-
-def _shown(path: str, workspace: Path, folders: list[Path] | None = None) -> str:
-    """A file in the workspace by its bare name (commands start there); a
-    relative path found in an allowed folder in full; else as given."""
-    from agent.platform.winpaths import model_path, windows_path
-    from agent.safety.placement import locate
-
-    if path.lower().startswith(("http://", "https://", "file://")):
-        return path  # a link: the pdf reader takes it as it is
-    found = locate(path, workspace, folders or [])
-    if found is not None and found.parent.resolve() != workspace.resolve():
-        return model_path(found)
-    p = Path(windows_path(path))
-    return p.name if p.parent.resolve() == workspace.resolve() else path
 
 
 __all__ = ["CONVERSATION_MANAGERS", "build_agent", "build_conversation_manager"]

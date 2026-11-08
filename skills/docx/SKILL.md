@@ -1,11 +1,12 @@
 ---
 name: docx
-description: Read, summarise, write and convert Word documents (.docx). Use this whenever a .docx file is attached or mentioned - to summarise it, list its headings, read its tables, turn it into a PDF, or produce a new Word document.
+description: Convert Word documents (.docx) to PDF, write new ones from Markdown, and change paragraphs or table cells in existing ones. Use this to turn a .docx into a PDF, produce a new Word document, or edit one. To read or search a .docx, use the read_docx tool; no skill is needed.
 ---
 
 # Word documents
 
-Use `shell` to run the scripts. Do not write `python-docx` code yourself.
+Reading is the `read_docx` tool, not this skill. Use `shell` to run the
+script below. Do not write `python-docx` code yourself.
 
 ## Convert to PDF
 
@@ -16,31 +17,8 @@ python "$ATLAS_SKILLS/docx/scripts/docx_to_pdf.py" "<file>"
 ```
 
 This needs Microsoft Word or LibreOffice. If the script says neither is
-installed, follow its hint: read the document and create the PDF from that
-Markdown with `create_document`.
-
-## Read
-
-```
-python "$ATLAS_SKILLS/docx/scripts/read_docx.py" "<file>"
-```
-
-Returns the headings, the prose, and every table rendered as a pipe table, in
-document order.
-
-## The outline first, for long documents
-
-```
-python "$ATLAS_SKILLS/docx/scripts/read_docx.py" "<file>" --headings-only
-```
-
-Cheap, and it tells you which section actually answers the question.
-
-## Images
-
-The reader saves the document's images and prints each one as a line like
-`![page 2, image 1](C:/.../page2-1.png)`. To keep an image in a new document,
-put that exact line in `create_document`'s Markdown where it belongs.
+installed, follow its hint: read the document with `read_docx` and create the
+PDF from that Markdown with `create_document`.
 
 ## Create or change a document
 
@@ -57,14 +35,20 @@ with the whole document as **Markdown**:
 | Jan | 489337.15 |
 ```
 
-To change part of an existing file, call **`edit_document`** with the exact
-text to `find` and its `replace`ment. Read the file first and copy the text
-exactly.
+To keep a source document's images, copy the `![...](asset:...)` lines its
+reader printed, exactly.
 
-## Things that bite
+To change an existing document, read it with `read_docx`, then call
+**`edit_docx`** with the id it printed and the new text. A paragraph is `b12`;
+a table cell is `t1.r3.c3` (table 1, row 3, column 3), read off the row
+numbers `read_docx` shows:
 
-- **A table is usually the answer.** Report and contract .docx files put their
-  findings in tables. `read_docx.py` prints them; do not skip straight to prose.
-- **Legacy `.doc` is not supported.** The script says so. Ask the user to save
-  as `.docx` rather than trying to convert it.
-- Output is capped near 1500 tokens and the script says so when it cuts.
+```
+edit_docx(path="report.docx", block="t1.r3.c3", text="18 days")
+```
+
+Change one paragraph or cell per call. Do not rebuild the whole document
+with `create_document` to change part of it: it is saved as a new file and
+everything you did not copy exactly is lost.
+
+Legacy `.doc` is not supported: ask the user to save it as `.docx`.

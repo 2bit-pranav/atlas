@@ -1,7 +1,8 @@
 /**
  * The content script: the page layer's hands in the tab.
  *
- * - Answers the side panel's page operations (read, find, highlight, scroll).
+ * - Answers the side panel's page operations: the snapshot sent with a message
+ *   (`lib/page/snapshot.ts`), read, find, highlight, show an element by its ref.
  * - The selection chip: select text, then Explain / Simplify / Define /
  *   Translate, which opens the panel with that question.
  * - Save table: select text inside a data table and the chip offers xlsx / csv.
@@ -17,16 +18,21 @@
 import { blocked, loadSettings, localHttp, type ExtensionSettings } from "@ext/shared/settings"
 import { selectionChip } from "@ext/ui/chip"
 import * as fill from "@ext/fill/fill"
-import { elements, readable } from "@ext/page/read"
+import { outline, show } from "@ext/page/ax"
+import { snapshot } from "@ext/page/snapshot"
+import { basketDrops } from "@ext/page/basket"
+import { toast } from "@ext/ui/overlay"
 import { tables } from "@ext/page/tables"
 import { imageSrc, images } from "@ext/page/images"
-import { clearHighlights, find, highlight, scrollToQuote } from "@ext/page/highlight"
+import { clearHighlights, find, go, highlight, point, scrollToQuote, type Pointer } from "@ext/page/highlight"
 
 type Op = { type: "atlas:op"; op: string; args: Record<string, unknown> }
 
 export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_idle",
+  // In frames too, for basket drops only: Google Forms' upload dialog is a frame of another Google site.
+  allFrames: true,
   async main() {
     let settings: ExtensionSettings = await loadSettings()
     browser.storage.onChanged.addListener((changes) => {
@@ -35,6 +41,9 @@ export default defineContentScript({
     // After the extension is reloaded or updated, this copy is cut off from it
     // (`runtime.id` goes away) and a fresh one is injected: this one goes quiet.
     const off = () => !browser.runtime?.id || blocked(location.href, settings.neverRead) !== null
+    basketDrops((text, failed) => toast(text, failed, 6000), off)
+    // Everything else is the top page's alone: a frame never answers for the page.
+    if (window !== window.top) return
 
     browser.runtime.onMessage.addListener((message: Op, _sender, reply) => {
       if (message?.type !== "atlas:op") return
@@ -42,11 +51,10 @@ export default defineContentScript({
         reply({ error: blocked(location.href, settings.neverRead) })
         return
       }
-      try {
-        reply(run(message.op, message.args ?? {}))
-      } catch (error) {
-        reply({ error: error instanceof Error ? error.message : String(error) })
-      }
+      // Async (a Google export is fetched): answered when ready, the channel kept open.
+      Promise.resolve().then(() => run(message.op, message.args ?? {}))
+        .then(reply, (error) => reply({ error: error instanceof Error ? error.message : String(error) }))
+      return true
     })
 
     selectionChip(() => settings, off)
@@ -75,16 +83,26 @@ function pairingBridge(orphaned: () => boolean) {
   postMessage({ type: "atlas:ready" }, location.origin)
 }
 
-function run(op: string, args: Record<string, unknown>): Record<string, unknown> {
+async function run(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   switch (op) {
     case "ping":
       return { ok: true }
+    case "snapshot":
+      return { ...(await snapshot(typeof args.focus === "string" ? args.focus : undefined)) }
     case "read": {
       const view = String(args.view ?? "text")
-      const content = view === "elements" ? elements() : view === "tables" ? tables()
-        : view === "images" ? images() : readable()
+      if (view === "text") return { ...(await snapshot()) }
+      const main = document.querySelector("main, [role=main]") ?? document.body
+      const content = view === "elements" ? outline(main, { interactiveOnly: true, max: 12000 })
+        : view === "tables" ? tables() : images()
       return { title: document.title, url: location.href, content }
     }
+    case "show":
+      return show(String(args.ref ?? ""))
+    case "point":
+      return point((args.pointers as Pointer[]) ?? [])
+    case "go":
+      return go(Number(args.index ?? 0))
     case "find":
       return find(String(args.text ?? ""))
     case "highlight":

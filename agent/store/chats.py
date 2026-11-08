@@ -7,12 +7,11 @@ Two tables:
           before_snap, after_snap, status, selected_child,
           render_json, stats_json, refs_json, error, created_at)
 
-`before_snap` and `after_snap` are Strands snapshot ids, and the snapshots are
-the model's history -- the only copy, owned by Strands. `render_json` is what
+`before_snap` and `after_snap` are Strands snapshot ids, which are
+the model's history owned by Strands itself. `render_json` is what
 the *UI* showed for the turn: answer text, reasoning, tool cards with their
 results. It is written once when a run ends and never fed back to the model.
-It exists so opening a chat is one query instead of replaying a snapshot per
-turn, and so reasoning (which Strands never stores) survives a reload.
+It exists so opening a chat is one query.
 
 **The two operations that change the past, and why they differ:**
 
@@ -50,22 +49,11 @@ from pathlib import Path
 from typing import Any
 
 RUNNING = "running"
-
-
 COMPLETED = "completed"
-
-
 FAILED = "failed"
-
-
 CANCELLED = "cancelled"
-
-
 INTERRUPTED = "interrupted"
-
-
 TERMINAL = frozenset({COMPLETED, FAILED, CANCELLED, INTERRUPTED})
-
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS chats (
@@ -112,6 +100,24 @@ def _now() -> int:
 
 class TreeError(Exception):
     """An operation the tree rules forbid. The API turns it into a 409."""
+
+
+#: Tools that only read their path: a file they brought into the workspace (a PDF
+#: read_pdf downloaded) is an input of the run, not something it made.
+_READ_TOOLS = {"read_text", "read_image", "read_pdf", "read_docx", "read_xlsx"}
+
+
+def _downloaded_names(render_json: str | None) -> set[str]:
+    """The file names a turn's read tools downloaded from a link (read_pdf on an https URL).
+    Only those are inputs; a file read and then edited is something the run made."""
+    names: set[str] = set()
+    for part in json.loads(render_json or "[]"):
+        if isinstance(part, dict) and part.get("kind") == "tool" and part.get("name") in _READ_TOOLS:
+            args = part.get("args")
+            path = str(args.get("path") or "").rstrip("/") if isinstance(args, dict) else ""
+            if path.lower().startswith(("http://", "https://")):
+                names.add(path.split("?")[0].split("/")[-1])
+    return names
 
 
 class ChatStore:
@@ -177,7 +183,29 @@ class ChatStore:
         return self.get_chat(cid)  # type: ignore[return-value]
 
     def list_chats(self) -> list[dict[str, Any]]:
-        return self._rows("SELECT * FROM chats ORDER BY updated_at DESC")
+        """Every chat, newest first, with its newest turn's status (the task list's dot)."""
+        return self._rows("SELECT c.*, (SELECT t.status FROM turns t WHERE t.chat_id=c.id "
+                          "ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1) AS last_status FROM chats c ORDER BY updated_at DESC")
+
+    def recent_files(self, limit: int = 6) -> list[dict[str, Any]]:
+        """Files runs made, newest first, once each: {chat_id, chat_title, name, size, change, created_at}."""
+        rows = self._rows("SELECT t.chat_id, c.title, t.stats_json, t.render_json, t.created_at FROM turns t JOIN chats c "
+                          "ON c.id=t.chat_id WHERE t.stats_json LIKE '%\"files\"%' ORDER BY t.created_at DESC, t.rowid DESC LIMIT 100")
+        out: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for r in rows:
+            downloaded = _downloaded_names(r["render_json"])
+            for f in (json.loads(r["stats_json"] or "{}").get("files") or []):
+                key = (r["chat_id"], str(f.get("name")))
+                if key in seen or not f.get("name") or f["name"] in downloaded:   # an input, not something made
+                    continue
+                seen.add(key)
+                out.append({"chat_id": r["chat_id"], "chat_title": r["title"], "name": f["name"],
+                            "size": f.get("size", 0), "change": f.get("change", "created"),
+                            "created_at": r["created_at"]})
+                if len(out) == limit:
+                    return out
+        return out
 
     def get_chat(self, chat_id: str) -> dict[str, Any] | None:
         return self._row("SELECT * FROM chats WHERE id=?", (chat_id,))

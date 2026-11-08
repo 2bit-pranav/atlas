@@ -12,8 +12,16 @@ from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 from agent.platform.winpaths import drive_path, windows_path
 from agent.safety.scope import Scope
 
-#: Tools whose `path` argument is a file path.
-FILE_TOOLS = {"read", "write", "edit", "create_document", "edit_document"}
+#: What each of Atlas's file tools does to its `path`, for the floor and the grid. The
+#: harness `write` is not here: it creates or changes, by whether the file exists.
+TOOL_ACTIONS = {
+    **{name: "read" for name in ("read_text", "read_image", "read_pdf", "read_docx", "read_xlsx",
+                                 "find_files", "list_folder", "copy_file")},
+    "create_document": "create", "edit_docx": "change", "set_cell": "change", "edit": "change",
+    "move_file": "change", "delete_file": "delete",
+}
+#: Tools that also create their `destination` (copy_file reads its `path`, move_file changes it).
+DESTINATION_TOOLS = {"copy_file", "move_file"}
 
 
 #: Absolute Windows paths inside a shell command: `/c/...`, `C:/...` or `C:\\...`,
@@ -72,8 +80,19 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     """The paths a call touches, and whether it writes. Relative paths too: they
     are placed as the tool will place them (`Scope.place`), so `../x` is checked."""
     out: list[tuple[Path, bool]] = []
-    if name in FILE_TOOLS and isinstance(args.get("path"), str) and args["path"]:
-        out.append((scope.place(args["path"]), name != "read"))
+    if (name in TOOL_ACTIONS or name == "write") and isinstance(args.get("path"), str) and args["path"]:
+        out.append((scope.place(args["path"]), TOOL_ACTIONS.get(name) != "read"))
+    if name in DESTINATION_TOOLS and isinstance(args.get("destination"), str) and args["destination"]:
+        out.append((scope.place(args["destination"]), True))
+    if name == "create_document":
+        # Images in the Markdown are files it reads and embeds: checked like any read,
+        # or a document could carry any picture on the disk (or Atlas's own files).
+        for src in _IMAGE.findall(str(args.get("content", ""))):
+            src = src.strip().strip("<>")
+            if src.startswith(("asset:", "http://", "https://", "data:")):
+                continue  # asset: resolves only for the chat that owns it (ingest/store.py)
+            p = Path(windows_path(src)) if src.startswith("/") else Path(src)
+            out.append((p if p.is_absolute() else scope.workspace / p, False))  # as create() places it
     elif name == "shell":
         for raw in _shell_paths(str(args.get("command", ""))):
             out.append((Path(windows_path(_trim(raw))), False))
@@ -82,6 +101,10 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
             if re.match(r"^(?:[A-Za-z]:[/\\]|/[A-Za-z]/)", raw):
                 out.append((Path(windows_path(drive_path(raw))), True))
     return out
+
+
+#: A Markdown image's source: `![caption](source)`.
+_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
 
 def _trim(raw: str) -> str:
@@ -101,4 +124,4 @@ def _strings(value: Any) -> list[str]:
     return []
 
 
-__all__ = ["FILE_TOOLS"]
+__all__ = ["DESTINATION_TOOLS", "TOOL_ACTIONS"]

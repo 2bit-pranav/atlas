@@ -51,11 +51,11 @@ Server-sent events, each `{"seq": n, "type": ...}`:
 | `model_retry` | `reason`, `attempt`, `of` | the last model call is discarded and repeated |
 | `thinking_delta` | `text` | reasoning |
 | `text_delta` | `text` | answer text |
-| `tool_start` | `id`, `name`, `args` | a tool call |
+| `tool_start` | `id`, `name`, `args`, `at` (epoch ms) | a tool call |
 | `tool_args_delta` | `id`, `name`, `args` | arguments still arriving |
-| `tool_end` | `id`, `name`, `status`, `text` | the result |
-| `approval_request` | `id`, `kind` (`install`, `access`, `tool`, `page`), `command`, `folder?`, `access?` (`read`/`write`), `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
-| `approval_result` | `id`, `decision` (`allowed`, `denied`, `expired`) | the answer, or the timeout |
+| `tool_end` | `id`, `name`, `status`, `text`, `at` | the result; the stored part gets `ms`, how long the call took |
+| `approval_request` | `id`, `kind` (`install`, `access`, `tool`, `page`), `command`, `folder?`, `access?` (`read`/`write`), `chat` (Allow for this chat offered), `timeout`, `expires_at` | the tool policy needs the user's answer; the run waits |
+| `approval_result` | `id`, `decision` (`allowed`, `allowed_chat`, `denied`, `expired`) | the answer, or the timeout |
 | `stats` | `context_used`, `context_size`, `prompt_tokens`, `completion_tokens`, `tokens_per_second`, `prompt_per_second`, `model_calls`, `duration_ms` | at most 4/s while generating, and once at the end |
 | `usage` | `input`, `output`, `total` | per model call, from Strands |
 | `done` / `error` | `status`, `message` | always last |
@@ -69,12 +69,14 @@ one); `events.py` translates only the raw one. Translating both is what put
 | Route | |
 |---|---|
 | `GET /health` | `active_run` with its chat title and tokens/s (the start screen's run line) |
-| `GET /chats`, `POST /chats` | list, create |
+| `GET /chats`, `POST /chats` | list (each with its newest turn's `last_status`), create |
+| `GET /outputs` | files runs made lately, across chats, still on disk; inputs a run downloaded to read are left out. Web UI only |
 | `GET /chats/{id}` | the visible path: each turn with `render`, `stats`, `version`, `versions`, and the active run |
 | `PATCH /chats/{id}` | rename |
-| `DELETE /chats/{id}` | the chat, its snapshots and its files |
+| `DELETE /chats/{id}` | the chat, its snapshots, its files, and parsed documents no other chat owns |
 | `GET /chats/{id}/export`, `POST /chats/import` | a chat with every version and its Strands snapshots; an import can be continued |
-| `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace; a file as a download (raster images inline) |
+| `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace (a pdf/docx/xlsx is queued for ingest); a file as a download (raster images inline) |
+| `GET /chats/{id}/ingest?names=a.pdf,b.docx` | how far each attachment's parsing has got: `{name: {status, done, total}}` (the composer's chips; not open to the extension) |
 | `GET /chats/{id}/workspace` | every file in the workspace, newest first. Outlives edits |
 | `POST /chats/{id}/files/import` | `{url}`: a PDF by its link (`file://` copied, `http(s)://` downloaded) into the workspace, as an attachment |
 | `DELETE /chats/{id}/files/{path}` | remove an upload before it is sent |
@@ -83,7 +85,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `POST /turns/{id}/edit` | `{text, files?, thinking}`, destructive → `{run, chat}` |
 | `POST /turns/{id}/select` | `{delta}` → the chat view |
 | `GET /runs/{id}`, `GET /runs/{id}/events`, `POST /runs/{id}/cancel` | |
-| `POST /runs/{id}/approvals/{approval_id}` | `{allow}`: answer an approval request |
+| `POST /runs/{id}/approvals/{approval_id}` | `{allow, scope}`: answer an approval request; `scope: "chat"` counts only where the card offered it |
 | `GET /pairing`, `POST /pairing/reset` | the browser extension's pairing token (not readable by the extension) |
 | `POST /runs/{id}/calls/{call_id}` | the client's result for a `client_call` (a page operation) |
 | `GET /profile`, `PUT /profile` | the user's details for fill suggestions (web UI only; the extension cannot read them) |
@@ -93,6 +95,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `GET /models` | the models in the models folder, which one is running, which is selected |
 | `POST /restart`, `GET /restart` | ask `atlas start` to restart llama-server and the backend; how the last restart went |
 | `GET /settings`, `PUT /settings` | flat dotted keys; any key can be written (RESTART keys are saved, applied at the next start) |
+| `PUT /secrets/exa` | `{key}`: the Exa key for web search (empty clears it). Write-only; `GET /settings` says only `web.exa_key_set` |
 | `GET /skills`, `POST /skills/install`, `POST /skills/upload`, `PUT /skills/{folder}`, `DELETE /skills/{folder}`, `POST /skills/{folder}/requirements` | |
 | `GET /mcp`, `POST /mcp`, `DELETE /mcp/{name}`, `PUT /mcp/{name}`, `POST /mcp/{name}/reconnect`, `PUT /mcp/{name}/tools/{tool}`, `GET /mcp/registry?q=` | a tool's `{mode}` is `on`, `ask` (approve each call) or `off` |
 
@@ -105,7 +108,7 @@ What the model is told, built per run and never stored as `user_text`:
   Images and audio are sent as content blocks after the text instead, so a
   voice recording with an empty prompt is a complete message.
 - **Passages** (`refs`, from the former preview panel; older turns only), with their file's path,
-  ready for `edit_document`.
+  ready for the edit tools.
 - **@ mentions** (`_mention_guidance`): `@name` in the text that matches a
   skill, tool or MCP server becomes an explicit instruction. Resolved at run
   time, so a retry or an edit gets the same one; unknown names are ignored.
@@ -117,12 +120,22 @@ Each run also records the files it created or changed in the workspace
 
 Every request: the Host must be 127.0.0.1 or localhost (no DNS rebinding);
 an Origin must be the web UI's own (the backend's port, or Vite's), or a
-browser extension carrying the pairing token; other sites get 403. A
-cross-site request without an Origin (an image, a `no-cors` fetch) needs the
-token as `?token=`. Local programs send no Origin and pass.
+browser extension carrying the pairing token; other sites get 403. A request
+without an Origin that a browser marks `cross-site`, or `none` on a fetch (what
+Edge sends for an extension's GET), needs the token too. Local programs send no
+fetch metadata and pass; so does an address typed in the address bar.
 
-A message sent with `page: {url, title}` (from the extension) adds the page
-tools to that turn; a page tool emits `client_call {id, op, args}` and waits
+The token is accepted only as `Authorization: Bearer`, never in a URL, and
+opens only what the side panel uses (`EXTENSION_ROUTES`): chats, turns, runs,
+a chat's files, reading settings, and the extension routes. Settings writes,
+MCP, skills, restart, pairing, the profile and chat import/export are the web
+UI's alone. In the panel, images and downloads are fetched with the header and
+shown from a blob (`features/chat/FileLink.tsx`).
+
+A message sent with `page: {url, title, content, kind}` (from the extension)
+carries the page itself (`agent/prompt/page.py`: marked as page content, the chat
+tainted at once, a long page saved to the workspace, an unchanged page not sent
+twice) and adds the page tools to that turn; a page tool emits `client_call {id, op, args}` and waits
 for the POST back, like an approval.
 
 ## The web UI

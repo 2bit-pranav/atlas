@@ -23,10 +23,8 @@ the store per chat, or filter by branch), not a flag; `MemorySettings` refuses
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from agent.config import paths
 from agent.config.settings import Settings
 
 #: All four are required; `memory=False` alone is not enough.
@@ -57,26 +55,6 @@ class MemoryManager:
     def harness_args(self) -> dict[str, Any]:
         """The memory arguments for `create_harness`: always all of `OFF_SWITCHES`."""
         return dict(OFF_SWITCHES)
-
-    def memory_dir(self) -> Path:
-        return paths.ROOT / ".agent" / "memory"
-
-    def verify_off(self) -> dict[str, Any]:
-        """Check the off-switches actually held: no memory files on disk.
-
-        A switch that stopped working would not error, it would quietly start
-        persisting.
-        """
-        directory = self.memory_dir()
-        files = sorted(p.name for p in directory.rglob("*") if p.is_file()) \
-            if directory.exists() else []
-        return {
-            "memory_enabled": self.settings.memory.enabled,
-            "switches": {k: v for k, v in OFF_SWITCHES.items()},
-            "memory_dir": str(directory),
-            "files_present": files,
-            "clean": not files and not self.settings.memory.enabled,
-        }
 
     def describe(self) -> dict[str, Any]:
         return {

@@ -33,6 +33,10 @@
     --code-background: 0.985 0 0;
     --code-foreground: 0.145 0 0;
     --radius: 0.625rem;
+    /* Task status: working, needs you, done. Semantic, never the accent. */
+    --run: 0.62 0.15 250;
+    --ask: 0.72 0.15 75;
+    --ok: 0.6 0.13 155;
   }
 
   .dark {
@@ -52,12 +56,15 @@
     --accent-foreground: 0.985 0 0;
     --destructive: 0.704 0.191 22.216;
     --destructive-foreground: 0.985 0 0;
-    --border: 0.41 0 0;
-    --input: 0.41 0 0;
+    --border: 0.32 0 0;
+    --input: 0.32 0 0;
     --ring: 0.556 0 0;
     --sidebar: 0.2 0 0;
     --code-background: 0.225 0 0;
     --code-foreground: 0.875 0 0;
+    --run: 0.72 0.13 250;
+    --ask: 0.8 0.14 80;
+    --ok: 0.74 0.13 155;
   }
 
   * {

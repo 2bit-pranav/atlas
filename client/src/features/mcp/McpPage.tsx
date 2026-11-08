@@ -210,13 +210,13 @@ function ServerCard({ server, onToggle, onReconnect, onDelete, onTool, onEdit }:
   )
 }
 
-/** On / ask / off for one tool. "Ask" means the user approves every call. */
+/** On / ask / off for one tool. "Ask" (the default) means the user approves each call, or a chat's. */
 function ModeSwitch({ value, onChange }: { value: ToolMode; onChange: (m: ToolMode) => void }) {
   return (
     <span className="inline-flex shrink-0 rounded-md border p-0.5 text-[11px]">
       {(["on", "ask", "off"] as const).map((m) => (
         <button key={m} type="button" onClick={() => onChange(m)} title={
-          m === "ask" ? "Ask before every call" : m === "on" ? "Use freely" : "Hidden from the agent"}
+          m === "ask" ? "Ask first (Allow once, or for the task)" :m === "on" ? "Use freely" : "Hidden from the agent"}
                 className={cn("rounded px-1.5 py-0.5 capitalize",
                               value === m ? "bg-accent font-medium text-foreground" : "text-muted-foreground")}>
           {m}

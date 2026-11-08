@@ -83,7 +83,11 @@ const components: Components = {
     if (!block) return <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em]">{children}</code>
     return <CodeBlock className={className}>{children}</CodeBlock>
   },
-  a: ({ href, children }) => (
+  // An element on the page the model pointed at by its ref ("[Apply](e12)"): not an address.
+  // Its Go to button is under the answer (the extension); here it is only named.
+  a: ({ href, children }) => /^e\d+$/.test(href ?? "") ? (
+    <span className="font-medium underline decoration-dotted underline-offset-2">{children}</span>
+  ) : (
     <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
       {children}
     </a>

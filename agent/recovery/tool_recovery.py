@@ -60,8 +60,9 @@ class ToolFailureRecovery(HookProvider):
         if event.exception is not None and event.cancel_message is None:
             if self._crashes[use_id] < self.settings.tool_crash_retries:
                 self._crashes[use_id] += 1
-                logger.info("tool %s raised %s; re-running", event.tool_use.get("name"),
-                            type(event.exception).__name__)
+                # With the traceback: the bare type ("raised ValueError") could not be traced (2026-11-07).
+                logger.warning("tool %s raised %s; re-running", event.tool_use.get("name"),
+                               type(event.exception).__name__, exc_info=event.exception)
                 event.retry = True
                 return
 

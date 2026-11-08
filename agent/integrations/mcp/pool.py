@@ -13,8 +13,9 @@ server once, holds it open as a permanent consumer, and gives each turn the
 server's individual tool objects. A turn's agent never owns a connection.
 
 **Per-tool modes: on, ask, off.** "Off" is stored in the server's standard
-`tool_filters.rejected` list; "ask" (the user must Allow each call, see
-`policy.py`) in an Atlas-only `atlas.ask` list. The pool connects *without*
+`tool_filters.rejected` list; "on" (runs without asking) in an Atlas-only
+`atlas.on` list; every other tool is "ask" (the user allows each call, or
+all of a chat's, see `policy.py`). The pool connects *without*
 either, so the UI can still list a switched-off tool and switch it back on;
 filtering happens when a turn's tool list is built, and changing a mode needs
 no reconnect.
@@ -84,12 +85,13 @@ class _Server:
         return {str(n) for n in filters.get("rejected") or [] if isinstance(n, str)}
 
     @property
-    def ask(self) -> set[str]:
+    def on(self) -> set[str]:
         atlas = self.config.get("atlas") or {}
-        return {str(n) for n in atlas.get("ask") or [] if isinstance(n, str)}
+        return {str(n) for n in atlas.get("on") or [] if isinstance(n, str)}
 
     def mode(self, tool: str) -> str:
-        return "off" if tool in self.rejected else "ask" if tool in self.ask else "on"
+        """A tool asks unless the user set it On: a server's tools are code Atlas did not write."""
+        return "off" if tool in self.rejected else "on" if tool in self.on else "ask"
 
     def describe(self) -> dict[str, Any]:
         tools = []
@@ -130,7 +132,7 @@ def _label(tool: Any, server: str) -> None:
     """Prefix the description the model sees with the tool's server.
 
     Without it an MCP tool is just another name in the list, and asked to
-    "use the MCP fetch tool" the model reached for the built-in web_fetch or
+    "use the MCP fetch tool" the model reached for a built-in tool or
     went looking for a skill. The label is also how `mcp_server_of` finds a
     tool's server again when the prompt's tool list is built.
     """
@@ -447,8 +449,9 @@ class McpManager:
         rejected = {t for t in filters.get("rejected") or [] if t != tool} | ({tool} if mode == "off" else set())
         filters["rejected"] = sorted(rejected)
         atlas = dict(servers[name].get("atlas") or {})
-        ask = {t for t in atlas.get("ask") or [] if t != tool} | ({tool} if mode == "ask" else set())
-        atlas["ask"] = sorted(ask)
+        atlas.pop("ask", None)   # the old list of tools that asked; asking is now the default
+        on = {t for t in atlas.get("on") or [] if t != tool} | ({tool} if mode == "on" else set())
+        atlas["on"] = sorted(on)
         servers[name] = {**servers[name], "tool_filters": filters, "atlas": atlas}
         self._write_config(servers)
         with self._lock:

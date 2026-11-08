@@ -49,7 +49,7 @@ export function fold(live: LiveTurn, event: RunEvent): void {
       return append(parts, "text", event.text)
     case "tool_start":
       parts.push({ kind: "tool", id: event.id, name: event.name, args: event.args ?? {},
-                   status: "running", text: "" })
+                   status: "running", text: "", started: event.at })
       return
     case "tool_args_delta":
       updateTool(parts, event.id, (p) => ({ ...p, args: event.args }))
@@ -57,11 +57,12 @@ export function fold(live: LiveTurn, event: RunEvent): void {
     case "tool_end":
       updateTool(parts, event.id, (p) => ({
         ...p, status: event.status === "error" ? "error" : "success", text: event.text,
+        ...(p.started && event.at ? { ms: event.at - p.started } : {}),
       }))
       return
     case "approval_request":
       parts.push({ kind: "approval", id: event.id, request: event.kind, folder: event.folder ?? null,
-                   access: event.access ?? null, command: event.command, status: "pending", expires_at: event.expires_at })
+                   access: event.access ?? null, chat: event.chat ?? false, command: event.command, status: "pending", expires_at: event.expires_at })
       return
     case "approval_result":
       for (let i = 0; i < parts.length; i++) {

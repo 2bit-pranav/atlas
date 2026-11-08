@@ -1,19 +1,25 @@
+import { useContext } from "react"
 import { Pencil, Quote } from "lucide-react"
 import { atlas, useAtlas } from "@/state/store"
-import { fileUrl } from "@/api/client"
-import type { ChatFile, Ref, Turn } from "@/api/types"
+import { FileImage, FileLink } from "@/features/chat/FileLink"
+import type { ChatFile, Part, Ref, Turn, TurnStats } from "@/api/types"
 import { cn } from "@/lib/cn"
 import { Composer } from "@/features/composer/Composer"
 import { formatBytes } from "@/lib/format"
 import { fullTime, timeAgo, useNow } from "@/lib/time"
 import { Action, CopyButton } from "@/features/chat/MessageActions"
+import { PanelLayout, TaskLayout } from "@/features/task/layout"
+import { TaskStatus } from "@/features/task/TaskStatus"
 
 // ------------------------------------------------------------------ user --
 
-export function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
+export function UserMessage({ turn, chatId, editing, setEditing, laterCount, parts, stats }: {
   turn: Turn; chatId: string; editing: boolean; setEditing: (v: boolean) => void; laterCount: number
+  parts: Part[]; stats: TurnStats | null
 }) {
-  const busy = useAtlas((s) => s.run !== null)
+  const busy = useAtlas((s) => s.run !== null || s.pending !== null)
+  const task = useContext(TaskLayout)
+  const panel = useContext(PanelLayout)
 
   if (editing) {
     return (
@@ -38,6 +44,45 @@ export function UserMessage({ turn, chatId, editing, setEditing, laterCount }: {
             <button type="button" onClick={() => setEditing(false)} className="rounded-md px-3 py-1 hover:bg-accent">Cancel</button>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (panel) {
+    // The side panel: a compact bubble; copy and edit on hover, no time.
+    return (
+      <div className="group/request mt-5 flex flex-col items-end gap-1 first:mt-1">
+        {turn.files.length > 0 && <Attachments files={turn.files} chatId={chatId} />}
+        {turn.user_text && (
+          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[14px] rounded-br-[4px] bg-muted px-3 py-1.5 text-[13.5px] leading-relaxed">
+            <WithMentions text={turn.user_text} />
+          </div>
+        )}
+        <div className="flex h-5 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/request:opacity-100">
+          <CopyButton text={turn.user_text} />
+          <Action label="Edit" onClick={() => setEditing(true)} disabled={busy}><Pencil className="h-3 w-3" /></Action>
+        </div>
+      </div>
+    )
+  }
+
+  if (task) {
+    // The task view: the request as plain text under its state, not a bubble.
+    return (
+      <div className="group/request mt-12 grid gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <TaskStatus turn={turn} parts={parts} stats={stats} />
+          <span>You asked, <SentAt at={turn.created_at} /></span>
+          <span className="ml-auto flex items-center gap-1 transition-opacity focus-within:opacity-100 md:opacity-0 md:group-hover/request:opacity-100">
+            <CopyButton text={turn.user_text} />
+            <Action label="Edit" onClick={() => setEditing(true)} disabled={busy}><Pencil className="h-3 w-3" /></Action>
+          </span>
+        </div>
+        {turn.files.length > 0 && <Attachments files={turn.files} chatId={chatId} align="start" />}
+        {turn.refs?.length > 0 && <RefChips refs={turn.refs} />}
+        {turn.user_text && (
+          <p className="whitespace-pre-wrap break-words text-base leading-relaxed"><WithMentions text={turn.user_text} /></p>
+        )}
       </div>
     )
   }
@@ -96,26 +141,25 @@ function RefChips({ refs }: { refs: Ref[] }) {
   )
 }
 
-function Attachments({ files, chatId }: { files: ChatFile[]; chatId: string }) {
+function Attachments({ files, chatId, align = "end" }: { files: ChatFile[]; chatId: string; align?: "start" | "end" }) {
   return (
-    <div className="flex max-w-[80%] flex-wrap justify-end gap-2">
+    <div className={cn("flex max-w-[80%] flex-wrap gap-2", align === "end" ? "justify-end" : "justify-start")}>
       {files.map((f) => {
         const image = f.type.startsWith("image/")
         const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE"
         return image ? (
-          <a key={f.path} href={fileUrl(chatId, f.name)} target="_blank" rel="noreferrer"
-             className="overflow-hidden rounded-lg bg-muted shadow-lg">
-            <img src={fileUrl(chatId, f.name)} alt={f.name} className="max-h-40" />
-          </a>
+          <FileLink key={f.path} chatId={chatId} name={f.name} className="overflow-hidden rounded-lg bg-muted shadow-lg">
+            <FileImage chatId={chatId} name={f.name} className="max-h-40" />
+          </FileLink>
         ) : (
-          <a key={f.path} href={fileUrl(chatId, f.name, true)} title="Download"
+          <FileLink key={f.path} chatId={chatId} name={f.name} download title="Download"
              className="flex items-center gap-3 rounded-lg border bg-muted p-2.5 text-left hover:bg-accent">
             <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">{ext}</span>
             <span className="min-w-0">
               <span className="block max-w-40 truncate text-sm font-medium">{f.name}</span>
               <span className="block text-xs text-muted-foreground">{formatBytes(f.size)}</span>
             </span>
-          </a>
+          </FileLink>
         )
       })}
     </div>

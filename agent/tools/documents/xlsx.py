@@ -1,5 +1,5 @@
-"""Excel: Markdown tables (or CSV lines) as sheets, checking the file, and
-replacing text in cells."""
+"""Excel: Markdown tables (or CSV lines) as sheets, checking the file, and the
+value a cell is given (number, or text that stays text)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent.tools.documents.base import DocumentError, _require
+from agent.tools.documents.base import DocumentError
 from agent.tools.documents.markdown import Block, Run, plain
 
 # --------------------------------------------------------------- xlsx --
@@ -30,7 +30,7 @@ def _cell_value(text: str) -> Any:
 
 
 def _as_text(cell: Any) -> None:
-    """B19: text starting with `=` stays text. A formula runs when the user opens
+    """Text starting with `=` stays text. A formula runs when the user opens
     the file, and the text may come from a web page (formula injection)."""
     if cell.data_type == "f":
         cell.data_type = "s"
@@ -104,23 +104,6 @@ def _check_xlsx(path: Path) -> None:
     from openpyxl import load_workbook
 
     load_workbook(str(path), read_only=True).close()
-
-
-def _edit_xlsx(src: Path, dst: Path, find: str, replace: str, replace_all: bool) -> int:
-    from openpyxl import load_workbook
-
-    wb = load_workbook(str(src))
-    cells = [c for ws in wb.worksheets for row in ws.iter_rows() for c in row
-             if isinstance(c.value, str) and find in c.value]
-    n = sum(c.value.count(find) for c in cells)
-    _require(n, replace_all, find, [str(c.value) for c in cells])
-    for c in cells if replace_all else cells[:1]:
-        was_formula = c.data_type == "f"   # the user's own formula stays one
-        c.value = _cell_value(c.value.replace(find, replace, -1 if replace_all else 1))
-        if not was_formula:
-            _as_text(c)
-    wb.save(str(dst))
-    return n if replace_all else 1
 
 
 __all__ = []

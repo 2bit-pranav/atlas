@@ -21,6 +21,13 @@ export interface ChatFile {
   type: string
 }
 
+/** How far an attachment's parsing has got (GET /chats/{id}/ingest). Pages count a PDF's. */
+export interface IngestStatus {
+  status: "queued" | "reading" | "ready" | "failed"
+  done: number
+  total: number
+}
+
 export interface ChatSummary {
   id: string
   title: string
@@ -32,6 +39,8 @@ export interface ChatSummary {
   page_title?: string
   /** Outside content (a web page, a fetch, an untrusted MCP server) has entered the chat. */
   tainted?: number | boolean
+  /** Its newest turn's status: the task list's dot. */
+  last_status?: TurnStatus | null
 }
 
 export type Part =
@@ -46,6 +55,9 @@ export type Part =
       args: unknown
       status: "running" | "success" | "error"
       text: string
+      /** Epoch ms the call began, and how long it took (runs since 2026-11-06). */
+      started?: number
+      ms?: number
     }
   | {
       /** The agent is waiting for the user to allow or deny something. */
@@ -56,8 +68,10 @@ export type Part =
       folder?: string | null
       /** For a folder request: what Allow grants, reading only or also changing. */
       access?: "read" | "write" | null
+      /** Whether "Allow for this task" (the whole chat) is offered (never after outside content, for a delete or a command). */
+      chat?: boolean
       command: string
-      status: "pending" | "allowed" | "denied" | "expired"
+      status: "pending" | "allowed" | "allowed_chat" | "denied" | "expired"
       expires_at: number
     }
 
@@ -66,6 +80,16 @@ export interface Ref {
   file: string
   path: string | null
   quote: string
+}
+
+/** A file a run made, for the home page's "Recently made" (GET /outputs). */
+export interface RecentOutput {
+  chat_id: string
+  chat_title: string
+  name: string
+  size: number
+  change: "created" | "modified"
+  created_at: number
 }
 
 /** A file the run created or changed, for the download chips. */
@@ -134,12 +158,12 @@ export type RunEvent = { seq: number } & (
   | { type: "resumed"; reason: string }
   | { type: "thinking_delta"; text: string }
   | { type: "text_delta"; text: string }
-  | { type: "tool_start"; id: string; name: string; args: unknown }
+  | { type: "tool_start"; id: string; name: string; args: unknown; at?: number }
   | { type: "tool_args_delta"; id: string; name: string | null; args: unknown }
-  | { type: "tool_end"; id: string; name: string; status: string; text: string }
+  | { type: "tool_end"; id: string; name: string; status: string; text: string; at?: number }
   | { type: "approval_request"; id: string; kind: "install" | "access" | "tool" | "page"; command: string; folder?: string; access?: "read" | "write";
-      timeout: number; expires_at: number }
-  | { type: "approval_result"; id: string; decision: "allowed" | "denied" | "expired" }
+      chat?: boolean; timeout: number; expires_at: number }
+  | { type: "approval_result"; id: string; decision: "allowed" | "allowed_chat" | "denied" | "expired" }
   | { type: "tainted" }
   /** The backend asks the client to do something (the extension: a page operation). */
   | { type: "client_call"; id: string; op: string; args: Record<string, unknown> }
@@ -219,11 +243,20 @@ export interface RegistryServer {
 }
 
 /** A model in the models folder (one subfolder each). */
+export interface ModelCaps {
+  vision: boolean | null
+  audio: boolean | null
+  thinking: boolean | null
+  /** The longest context the model was trained for. */
+  context: number | null
+}
+
 export interface LocalModel {
   name: string
   file: string
   mmproj: string | null
   bytes: number
+  caps: ModelCaps
 }
 
 export interface ModelList {
@@ -254,6 +287,10 @@ export interface SettingsView {
   paths: { root: string; data: string }
   /** What the loaded model takes in, from llama-server's /props. */
   modalities: { vision?: boolean; audio?: boolean }
+  /** What the running model can do, read from its files (null: unknown). */
+  model?: ModelCaps
+  /** Whether an Exa key is set; the key itself never leaves the backend. */
+  web?: { exa_key_set: boolean }
 }
 
 export interface SkillInstallResult {

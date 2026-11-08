@@ -1,0 +1,21 @@
+things to try from the UI once the new layout is in. most need a folder added under Settings > Access first
+
+1. whats on my resume? just the skills part, i dont remember what i put
+
+2. i have some invoices somewhere in downloads, can you put them all in an excel sheet with who its from, the amount and the date. save it in my documents
+
+3. who won the physics nobel last year and what was it for. give me links
+
+4. find the lab reports from last week and merge them into one pdf, the first one goes first
+
+5. change the deadline in the project plan word doc from friday to next monday
+
+6. how many working days do i have from today till the end of december
+
+7. read this and tell me if its worth reading https://peps.python.org/pep-0008/
+
+8. clean up my downloads, delete the old installers and zip files
+
+9. compare the two versions of the supplier contract and tell me what changed, make it a word doc
+
+10. whats the latest stable version of python and when did it come out

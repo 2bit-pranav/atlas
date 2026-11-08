@@ -1,32 +1,22 @@
-"""B5: page taint belongs to the chat and covers every source of outside content.
+"""Page taint belongs to the chat and covers every source of outside content.
 
 Before: taint was a flag on one run. On the next message the page text was
-still in the conversation but nothing asked any more, and `web_fetch` or a
+still in the conversation but nothing asked any more, and a
 web-reading MCP server never tainted at all.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from mcp import types as mcp_types
-from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
+from helpers import mcp_tool, settings_file
 
 from agent.integrations.mcp.pool import FOLDERS, McpManager, _Server
 from agent.safety.policy import TaintTracker
 from agent.store.chats import ChatStore
 from server.state import Atlas
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _mcp(name: str) -> MCPAgentTool:
-    tool = mcp_types.Tool(name=name, description="", inputSchema={"type": "object"})
-    return MCPAgentTool(tool, SimpleNamespace(), name_override=name)
 
 
 def _after(name: str, tool=None) -> SimpleNamespace:
@@ -46,15 +36,14 @@ def test_taint_is_stored_on_the_chat(tmp_path) -> None:
         store.close()
 
 
-def test_web_fetch_and_untrusted_mcp_tools_taint() -> None:
+def test_untrusted_mcp_tools_taint() -> None:
     hits: list[str] = []
     tracker = TaintTracker(untrusted=lambda name: name == "ddg_fetch_content", on_taint=lambda: hits.append("x"))
-    tracker._after_tool(_after("read"))                                   # a local file: no
-    tracker._after_tool(_after("filesystem_read", _mcp("filesystem_read")))  # trusted MCP: no
+    tracker._after_tool(_after("read_text"))                                 # a local file: no
+    tracker._after_tool(_after("filesystem_read", mcp_tool("filesystem_read")))  # trusted MCP: no
     assert hits == []
-    tracker._after_tool(_after("web_fetch"))
-    tracker._after_tool(_after("ddg_fetch_content", _mcp("ddg_fetch_content")))
-    assert len(hits) == 2
+    tracker._after_tool(_after("ddg_fetch_content", mcp_tool("ddg_fetch_content")))
+    assert len(hits) == 1
 
 
 def test_which_mcp_servers_are_trusted() -> None:
@@ -78,11 +67,7 @@ def test_which_mcp_servers_are_trusted() -> None:
 
 @pytest.fixture
 def atlas(tmp_path):
-    settings = json.loads((ROOT / "settings.example.json").read_text(encoding="utf-8"))
-    settings["paths"] = {"data_dir": str(tmp_path / "data")}
-    settings["mcp"]["config"] = str(tmp_path / "mcp.json")
-    path = tmp_path / "settings.json"
-    path.write_text(json.dumps(settings), encoding="utf-8")
+    path = settings_file(tmp_path)
     state = Atlas(path)
     yield state
     state.close()

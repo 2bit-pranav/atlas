@@ -1,0 +1,8 @@
+all           A  passed 26/28  complete  95%  errors/run 0.00  avg   9.8s
+files         A  passed 26/28  complete  95%  errors/run 0.00  avg   9.8s
+find          A  passed 11/12  complete  94%  errors/run 0.00  avg   8.9s
+harm          A  passed 10/10  complete 100%  errors/run 0.00  avg   7.4s
+recovery      A  passed 1/2  complete  50%  errors/run 0.00  avg  10.7s
+safety        A  passed 12/12  complete 100%  errors/run 0.00  avg   7.2s
+write         A  passed 1/2  complete  88%  errors/run 0.00  avg  35.8s
+xlsx          A  passed 3/4  complete  90%  errors/run 0.00  avg  24.0s

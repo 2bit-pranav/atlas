@@ -25,13 +25,16 @@ src/
   state/store.ts             the single source of truth (see below)
   state/prefs.ts             display preferences, per browser (theme, Enter sends, ...)
   state/slots.ts             slots the extension fills (AnswerExtras)
-  features/chat/             ChatScreen, TurnRow, UserMessage, AssistantMessage, ApprovalCard,
+  features/task/             the web app's task view: TaskHome (the new task page), WorkPanel (progress,
+                             files, sources beside the answer), steps.ts (tool calls as plain steps),
+                             layout.ts (TaskLayout context)
+  features/chat/             ChatScreen, TurnRow, UserMessage, AssistantMessage, ApprovalCard (approvalText.ts),
                              Reasoning, StatsBar, MessageActions, Markdown, ToolBlock, ContextGauge;
                              transcript.ts (fold run events into parts; mirrors server/transcript.py)
   features/composer/         Composer, FileChip, MentionMenu; audio.ts (record the microphone,
                              re-encode as 16 kHz mono WAV)
-  features/settings/         SettingsPage, FieldRow, layout, sections/ (General, SkillsAndMcp,
-                             Conversations, Shortcuts); schema.ts (how settings.json is grouped)
+  features/settings/         SettingsPage, FieldRow, layout, sections/ (General, Conversations,
+                             Shortcuts); schema.ts (how settings.json is grouped)
   features/skills/, mcp/, extension-page/   the Skills, MCP and Browser extension pages
   components/ui/             one component per file: Button, Switch, Notice, Empty, PageShell, Kbd, tip
   lib/                       cn.ts, format.ts, download.ts, time.ts, shortcuts.ts (the shortcut table)
@@ -63,8 +66,7 @@ Taken from llama.cpp's source, not screenshots:
 - **Palette:** `index.css`. shadcn "neutral" in oklch, with llama.cpp's darker
   light-mode border and darker dark background. Tokens are "L C H" triples so
   Tailwind opacity modifiers work (`bg-muted/60`).
-- **Layout:**
-  - floating rounded sidebar, 288px, collapsing to a 48px icon rail;
+- **Layout** (the extension's chat layout; the web app's task view below differs):
   - 48rem chat column;
   - "Hello there" greeting with the composer centred while empty.
 - **Composer:** `INPUT_CLASSES`, pill radius, + menu, context gauge (20px ring,
@@ -74,7 +76,10 @@ Taken from llama.cpp's source, not screenshots:
   - user bubble `bg-primary/5`;
   - assistant answers without a bubble;
   - always-visible action icons;
-  - "Reasoning..." shimmer while streaming, collapsed when done;
+  - "Reasoning..." shimmer while streaming, collapsed until clicked (also while it streams);
+  - tool calls as compact lines (status, name, what it acted on), a run of them folded
+    under one summary line ("3 tool calls · read_pdf, read_docx · 1 failed"); a click opens
+    the arguments and output (`ToolBlock.tsx`);
   - stats badges ("N tokens", time, "X.XX t/s").
 - **Inline edit:** the composer replaces the message in place. Escape cancels.
 - **Settings search** filters every field across all sections.
@@ -89,11 +94,13 @@ Where Atlas differs on purpose:
 - Regenerate appears on the last answer only.
 - Skills and MCP are full pages.
 
-Settings are ordered by what changes results most: Agent, Skills & MCP,
-Access, Model; Recovery & context, Generation, and Server & storage are under
-Advanced. "Restart now" appears at the top of Settings only when saved settings
-wait for a restart or the last restart failed; it applies a new model or any
-other restart setting, and a notice shows on every page while it runs.
+Settings are ordered by what changes results most: Agent, Access, Model;
+Recovery & context, Generation, and Server & storage are under Advanced (Skills
+and MCP are switched on their own pages). One bar at the bottom of every
+settings page saves, then, while saved settings wait for a restart, names them
+with **Restart now** until the restart has happened; the button spins while it
+runs and becomes Try again if it failed. No banners. During a restart Send is
+disabled and the sidebar card says "Restarting…".
 
 Shared with the browser extension: `api.configureApi({base, token})` (the
 extension's backend and pairing token), `atlas.page` and `atlas.onClientCall`
@@ -103,14 +110,58 @@ them. The Browser extension page (`features/extension-page/ExtensionPage.tsx`, `
 the extension and connects it with `postMessage` (`atlas:hello`, `atlas:pair`;
 the content script answers `atlas:here`), and holds "Your details".
 
-Developer mode (Settings > General, a per-browser pref) shows the Advanced
-settings sections and the raw pairing token; it is off by default.
+"Show advanced settings" (Settings > General, a per-browser pref) shows the Advanced
+sections, the model overrides and the raw pairing token; it is off by default.
+
+The tab's icon (`app/favicon.ts`) is the A mark with a dot: blue and pulsing
+while a task works, amber when it needs the user, green when one finished while
+the tab was in the background (until the tab is seen).
 
 Control: Settings > Access holds the allowed folders, whether to ask outside
 them, and the approval timeout. The MCP page sets each tool On / Ask / Off.
-Approval cards in the chat are titled by kind (install, access, tool). The
+Approval cards ask in plain words ("OK to save invoices.xlsx in Reports?");
+a file operation keeps its exact path under Details, while a command, an
+install or anything after outside content always shows what runs. The
 Skills page shows each requirement as installed or missing, with one button
 for the missing ones.
+
+## The task view (web app only)
+
+The web app shows a chat as a task (`ChatScreen layout="task"`); the
+extension's side panel keeps the chat layout, so nothing there changed.
+
+- **Home:** "What should Atlas do?", the composer, starters that prefill it
+  (`atlas.prefillComposer`), "Recently made" (`GET /api/outputs`, files runs
+  made, never the inputs they downloaded) and the folders Atlas may use.
+- **A task:** the conversation on the left; on wide screens (`lg`) a work
+  panel on the right with what needs the user, the steps, the files made and
+  read, the web sources, and with Details on (a per-browser pref) the tool
+  calls, every file read and the run's stats. On narrow screens the panel is
+  hidden and tool lines, approvals and files stay inline, as before.
+- **The panel covers the whole task:** every turn is a line with its question,
+  the newest open, each expanding to its steps; Files holds the cards of what any
+  turn made or changed (a file changed again shows once, newest; only a file
+  downloaded in order to be read is left out); Sources collects every turn's.
+- **One Reasoning per stretch of work:** between two answer texts, the
+  reasoning of every model call is one block and the tool calls one group
+  (`features/chat/items.ts`), client-side only. The chat layout keeps each in place.
+- **Steps** come from `steps.ts`: each tool has a template filled from its
+  arguments and result ("Read 3 invoices", "Saved invoices.xlsx", "Did not
+  delete X · You said no"), consecutive calls of one tool are one step, and
+  Atlas's plumbing (loading a skill) shows only with Details. No model call.
+- **The task list** in the sidebar has a dot per task: working, needs you,
+  done, failed, stopped (`last_status` on `GET /chats`).
+- **The look** is the approved mockup's: a flat 248px task rail (brand, New task, pages,
+  tasks with a dot and a short time, and a footer card with the model and the access mode
+  (`app/ModeCard.tsx`: global, read when each message starts; switching to Work asks
+  first); collapses to 48px), a top
+  bar with the task's name, the request as plain text under its status pill ("Done · 0:41"),
+  the answer under a rule headed "Atlas", a squarer composer (+ and "Think first" on the
+  left; the context ring, mic and Send or Start on the right), and a sidebar-tinted work
+  panel whose Files and Sources fold past three items. Status colours are tokens (`run`, `ask`,
+  `ok` in `index.css`), never the accent. Step times show under Details.
+- **Type:** Inter for text, Poppins (`font-display`) for the app's own headings,
+  both bundled from npm (`@fontsource`): no request to Google Fonts.
 
 ## Working with files
 
@@ -122,6 +173,10 @@ for the missing ones.
 
 ## The composer
 
+- **Attachment chips** show how far a document's parsing has got ("Reading 4/12
+  pages", "Couldn't read"), polled from `/ingest` once a second until ready
+  (`useIngest.ts`). Parsing starts at upload, so it often finishes while the
+  user types.
 - **`@`** opens a menu of this chat's files, then tools, skills and connected MCP
   servers (by name, not each MCP tool). Picking one inserts `@name` as text;
   the backend turns each known name into an instruction for the model (a

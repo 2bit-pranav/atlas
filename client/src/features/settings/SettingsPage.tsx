@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { RotateCcw, Search, X } from "lucide-react"
+import { Loader2, RotateCcw, Search, X } from "lucide-react"
 import { atlas, useAtlas } from "@/state/store"
 import { usePrefs } from "@/state/prefs"
 import { SECTIONS } from "@/features/settings/schema"
 import { Button } from "@/components/ui/Button"
-import { Notice } from "@/components/ui/Notice"
 import { cn } from "@/lib/cn"
 import { Group, SectionHead } from "@/features/settings/layout"
 import { FieldRow, OtherKeys } from "@/features/settings/FieldRow"
 import { GeneralSection } from "@/features/settings/sections/General"
-import { ExtensionsSection } from "@/features/settings/sections/SkillsAndMcp"
 import { ConversationsSection } from "@/features/settings/sections/Conversations"
 import { ShortcutsSection } from "@/features/settings/sections/Shortcuts"
 
@@ -19,13 +17,15 @@ const navItem = (id: string) => ({ id, title: SECTIONS.find((s) => s.id === id)?
 const NAV = [
   { id: "general", title: "General" },
   navItem("agent"),
-  { id: "extensions", title: "Skills & MCP" },
   navItem("access"),
   navItem("model"),
   { id: "conversations", title: "Conversations" },
   { id: "shortcuts", title: "Shortcuts" },
 ]
 const ADVANCED = SECTIONS.filter((s) => s.advanced).map((s) => ({ id: s.id, title: s.title }))
+/** A settings key as the user knows it: "model.name" -> "Model". */
+const LABELS = new Map(SECTIONS.flatMap((s) => s.groups.flatMap((g) => g.fields.map((f) => [f.key, f.label] as const))))
+const labelOf = (key: string) => LABELS.get(key) ?? key
 
 export function SettingsPage() {
   const { section = "general" } = useParams()
@@ -114,23 +114,6 @@ export function SettingsPage() {
             </select>
             <div className="mb-4 md:hidden"><SettingsSearch value={query} onChange={setQuery} /></div>
 
-            {/* Only while a restart is pending, running, or has failed. */}
-            {(pending.length > 0 || restartError || restarting) && (
-              <Notice tone={restartError && !restarting ? "error" : "info"}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="min-w-0">
-                    {restarting ? "Restarting llama-server and the backend..."
-                      : restartError ? `The last restart failed: ${restartError}`
-                      : <>{pending.length} saved {pending.length === 1 ? "setting takes" : "settings take"} effect
-                          after a restart: {pending.join(", ")}</>}
-                  </span>
-                  <Button size="sm" onClick={() => void atlas.restart()} disabled={restarting || answering}>
-                    {restarting ? "Restarting..." : "Restart now"}
-                  </Button>
-                </div>
-              </Notice>
-            )}
-
             {q && (
               <div>
                 <SectionHead title={`Results for "${query.trim()}"`} text={matches.length ? `${matches.length} setting${matches.length > 1 ? "s" : ""}` : "No setting matches. Try another word."} />
@@ -162,18 +145,36 @@ export function SettingsPage() {
                 {s.id === "storage" && <OtherKeys values={values} value={value} set={set} tiers={settings?.tiers ?? {}} />}
               </div>
             ))}
-            {!q && section === "extensions" && <ExtensionsSection />}
             {!q && section === "conversations" && <ConversationsSection />}
             {!q && section === "shortcuts" && <ShortcutsSection />}
           </div>
         </div>
 
-        {(dirty || saved) && (
+        {/* One bar for saving and restarting, on every settings page: unsaved changes, then a
+            restart that is waiting (until it has really happened), running, or has failed. */}
+        {(dirty || saved || pending.length > 0 || restarting || restartError) && (
           <div className="flex items-center justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
-            {saved && !dirty && <span className="mr-auto text-xs text-muted-foreground">Saved. Applies from the next message.</span>}
-            {dirty && <span className="mr-auto text-xs text-muted-foreground">{Object.keys(draft).length} unsaved change(s)</span>}
-            {dirty && <Button variant="ghost" onClick={() => setDraft({})}><RotateCcw className="h-3.5 w-3.5" />Reset</Button>}
-            {dirty && <Button onClick={() => void save()}>Save</Button>}
+            {dirty ? (
+              <>
+                <span className="mr-auto text-xs text-muted-foreground">{Object.keys(draft).length} unsaved change(s)</span>
+                <Button variant="ghost" onClick={() => setDraft({})}><RotateCcw className="h-3.5 w-3.5" />Reset</Button>
+                <Button onClick={() => void save()}>Save</Button>
+              </>
+            ) : restarting || restartError || pending.length > 0 ? (
+              <>
+                <span className={cn("mr-auto text-xs", restartError && !restarting ? "text-destructive" : "text-muted-foreground")}>
+                  {restartError && !restarting ? `The last restart failed: ${restartError}`
+                    : <>{pending.map(labelOf).join(", ") || "Saved settings"} {pending.length === 1 ? "takes" : "take"} effect after a restart
+                        {answering && !restarting ? ", once the current task finishes" : ""}.</>}
+                </span>
+                <Button onClick={() => void atlas.restart()} disabled={restarting || answering}>
+                  {restarting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {restarting ? "Restarting…" : restartError ? "Try again" : "Restart now"}
+                </Button>
+              </>
+            ) : (
+              <span className="mr-auto text-xs text-muted-foreground">Saved. Applies from the next message.</span>
+            )}
           </div>
         )}
       </div>

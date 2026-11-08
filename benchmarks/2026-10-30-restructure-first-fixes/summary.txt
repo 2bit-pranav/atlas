@@ -1,0 +1,14 @@
+FAIL f1          thinking=off   87.9s calls=5 tools=4 failed_tools=1  missing: ['spreadsheet created']
+FAIL f1          thinking=on    37.3s calls=5 tools=4 failed_tools=1  missing: ['spreadsheet created']
+PASS research    thinking=off    9.8s calls=3 tools=2 failed_tools=0
+PASS research    thinking=on    12.2s calls=2 tools=1 failed_tools=0
+FAIL merge       thinking=off   26.0s calls=9 tools=8 failed_tools=2  missing: ['name on title page']
+FAIL merge       thinking=on    80.8s calls=7 tools=6 failed_tools=0  missing: ['name on title page']
+PASS attachment  thinking=off    7.9s calls=3 tools=2 failed_tools=0
+PASS attachment  thinking=on    17.2s calls=3 tools=2 failed_tools=0
+FAIL xlsx-sum    thinking=off   66.2s calls=3 tools=2 failed_tools=1  missing: ['March total 12450.75']
+PASS xlsx-sum    thinking=on    14.6s calls=3 tools=2 failed_tools=0
+PASS chat        thinking=off    3.0s calls=1 tools=0 failed_tools=0
+FAIL chat        thinking=on    14.0s calls=4 tools=3 failed_tools=0  missing: ['no tools for a plain question']
+
+6/12 passed. Traces: C:\Users\prana\AppData\Local\Temp\atlas-iso\bench\20261030-104852

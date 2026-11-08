@@ -4,9 +4,9 @@ A skill is a folder with a `SKILL.md`: a name and a description the model sees
 up front, and a body it loads only when it decides the skill applies. That
 indirection is the point -- the catalogue is cheap, the body is not.
 
-Skills are how documents get read. The harness's own `read` tool returns a pdf,
-docx or xlsx as a `document` block, which the llama.cpp adapter cannot send to
-the model, and `write`/`edit` are text-only. So each skill's `scripts/` holds a
+Skills are how documents get read. llama.cpp cannot take a pdf, docx or xlsx
+as a `document` block, `read_text` reads text only, and `write`/`edit` are
+text-only. So each skill's `scripts/` holds a
 ready-made command-line tool and the model runs it through `shell`. The model
 is 2B; asking it to write correct `python-docx` code is a bad bet, and asking
 it to run a script that already exists is not.
@@ -101,16 +101,6 @@ class SkillManager:
 
     def enabled(self) -> list[dict[str, Any]]:
         return [s for s in self.discover() if s["enabled"]]
-
-    def harness_skills(self) -> Any:
-        """The `skills=` argument for `create_harness`: one path per enabled skill.
-
-        The SDK's `AgentSkills` takes a list of individual skill directories, so
-        filtering is a matter of passing fewer of them. `False` when none are on,
-        which keeps the `skills` tool out of the request entirely.
-        """
-        chosen = [s["path"] for s in self.enabled()]
-        return chosen or False
 
     def catalogue(self) -> list[dict[str, Any]]:
         """For `GET /skills`: every skill, with its switch and any error."""

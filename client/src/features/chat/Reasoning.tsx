@@ -7,7 +7,8 @@ export const Reasoning = memo(function Reasoning({ text, streaming, interrupted,
   text: string; streaming: boolean; interrupted: boolean; defaultOpen: boolean
 }) {
   const [userOpen, setUserOpen] = useState<boolean | null>(null)
-  const open = userOpen ?? (streaming || defaultOpen)
+  // Collapsed while it streams too: only a click (or the "expand reasoning" preference) opens it.
+  const open = userOpen ?? defaultOpen
   const body = useRef<HTMLDivElement>(null)
 
   // While thinking streams, keep the newest line in view.

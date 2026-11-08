@@ -24,6 +24,7 @@ from typing import Any
 
 from agent.config import paths
 from agent.config.settings import Settings
+from agent.model.gguf import capabilities
 
 #: Set by `atlas start` for the backend: the per-launch key llama-server was
 #: started with (`--api-key`). Without it any web page could use the model
@@ -48,7 +49,7 @@ class LocalModel:
 
     def describe(self) -> dict[str, Any]:
         return {"name": self.name, "file": self.gguf.name, "mmproj": self.mmproj.name if self.mmproj else None,
-                "bytes": self.gguf.stat().st_size}
+                "bytes": self.gguf.stat().st_size, "caps": capabilities(self.gguf, self.mmproj)}
 
 
 def _is_mmproj(path: Path) -> bool:
@@ -85,4 +86,18 @@ def current(settings: Settings) -> LocalModel:
     raise ModelError(f"no model {settings.model.name!r} in {paths.models_dir(settings)} (found: {known})")
 
 
-__all__ = ["KEY_ENV", "LocalModel", "ModelError", "auth_headers", "current", "discover"]
+def effective(settings: Settings) -> dict[str, Any]:
+    """What the configured model can do: detected from its files, and switched off where the
+    user's override says so. An override can only turn a capability off, never force one on;
+    where detection is unsure (None) the override decides."""
+    try:
+        model = current(settings)
+        caps = capabilities(model.gguf, model.mmproj)
+    except ModelError:
+        caps = {"vision": None, "audio": None, "thinking": None, "context": None}
+    return {**caps,
+            "thinking": settings.model.supports_thinking and caps["thinking"] is not False,
+            "vision": settings.model.supports_vision and caps["vision"] is not False}
+
+
+__all__ = ["KEY_ENV", "LocalModel", "ModelError", "auth_headers", "current", "discover", "effective"]

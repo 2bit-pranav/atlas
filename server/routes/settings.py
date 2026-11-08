@@ -25,6 +25,7 @@ from agent.integrations.skills.catalog import SkillManager
 from agent.model import server as llama
 from agent.runtime.memory import MemoryManager
 from agent.tools.manager import ToolManager
+from agent.tools.web import read_key, write_key
 from server.services.settings_service import _launched_restart_values, _live_settings
 
 
@@ -43,7 +44,21 @@ def register(api: Any, state: Any) -> Any:
             "mcp": state.mcp.describe(),
             "paths": {"root": str(paths.ROOT), "data": str(paths.data_dir(state.settings))},
             "modalities": state.modalities(),
+            # What the running model can do, from its files (thinking shows the composer's switch).
+            "model": llama.effective(state.boot),
+            # Whether a key is set, never the key: this view is open to the extension too.
+            "web": {"exa_key_set": bool(read_key(paths.data_dir(state.settings)))},
         }
+
+    @api.put("/secrets/exa")
+    async def put_exa_key(body: dict[str, Any]) -> dict[str, Any]:
+        """Set (or, empty, clear) the Exa key. The web UI's alone (not in EXTENSION_ROUTES);
+        kept in the data folder, which the agent can never read."""
+        key = body.get("key")
+        if not isinstance(key, str) or len(key) > 200 or any(c.isspace() for c in key.strip()):
+            raise HTTPException(422, "the key is one line of letters, digits and dashes")
+        write_key(paths.data_dir(state.settings), key)
+        return {"exa_key_set": bool(key.strip())}
 
     @api.get("/settings")
     async def get_settings() -> dict[str, Any]:

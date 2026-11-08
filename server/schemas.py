@@ -3,11 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
-# ---------------------------------------------------------- request bodies --
 
 
 class CreateChat(BaseModel):
@@ -19,10 +17,16 @@ class CreateChat(BaseModel):
 
 
 class Page(BaseModel):
-    """The tab a side-panel message is about. Its presence turns on the page tools."""
+    """The tab a side-panel message is about. Its presence turns on the page tools.
+
+    `content` is the page itself, read in the browser (a Google file's text, an
+    article, or the accessibility tree), sent so the model needs no tool call to
+    read it; `kind` says which (`agent/prompt/page.py`)."""
 
     url: str = ""
     title: str = ""
+    content: str = Field(default="", max_length=600_000)
+    kind: str = Field(default="", max_length=40)
 
 
 class RenameChat(BaseModel):
@@ -57,10 +61,16 @@ class SelectTurn(BaseModel):
 
 class Answer(BaseModel):
     allow: bool
+    scope: Literal["once", "chat"] = "once"
 
 
 class ProfileBody(BaseModel):
     text: str
+
+
+class MomentsBody(BaseModel):
+    #: The video as the panel read it (`youtube.ts`): description and transcript in `content`.
+    page: Page
 
 
 class FillBody(BaseModel):

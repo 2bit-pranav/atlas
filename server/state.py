@@ -16,17 +16,17 @@ from agent.config import paths
 from agent.config.settings import (
     load_settings,
 )
+from agent.extension.basket import Basket
 from agent.integrations.mcp.pool import McpManager
-from agent.integrations.skills.readers import reader_command
 from agent.model import server as llama
 from agent.model.sampling import RetryPlan
 from agent.platform.winpaths import model_path
 from agent.prompt.notes import clock_note, retry_hint
-from agent.prompt.page import page_note
+from agent.prompt.page import inline_limit, page_hash, page_note
 from agent.runtime.factory import build_agent
 from agent.store.chats import CANCELLED, COMPLETED, FAILED, ChatStore
 from agent.store.snapshots import SessionManager
-from agent.tools.page import page_tools
+from agent.tools.page import page_file_name, page_tools
 from server.events import _aiter, translate
 from server.runs import Run, RunConflict, RunManager
 from server.schemas import Page
@@ -44,24 +44,23 @@ from server.views import _run_view, _turn_view
 logger = logging.getLogger(__name__)
 
 
-# ------------------------------------------------------------------ state --
-
-
 class Atlas:
     """The backend's state, held outside the app for testability."""
 
     def __init__(self, settings_path: Path) -> None:
         self.settings_path = Path(settings_path)
-        #: As the process started. Restart-tier keys keep these values for the
-        #: life of the process even after settings.json changes, because the
-        #: running llama-server was built with them.
+        # Restart tier keys keep their values for the life of the process even after settings.json changes
         self.boot = load_settings(self.settings_path)
         self.settings = self.boot
         self.store = ChatStore(paths.database(self.settings))
         self.runs = RunManager()
-        #: MCP connections live as long as the process, not as long as a turn.
+        # Mcp connections are per-process, not per-turn
         self.mcp = McpManager(self.settings)
         self._modalities: dict[str, bool] | None = None
+        # "Allow for this chat" answers, per chat. In memory: a restart asks again.
+        self.chat_grants: dict[str, list] = {}
+        #: Files Fill found for upload fields, as cards the extension drags onto a page (in memory).
+        self.basket = Basket()
         if n := self.store.mark_interrupted():
             logger.info("%d turn(s) left running by a previous process are now interrupted", n)
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)
@@ -92,8 +91,6 @@ class Atlas:
     def close(self) -> None:
         self.mcp.stop_all()
         self.store.close()
-
-    # ------------------------------------------------------------ helpers --
 
     def require_chat(self, chat_id: str) -> dict[str, Any]:
         chat = self.store.get_chat(chat_id)
@@ -131,7 +128,6 @@ class Atlas:
             turns.append(_turn_view(turn, versions))
         return {**chat, "turns": turns, "active_run": _run_view(run) if run else None}
 
-    # -------------------------------------------------------------- runs --
 
     def launch(
         self, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None = None,
@@ -157,6 +153,36 @@ class Atlas:
         return page_tools(run.client_call, workspace, lambda p: model_path(str(p)),
                           on_read=lambda: self.taint(run))
 
+    def _page_text(self, run: Run, turn: dict[str, Any], workspace: Path) -> str:
+        """The page sent with the message, for the model: inline, or noted as already given."""
+        page = run.page or {}
+        content = str(page.get("content") or "")
+        if not content.strip():
+            return page_note(page)
+        digest = page_hash(content)
+        run.transcript.stats["page_hash"] = digest
+        self.taint(run)   # page content is in the message: outside content from the start
+        if digest in self._earlier_page_hashes(turn):
+            return page_note(page, already_sent=True)
+        saved = None
+        if len(content) > inline_limit(str(page.get("kind") or "")):
+            workspace.mkdir(parents=True, exist_ok=True)
+            path = workspace / page_file_name(str(page.get("title") or ""))
+            path.write_text(f"# {page.get('title') or ''}\n\nSource: {page.get('url') or ''}\n\n{content}", encoding="utf-8")
+            saved = model_path(str(path))
+        return page_note(page, saved_as=saved)
+
+    def _earlier_page_hashes(self, turn: dict[str, Any]) -> set[str]:
+        """Pages already in this turn's history: sent with a completed turn above it."""
+        seen: set[str] = set()
+        row = self.store.get_turn(turn["parent_turn_id"]) if turn.get("parent_turn_id") else None
+        while row is not None:
+            if row["status"] == "completed":
+                seen.add(str(json.loads(row["stats_json"] or "{}").get("page_hash") or ""))
+            row = self.store.get_turn(row["parent_turn_id"]) if row["parent_turn_id"] else None
+        seen.discard("")
+        return seen
+
     def taint(self, run: Run) -> None:
         """Outside content entered this run: ask before risky tools, now and in
         every later turn of the chat (the content stays in its history)."""
@@ -181,23 +207,21 @@ class Atlas:
             refs = [{**r, "path": r.get("path") or str(workspace / str(r.get("file", "")))}
                     for r in json.loads(turn.get("refs_json") or "[]") if isinstance(r, dict)]
             media = [f for f in files if _media_kind(f) and Path(str(f.get("path", ""))).is_file()]
-            text = _agent_text(turn["user_text"], [f for f in files if f not in media], refs,
-                               reader=lambda p, shown: reader_command(settings, p, shown),
-                               workspace=workspace)
+            text = _agent_text(turn["user_text"], files, refs, workspace=workspace)
             if guidance := _mention_guidance(turn["user_text"], settings, self.mcp, workspace):
                 text = f"{text}\n\n{guidance}".strip()
             if links := _link_guidance(turn["user_text"], settings):
                 text = f"{text}\n\n{links}".strip()
             if run.page:
-                text = f"{text}\n\n{page_note(run.page)}".strip()
+                text = f"{text}\n\n{self._page_text(run, turn, workspace)}".strip()
             # Only the model sees this; the chat shows the user's own text.
             text = f"{text}\n\n{clock_note()}".strip()
             hint = retry_hint(settings, retry) if retry else ""
             sm = SessionManager(settings, run.chat_id)
             # Recorded per turn, so each version shows the model that wrote it.
             run.transcript.stats["model"] = settings.model.name
-            #: What the workspace held before the run, so the files this turn
-            #: created or changed can be offered as downloads afterwards.
+            # What the workspace held before the run, so the files this turn
+            # created or changed can be offered as downloads afterwards.
             run.workspace_before = _scan(self.chat_dir(run.chat_id))
             manager = sm.manager()
             # Building restores a snapshot from disk: blocking work that would
@@ -208,7 +232,8 @@ class Atlas:
                 retry=retry, observer=run.observe, tools=self.mcp.agent_tools() + self._page_tools(run),
                 approver=lambda kind, detail: run.request_approval(
                     kind, detail, settings.approvals.timeout),
-                sensitive=self.mcp.is_sensitive,
+                sensitive=lambda name: name in settings.tools.ask or self.mcp.is_sensitive(name),
+                chat_grants=self.chat_grants.setdefault(run.chat_id, []),
                 tainted=lambda: run.tainted,
                 untrusted=self.mcp.is_untrusted,
                 on_taint=lambda: self.taint(run),

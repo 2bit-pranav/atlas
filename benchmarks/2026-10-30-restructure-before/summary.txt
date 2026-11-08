@@ -1,0 +1,14 @@
+FAIL f1          thinking=off   30.9s calls=6 tools=5 failed_tools=0  missing: ['>= 20 race rows', 'mentions 2025']
+PASS f1          thinking=on    27.9s calls=4 tools=3 failed_tools=0
+PASS research    thinking=off    8.3s calls=3 tools=2 failed_tools=0
+PASS research    thinking=on    11.1s calls=2 tools=1 failed_tools=0
+FAIL merge       thinking=off    8.9s calls=5 tools=4 failed_tools=0  missing: ['exp2 content present', 'all 10 images', 'exp2 starts a page']
+FAIL merge       thinking=on    71.1s calls=8 tools=7 failed_tools=1  missing: ['pdf created']
+PASS attachment  thinking=off   10.8s calls=5 tools=4 failed_tools=1
+PASS attachment  thinking=on    19.7s calls=3 tools=2 failed_tools=1
+PASS xlsx-sum    thinking=off    6.3s calls=3 tools=2 failed_tools=0
+PASS xlsx-sum    thinking=on    16.5s calls=3 tools=2 failed_tools=0
+PASS chat        thinking=off    3.1s calls=1 tools=0 failed_tools=0
+FAIL chat        thinking=on     7.7s calls=2 tools=1 failed_tools=0  missing: ['no tools for a plain question']
+
+8/12 passed. Traces: C:\Users\prana\AppData\Local\Temp\atlas-iso\bench\20261030-103723

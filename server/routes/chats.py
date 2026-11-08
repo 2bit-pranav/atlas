@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from typing import Any
 
 from fastapi import HTTPException
 
 from agent.config import paths
+from agent.ingest.store import store_for
 from agent.store.snapshots import SessionManager
 from server.schemas import (
     CreateChat,
@@ -16,11 +18,17 @@ from server.schemas import (
 
 
 def register(api: Any, state: Any) -> None:
-    # -------------------------------------------------------------- chats --
 
     @api.get("/chats")
     async def list_chats() -> list[dict[str, Any]]:
         return state.store.list_chats()
+
+    @api.get("/outputs")
+    async def recent_outputs() -> list[dict[str, Any]]:
+        """Files runs made lately, across chats, for the home page. Still on disk only.
+        The web UI's alone: not in the extension's routes."""
+        files = state.store.recent_files(limit=12)
+        return [f for f in files if (paths.chat_dir(state.settings, f["chat_id"]) / f["name"]).is_file()][:6]
 
     @api.post("/chats")
     async def create_chat(body: CreateChat | None = None) -> dict[str, Any]:
@@ -46,8 +54,11 @@ def register(api: Any, state: Any) -> None:
         if state.runs.active_for_chat(chat_id):
             raise HTTPException(409, "cannot delete a chat with an active run")
         state.store.delete_chat(chat_id)
+        state.chat_grants.pop(chat_id, None)
         await SessionManager(state.settings, chat_id).delete_all()
         shutil.rmtree(paths.chat_dir(state.settings, chat_id), ignore_errors=True)
+        # Its parsed documents too, unless another chat has the same file.
+        await asyncio.to_thread(store_for(paths.data_dir(state.settings)).forget_chat, chat_id)
         return {"deleted": chat_id}
 
     @api.get("/chats/{chat_id}/export")

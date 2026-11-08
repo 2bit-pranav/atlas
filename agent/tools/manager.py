@@ -15,13 +15,19 @@ from agent.config.settings import Settings
 #: The built-in tools a user can switch on, in `tools.builtin`. Every name here
 #: must exist in `BUILTIN_TOOL_NAMES`; a typo would otherwise be a tool that
 #: silently never appears. Deliberately absent: `web_search` (needs a cloud
-#: provider's search or Exa, a third party that would see every query) and
-#: `programmatic_tool_caller` (lets the model run tools without asking).
-SWITCHABLE: tuple[str, ...] = ("read", "write", "edit", "shell", "web_fetch", "subagent")
+#: provider's search or Exa, a third party that would see every query),
+#: `programmatic_tool_caller` (lets the model run tools without asking),
+#: `read` (uncapped, and its name drew it onto PDFs: Atlas's `read_text` and
+#: `read_image` replace it, agent/tools/reading.py), `subagent` (a 2B model
+#: cannot orchestrate workers: 41% complete against 88% for one turn,
+#: decisions.md 2026-11-04) and `web_fetch` (it fetched any address, Atlas's own
+#: API on 127.0.0.1 included; pages come through MCP fetch servers instead).
+SWITCHABLE: tuple[str, ...] = ("write", "edit", "shell")
 
 
 #: Atlas's own tools, given to the agent directly (not a skill, not MCP).
-ATLAS_TOOLS: tuple[str, ...] = ("create_document", "edit_document", "calculate", "dates")
+ATLAS_TOOLS: tuple[str, ...] = ("find_files", "list_folder", "read_text", "read_image", "read_pdf", "read_docx",
+                                "read_xlsx", "copy_file", "move_file", "delete_file", "web_search", "read_url", "create_document", "edit_docx", "set_cell", "calculate", "dates")
 
 
 class ToolManager:

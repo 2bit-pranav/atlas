@@ -11,10 +11,9 @@ overridden. Nothing in Strands is patched.
 
 **Which shell it uses.** Git Bash when it can be found, so the stock
 implementation runs unmodified and the quoting in every `SKILL.md` behaves as
-written. The `cmd.exe` fallback needs three workarounds: a one-shot batch file
-(Windows re-quotes `argv`, breaking `python -c "..."`), `skills/_shared.py`'s
-`unquote` (`cmd` leaves quotes attached to a path) and `join_sql` (`cmd`
-splits a quoted SQL statement on its spaces). The last two also make the
+written. The `cmd.exe` fallback needs two workarounds: a one-shot batch file
+(Windows re-quotes `argv`, breaking `python -c "..."`) and `skills/_shared.py`'s
+`unquote` (`cmd` leaves quotes attached to a path), which also makes the
 scripts tolerant of a small model's mangled quoting.
 
 **What it is not.** A security boundary. Commands run on the host with the
@@ -81,6 +80,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         #: The agent's cancel signal (`runtime/factory.py` sets it): Stop ends a
         #: running command too, not only the model's turn.
         self.cancel_signal: threading.Event | None = None
+        if self.cwd:   # set per turn: the environment is built for each turn's chat
+            self.extra_env["ATLAS_WORKSPACE"] = model_path(self.cwd)
         if self.folders:
             self.extra_env["ATLAS_FOLDERS"] = os.pathsep.join(str(f) for f in self.folders)
 

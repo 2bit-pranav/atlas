@@ -13,10 +13,9 @@ def locate(path: str, workspace: Path, folders: list[Path]) -> Path | None:
     where its folder already exists. None when the path is absolute, or names
     nothing anywhere (the caller then uses the workspace).
 
-    The one rule for relative paths, as the filesystem MCP server already
-    applies it: it lists `Demo/Invoices` from an allowed folder, so the
-    reader script, the file and document tools and the `read` hint must find
-    the same `Demo/Invoices/x.pdf`, not look in the chat's workspace only.
+    The one rule for relative paths: the file and document tools, the
+    skill scripts and the policy's checks all find the same
+    `Demo/Invoices/x.pdf`, not the chat's workspace only.
 
     A candidate that leaves its folder (`../settings.json`) is never returned:
     a relative path only ever names something inside the folder it is found in.

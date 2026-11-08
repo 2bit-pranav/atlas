@@ -1,4 +1,4 @@
-"""Offline tests for runs (server/runs.py): one active run, approvals, client
+"""Runs (server/runs.py): one active run, approvals, client
 calls, cancel, and replaying the event stream from a sequence number."""
 
 from __future__ import annotations
@@ -37,6 +37,21 @@ def test_approval_is_answered() -> None:
         return await allowed, await denied
 
     assert asyncio.run(scenario()) == ("allowed", "denied")
+
+
+def test_allow_for_this_chat_only_where_the_card_offered_it() -> None:
+    async def scenario() -> list[str]:
+        run = RunManager().start("chat", "t")
+        out = []
+        for offered in (True, False):
+            task = asyncio.create_task(run.request_approval("tool", {"command": "x", "chat": offered}, timeout=5))
+            await asyncio.sleep(0)
+            request = [e for e in run.events if e["type"] == "approval_request"][-1]
+            run.answer(request["id"], True, "chat")
+            out.append(await task)
+        return out
+
+    assert asyncio.run(scenario()) == ["allowed_chat", "allowed"]
 
 
 def test_unanswered_approval_expires_as_no() -> None:
@@ -100,3 +115,11 @@ def test_finish_is_final() -> None:
     run.finish("cancelled")
     run.finish("completed")
     assert run.status == "cancelled" and run.events[-1]["type"] == "done"
+
+
+def test_a_tool_call_records_how_long_it_took() -> None:
+    run = RunManager().start("chat", "t1")
+    run.emit({"type": "tool_start", "id": "a", "name": "read_text", "args": {}})
+    run.emit({"type": "tool_end", "id": "a", "name": "read_text", "status": "success", "text": "x"})
+    part = run.transcript.parts[0]
+    assert run.events[0]["at"] == part["started"] and part["ms"] >= 0

@@ -1,0 +1,56 @@
+# The floor: shell commands Atlas refuses in every tier, with no card.
+#
+# A rule refuses a command when one of its simple commands (wherever it is
+# nested: pipelines, $(...), bash -c) runs one of `programs`, and, if `args`
+# is given, has an argument starting with one of them (case ignored). `text`
+# matches the whole command, for shells Atlas cannot parse (PowerShell).
+#
+# Every rule's `refuse` examples must be refused by it, and its `allow`
+# examples by no rule, or the rules do not load and Atlas does not start.
+# tests/test_rules.py checks more. Lowering the floor is a code review, not a
+# setting.
+
+[[rule]]
+name = "format or repartition a disk"
+programs = ["format", "diskpart", "mkfs", "mkfs.ext4", "mkfs.ext3", "mkfs.vfat", "mkfs.ntfs", "mkfs.fat",
+            "fdisk", "sfdisk", "parted", "wipefs"]
+text = ["format-volume", "clear-disk", "initialize-disk", "remove-partition"]
+refuse = ["format C: /q", "diskpart /s x.txt", "mkfs.ext4 /dev/sda1", 'powershell -Command "Clear-Disk -Number 1"']
+allow = ["echo format", "grep -r diskpart docs"]
+
+[[rule]]
+name = "write a raw disk"
+programs = ["dd"]
+args = ["of=/dev/", 'of=\\.\', "of=//./"]
+refuse = ["dd if=/dev/zero of=/dev/sda"]
+allow = ["dd if=a.img of=b.img"]
+
+[[rule]]
+name = "delete backups, restore points or wipe free space"
+programs = ["vssadmin", "wbadmin", "cipher"]
+args = ["delete", "resize", "/w"]
+refuse = ["vssadmin delete shadows /all", "wbadmin delete catalog", "cipher /w:C:"]
+allow = ["vssadmin list shadows", "cipher /c x.txt"]
+
+[[rule]]
+name = "change how the computer starts or shut it down"
+programs = ["bcdedit", "bootrec", "bcdboot", "shutdown", "reboot", "poweroff", "halt"]
+refuse = ["bcdedit /set x", "shutdown /s /t 0"]
+allow = ["echo shutdown"]
+
+[[rule]]
+name = "change the system registry"
+programs = ["reg"]
+args = ["delete", "import", "restore", "load", "unload"]
+refuse = ['reg delete "HKLM\Software\X" /f']
+allow = ['reg query HKCU\Software']
+
+# Delete targets that are never allowed, whatever the program. Compared after
+# normalising: forward slashes, no trailing slash or /*, case ignored, /c/ and
+# C:/ the same. {home} is the user's home folder.
+[delete]
+name = "delete a whole drive, the home folder or a system folder"
+targets = ["/", "~", "$HOME", "${HOME}", "%USERPROFILE%", "{home}", "/c", "/c/Users", "/c/Windows",
+           "/c/Program Files", "/c/Program Files (x86)", "/c/ProgramData", "/d", "/e", "%SystemRoot%"]
+refuse = ["rm -rf /", "rm -rf ~", "rm -rf /c/*", 'del /s /q "C:\Windows"']
+allow = ["rm -rf old", "rm -rf ./build"]

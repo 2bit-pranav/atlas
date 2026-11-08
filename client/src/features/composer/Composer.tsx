@@ -11,6 +11,7 @@ import { ContextGauge } from "@/features/chat/ContextGauge"
 import { filterMentions, MentionMenu, useMentionables, type Mention } from "@/features/composer/MentionMenu"
 import { Recorder } from "@/features/composer/audio"
 import { FileChip } from "@/features/composer/FileChip"
+import { useIngest } from "@/features/composer/useIngest"
 
 /** Pasting more than this many characters attaches the text as a file instead. */
 const PASTE_AS_FILE = 2500
@@ -25,13 +26,25 @@ interface EditProps {
   onCancel: () => void
 }
 
-export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
+/** The task view's card: a squarer box with a soft shadow (`home` is the new task page's, taller, with Start). */
+const TASK_CARD = "border bg-card text-foreground shadow-[0_1px_2px_oklch(0_0_0/0.04),0_8px_24px_oklch(0_0_0/0.04)] focus-within:border-foreground/25"
+
+export const Composer = memo(function Composer({ edit, placeholder, look = "chat", extra }: {
+  edit?: EditProps; placeholder?: string; look?: "chat" | "home" | "follow" | "panel"
+  /** Buttons beside + (the side panel's screenshot). */
+  extra?: React.ReactNode
+}) {
+  const task = look === "home" || look === "follow"
   const prefs = usePrefs()
   const busy = useAtlas((s) => s.run !== null)
+  const sending = useAtlas((s) => s.pending !== null)   // a message on its way, before its run
+  // While llama-server restarts there is no model to answer: sending would only fail.
+  const restarting = useAtlas((s) => s.restarting)
   const staged = useAtlas((s) => s.staged)
   const thinking = useAtlas((s) => s.thinking)
   const focusTick = useAtlas((s) => s.focusTick)
-  const supportsThinking = useAtlas((s) => s.settings?.values["model.supports_thinking"] !== false)
+  // From the running model's files; the setting can only switch it off (agent/model/server.py).
+  const supportsThinking = useAtlas((s) => s.settings?.model?.thinking ?? s.settings?.values["model.supports_thinking"] !== false)
   const modelName = useAtlas((s) => String(s.settings?.values["model.name"] ?? ""))
   const hearsAudio = useAtlas((s) => Boolean(s.settings?.modalities?.audio))
   const chatId = useAtlas((s) => s.chat?.id ?? s.stagedChat)
@@ -98,8 +111,10 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
 
   const files = edit ? editFiles.map((f) => ({ ...f, key: f.path, uploading: false })) : staged
   const uploading = files.some((f) => f.uploading)
-  const canSend = !uploading && (text.trim().length > 0 || files.length > 0) &&
-    (!busy || Boolean(edit))
+  // Documents are parsed as soon as they are uploaded; the chips show how far it has got.
+  const ingest = useIngest(chatId, files.filter((f) => !f.uploading).map((f) => f.name))
+  const canSend = !uploading && !restarting && (text.trim().length > 0 || files.length > 0) &&
+    ((!busy && !sending) || Boolean(edit))
 
   // Grow with the text, up to llama.cpp's max-message-height.
   useLayoutEffect(() => {
@@ -112,6 +127,14 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
   useEffect(() => {
     if (!edit) area.current?.focus()
   }, [focusTick, edit])
+
+  // A home page starter: its text, ready to finish and send (set while rendering, once per tick).
+  const prefill = useAtlas((s) => s.prefill)
+  const [prefillSeen, setPrefillSeen] = useState(prefill?.tick ?? 0)
+  if (prefill && prefill.tick !== prefillSeen && !edit) {
+    setPrefillSeen(prefill.tick)
+    setText(prefill.text)
+  }
 
   useEffect(() => {
     if (edit) {
@@ -148,6 +171,191 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
     if (!(await atlas.send(sent))) setText(sent)
   }
 
+  const panel = look === "panel"
+  const textArea = (
+    <textarea
+      ref={area}
+      rows={1}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value)
+        trackMention(e.target.value, e.target.selectionStart)
+      }}
+      onClick={(e) => trackMention(e.currentTarget.value, e.currentTarget.selectionStart)}
+      onBlur={() => setMention(null)}
+      placeholder={edit ? "Edit your message..." : placeholder ?? "Type a message, or @ to point at a file, skill or tool..."}
+      className={cn("block w-full resize-none border-0 bg-transparent p-0 outline-none placeholder:text-muted-foreground",
+                    panel ? "min-h-5 text-[13.5px] leading-5" : "text-[15px] leading-6",
+                    look === "home" ? "min-h-[4.5rem]" : panel ? "" : "min-h-6")}
+      onKeyDown={(e) => {
+        if (mention) {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault()
+            const n = Math.max(1, matches.length)
+            setMentionIndex((i) => (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n)
+            return
+          }
+          if ((e.key === "Enter" || e.key === "Tab") && matches[mentionIndex]) {
+            e.preventDefault()
+            pickMention(matches[mentionIndex])
+            return
+          }
+          if (e.key === "Escape") {
+            e.preventDefault()
+            setMention(null)
+            return
+          }
+        }
+        if (e.key === "Escape" && edit) return edit.onCancel()
+        if (e.key !== "Enter" || e.nativeEvent.isComposing) return
+        const mod = e.ctrlKey || e.metaKey
+        const send = prefs.sendOnEnter ? !e.shiftKey : mod
+        if (send) {
+          e.preventDefault()
+          void submit()
+        }
+      }}
+      onPaste={(e) => {
+        const pasted = Array.from(e.clipboardData.files)
+        if (pasted.length) {
+          e.preventDefault()
+          void addFiles(pasted)
+          return
+        }
+        const clip = e.clipboardData.getData("text")
+        if (clip.length > PASTE_AS_FILE) {
+          e.preventDefault()
+          void addFiles([new File([clip], `pasted-${Date.now()}.txt`, { type: "text/plain" })])
+        }
+      }}
+    />
+  )
+
+  const plusMenu = (
+    <>
+      <Dropdown.Root>
+        <Tip label="Add files">
+          <Dropdown.Trigger asChild>
+            <button type="button" aria-label="Add files"
+                    className={cn("flex h-8 w-8 shrink-0 items-center justify-center hover:bg-accent",
+                                  panel ? "rounded-lg text-muted-foreground hover:text-foreground"
+                                    : task ? "rounded-lg border bg-card" : "rounded-full bg-background shadow-sm dark:bg-muted-foreground/15")}>
+              <Plus className="h-4 w-4" />
+            </button>
+          </Dropdown.Trigger>
+        </Tip>
+        <Dropdown.Portal>
+          <Dropdown.Content side="top" align="start" sideOffset={6}
+                            className="z-50 w-52 rounded-lg border bg-popover p-1 text-sm shadow-md">
+            <Dropdown.Item onSelect={() => picker.current?.click()}
+                           className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 outline-none data-[highlighted]:bg-accent">
+              <FileIcon className="h-4 w-4" />Add files
+            </Dropdown.Item>
+          </Dropdown.Content>
+        </Dropdown.Portal>
+      </Dropdown.Root>
+      <input ref={picker} type="file" multiple hidden onChange={(e) => {
+        const list = Array.from(e.target.files ?? [])
+        e.target.value = ""
+        void addFiles(list)
+      }} />
+    </>
+  )
+
+  const thinkButton = !supportsThinking ? null : task && !panel ? (
+    <Tip label="Slower, but better at tasks with several steps">
+      <button type="button" onClick={() => atlas.setThinking(!thinking)} aria-pressed={thinking}
+              className={cn("flex h-8 items-center rounded-lg border bg-card px-2.5 text-xs font-medium transition-colors hover:bg-accent",
+                            thinking ? "border-run/60 text-run" : "text-muted-foreground")}>
+        Think first: {thinking ? "On" : "Off"}
+      </button>
+    </Tip>
+  ) : (
+    <Tip label={thinking ? "Thinking on" : "Thinking off"}>
+      <button type="button" onClick={() => atlas.setThinking(!thinking)} aria-pressed={thinking}
+              aria-label={thinking ? "Think first: on" : "Think first: off"}
+              className={cn("flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs hover:bg-muted-foreground/10",
+                            panel && "w-8 justify-center rounded-lg px-0",
+                            thinking ? (panel ? "text-run" : "text-foreground") : "text-muted-foreground")}>
+        {thinking ? <Lightbulb className="h-4 w-4" /> : <LightbulbOff className="h-4 w-4" />}
+        {thinking && !panel && <span className="hidden sm:inline">Think</span>}
+      </button>
+    </Tip>
+  )
+
+  const endButtons = (
+    <>
+      {recording ? (
+        <>
+          <Tip label="Discard recording">
+            <button type="button" onClick={() => void stopRecording(false)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-muted-foreground/10 md:h-8 md:w-8">
+              <X className="h-4 w-4" />
+            </button>
+          </Tip>
+          <Tip label="Stop and attach">
+            <button type="button" onClick={() => void stopRecording(true)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white md:h-8 md:w-8">
+              <Check className="h-4 w-4" />
+            </button>
+          </Tip>
+        </>
+      ) : null}
+      {!recording && hearsAudio && !text.trim() && typeof MediaRecorder !== "undefined" && (
+        <Tip label="Record audio">
+          <button type="button" onClick={() => void startRecording()} aria-label="Record audio"
+                  className={cn("flex shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground",
+                                panel ? "h-8 w-8" : "h-9 w-9 md:h-8 md:w-8")}>
+            <Mic className="h-4 w-4" />
+          </button>
+        </Tip>
+      )}
+      {recording ? null : busy && !edit && !text.trim() ? (
+        <Tip label="Stop">
+          <button type="button" onClick={() => void atlas.cancel()} aria-label="Stop"
+                  className={cn("group flex shrink-0 items-center justify-center", panel ? "h-8 w-8" : "h-9 w-9 md:h-8 md:w-8",
+                                panel ? "rounded-lg bg-primary text-primary-foreground"
+                                  : "rounded-full border border-muted bg-muted/30 shadow-sm hover:bg-muted dark:bg-muted-foreground/15")}>
+            <Square className={cn("h-3 w-3", panel ? "fill-current" : "fill-muted-foreground text-muted-foreground group-hover:fill-destructive group-hover:text-destructive")} />
+          </button>
+        </Tip>
+      ) : (
+        look === "home" ? (
+          <button type="submit" disabled={!canSend}
+                  className="flex h-9 items-center gap-2 rounded-[9px] bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-opacity disabled:opacity-40">
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}Start
+          </button>
+        ) : (
+          <button type="submit" disabled={!canSend} aria-label="Send"
+                  className={cn("flex shrink-0 items-center justify-center bg-primary text-primary-foreground transition-opacity disabled:opacity-40",
+                                panel ? "h-8 w-8" : "h-9 w-9 md:h-8 md:w-8",
+                                task || panel ? "rounded-lg" : "rounded-full")}>
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+          </button>
+        )
+      )}
+    </>
+  )
+
+  const chips = files.length > 0 && (
+    <div className={cn("flex gap-2 overflow-x-auto", panel ? "px-2 pt-2" : "px-3 pt-3")}>
+      {files.map((f) => (
+        <FileChip key={f.key} file={f} uploading={f.uploading} ingest={ingest[f.name]}
+                  onRemove={() => edit ? setEditFiles((x) => x.filter((y) => y.path !== f.path)) : atlas.unstage(f.key)} />
+      ))}
+    </div>
+  )
+
+  const recordingLine = recording && (
+    <div className={cn("flex items-center gap-3 py-1.5 text-sm", panel ? "min-w-0 flex-1 px-1" : "px-5")}>
+      <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+      <span className="font-mono tabular-nums">
+        {Math.floor(elapsed / 60000)}:{String(Math.floor(elapsed / 1000) % 60).padStart(2, "0")}
+      </span>
+      <span className="truncate text-muted-foreground">Recording. Stop to attach it.</span>
+    </div>
+  )
+
   return (
     <form
       className="relative mx-auto grid w-full max-w-3xl"
@@ -157,167 +365,42 @@ export const Composer = memo(function Composer({ edit }: { edit?: EditProps }) {
         <MentionMenu items={matches} query={mention.query} index={mentionIndex}
                      onPick={pickMention} onHover={setMentionIndex} />
       )}
-      <div className={cn(INPUT_CLASSES, "overflow-hidden rounded-4xl backdrop-blur-md md:rounded-3xl")}>
-        {files.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto px-3 pt-3">
-            {files.map((f) => (
-              <FileChip key={f.key} file={f} uploading={f.uploading}
-                        onRemove={() => edit ? setEditFiles((x) => x.filter((y) => y.path !== f.path)) : atlas.unstage(f.key)} />
-            ))}
-          </div>
-        )}
-        <div className="relative min-h-12 py-2 md:py-3">
-          {recording && (
-            <div className="flex items-center gap-3 px-5 py-1.5 text-sm">
-              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
-              <span className="font-mono tabular-nums">
-                {Math.floor(elapsed / 60000)}:{String(Math.floor(elapsed / 1000) % 60).padStart(2, "0")}
-              </span>
-              <span className="text-muted-foreground">Recording. Stop to attach it.</span>
-            </div>
-          )}
-          <div className={cn("px-5 py-1.5", recording && "hidden")}>
-            <textarea
-              ref={area}
-              rows={1}
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value)
-                trackMention(e.target.value, e.target.selectionStart)
-              }}
-              onClick={(e) => trackMention(e.currentTarget.value, e.currentTarget.selectionStart)}
-              onBlur={() => setMention(null)}
-              placeholder={edit ? "Edit your message..." : "Type a message, or @ to point at a file, skill or tool..."}
-              className="block min-h-6 w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 outline-none placeholder:text-muted-foreground"
-              onKeyDown={(e) => {
-                if (mention) {
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                    e.preventDefault()
-                    const n = Math.max(1, matches.length)
-                    setMentionIndex((i) => (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n)
-                    return
-                  }
-                  if ((e.key === "Enter" || e.key === "Tab") && matches[mentionIndex]) {
-                    e.preventDefault()
-                    pickMention(matches[mentionIndex])
-                    return
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault()
-                    setMention(null)
-                    return
-                  }
-                }
-                if (e.key === "Escape" && edit) return edit.onCancel()
-                if (e.key !== "Enter" || e.nativeEvent.isComposing) return
-                const mod = e.ctrlKey || e.metaKey
-                const send = prefs.sendOnEnter ? !e.shiftKey : mod
-                if (send) {
-                  e.preventDefault()
-                  void submit()
-                }
-              }}
-              onPaste={(e) => {
-                const pasted = Array.from(e.clipboardData.files)
-                if (pasted.length) {
-                  e.preventDefault()
-                  void addFiles(pasted)
-                  return
-                }
-                const clip = e.clipboardData.getData("text")
-                if (clip.length > PASTE_AS_FILE) {
-                  e.preventDefault()
-                  void addFiles([new File([clip], `pasted-${Date.now()}.txt`, { type: "text/plain" })])
-                }
-              }}
-            />
-          </div>
-
-          <div className="flex items-center gap-3 px-3 pt-1">
-            <Dropdown.Root>
-              <Tip label="Add files">
-                <Dropdown.Trigger asChild>
-                  <button type="button" className="flex h-8 w-8 items-center justify-center rounded-full bg-background shadow-sm hover:bg-accent dark:bg-muted-foreground/15">
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </Dropdown.Trigger>
-              </Tip>
-              <Dropdown.Portal>
-                <Dropdown.Content side="top" align="start" sideOffset={6}
-                                  className="z-50 w-52 rounded-lg border bg-popover p-1 text-sm shadow-md">
-                  <Dropdown.Item onSelect={() => picker.current?.click()}
-                                 className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 outline-none data-[highlighted]:bg-accent">
-                    <FileIcon className="h-4 w-4" />Add files
-                  </Dropdown.Item>
-                </Dropdown.Content>
-              </Dropdown.Portal>
-            </Dropdown.Root>
-            <input ref={picker} type="file" multiple hidden onChange={(e) => {
-              const list = Array.from(e.target.files ?? [])
-              e.target.value = ""
-              void addFiles(list)
-            }} />
-
-            <div className="ml-auto flex items-center gap-1.5">
-              {!edit && prefs.showContextMeter && <ContextGauge />}
-              {supportsThinking && (
-                <Tip label={thinking ? "Thinking on" : "Thinking off"}>
-                  <button type="button" onClick={() => atlas.setThinking(!thinking)}
-                          aria-pressed={thinking}
-                          className={cn("flex h-8 items-center gap-1 rounded-full px-2 text-xs hover:bg-muted-foreground/10",
-                                        thinking ? "text-foreground" : "text-muted-foreground")}>
-                    {thinking ? <Lightbulb className="h-4 w-4" /> : <LightbulbOff className="h-4 w-4" />}
-                    {thinking && <span className="hidden sm:inline">Think</span>}
-                  </button>
-                </Tip>
-              )}
-              {!edit && modelName && (
-                <span className="hidden max-w-40 truncate rounded-sm bg-background px-1.5 py-1 text-xs shadow-sm dark:bg-muted-foreground/15 sm:inline" title={modelName}>
-                  {modelName}
-                </span>
-              )}
-            </div>
-
-            {recording ? (
-              <>
-                <Tip label="Discard recording">
-                  <button type="button" onClick={() => void stopRecording(false)}
-                          className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-muted-foreground/10 md:h-8 md:w-8">
-                    <X className="h-4 w-4" />
-                  </button>
-                </Tip>
-                <Tip label="Stop and attach">
-                  <button type="button" onClick={() => void stopRecording(true)}
-                          className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white md:h-8 md:w-8">
-                    <Check className="h-4 w-4" />
-                  </button>
-                </Tip>
-              </>
-            ) : null}
-            {!recording && hearsAudio && !text.trim() && typeof MediaRecorder !== "undefined" && (
-              <Tip label="Record audio">
-                <button type="button" onClick={() => void startRecording()} aria-label="Record audio"
-                        className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground md:h-8 md:w-8">
-                  <Mic className="h-4 w-4" />
-                </button>
-              </Tip>
-            )}
-            {recording ? null : busy && !edit && !text.trim() ? (
-              <Tip label="Stop">
-                <button type="button" onClick={() => void atlas.cancel()}
-                        className="group flex h-9 w-9 items-center justify-center rounded-full border border-muted bg-muted/30 shadow-sm hover:bg-muted md:h-8 md:w-8 dark:bg-muted-foreground/15">
-                  <Square className="h-3 w-3 fill-muted-foreground text-muted-foreground group-hover:fill-destructive group-hover:text-destructive" />
-                </button>
-              </Tip>
-            ) : (
-              <button type="submit" disabled={!canSend} aria-label="Send"
-                      className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40 md:h-8 md:w-8">
-                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-              </button>
-            )}
+      {panel ? (
+        // The side panel: one row that grows, everything inside it (no meter, no model name).
+        <div className="overflow-hidden rounded-[14px] border bg-card focus-within:border-foreground/25">
+          {chips}
+          <div className="flex items-end gap-0.5 p-1">
+            {plusMenu}
+            {extra}
+            {recordingLine}
+            <div className={cn("min-w-0 flex-1 px-1 py-1.5", recording && "hidden")}>{textArea}</div>
+            {thinkButton}
+            {endButtons}
           </div>
         </div>
-      </div>
+      ) : (
+        <div className={cn("overflow-hidden", task ? cn(TASK_CARD, "rounded-[14px]") : cn(INPUT_CLASSES, "rounded-4xl backdrop-blur-md md:rounded-3xl"))}>
+          {chips}
+          <div className={cn("relative min-h-12", task ? "py-2.5" : "py-2 md:py-3")}>
+            {recordingLine}
+            <div className={cn(task ? "px-4 py-1.5" : "px-5 py-1.5", recording && "hidden")}>{textArea}</div>
+            <div className={cn("flex items-center px-3 pt-1", task ? "gap-2" : "gap-3")}>
+              {plusMenu}
+              {extra}
+              {thinkButton}
+              <div className="ml-auto flex items-center gap-1.5">
+                {!edit && prefs.showContextMeter && <ContextGauge />}
+                {!edit && !task && modelName && (
+                  <span className="hidden max-w-40 truncate rounded-sm bg-background px-1.5 py-1 text-xs shadow-sm dark:bg-muted-foreground/15 sm:inline" title={modelName}>
+                    {modelName}
+                  </span>
+                )}
+              </div>
+              {endButtons}
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   )
 })

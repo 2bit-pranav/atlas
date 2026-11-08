@@ -5,7 +5,7 @@ import { atlas, useAtlas } from "@/state/store"
 import { type PendingAsk } from "@ext/shared/settings"
 import { toTabInfo, type TabInfo } from "@ext/shared/tab"
 import { fetchImage } from "@ext/shared/capture"
-import { pageCall } from "../actions/pageCall"
+import { bindPage } from "../actions/bindPage"
 
 // ------------------------------------------------------------- pending asks --
 
@@ -34,8 +34,9 @@ export function usePendingAsks(ready: boolean, attach: (tab: TabInfo) => void) {
       if (!info) return
       atlas.newChat()
       attach(info)
-      atlas.page = { url: info.url, title: info.title }
-      atlas.onClientCall = (op, args) => pageCall(info.id, op, args)
+      bindPage(info, true)
+      // A selected passage: only the part of the page around it goes with the question (quick to read).
+      if (pendingAsk.action !== "image") atlas.pageFocus = pendingAsk.text
       if (pendingAsk.action === "image" && pendingAsk.src) {
         const image = await fetchImage(pendingAsk.src)
         if ("error" in image) return void atlas.fail(new Error(image.error))

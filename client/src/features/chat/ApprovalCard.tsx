@@ -1,25 +1,25 @@
 import { useEffect, useState } from "react"
 import { ShieldAlert } from "lucide-react"
 import { atlas } from "@/state/store"
+import { usePrefs } from "@/state/prefs"
 import type { Part } from "@/api/types"
 import { cn } from "@/lib/cn"
+import { question } from "@/features/chat/approvalText"
 
-const ASK_TITLE = {
-  install: "Atlas wants to install something",
-  access: "Atlas wants to use a folder outside its allowed ones",
-  tool: "Atlas wants to use a tool that needs your approval",
-  page: "Atlas read a web page and now wants to run this",
-} as const
-const DONE_TITLE = { install: "Install request", access: "Folder access request", tool: "Tool approval",
-                     page: "After reading a web page" } as const
+type ApprovalPart = Extract<Part, { kind: "approval" }>
+
+const BUTTON = "h-7 rounded-lg border px-3 text-xs font-medium leading-none disabled:opacity-50"
+const PRIMARY = "border-primary bg-primary text-primary-foreground"
+const PLAIN = "bg-card hover:bg-accent"
 
 /**
- * The agent wants to do something that needs the user: install a package,
- * reach a folder outside the allowed ones, or call an MCP tool marked "ask".
- * Allow or Deny; no answer by the deadline counts as Deny (the backend
- * decides, this only shows the clock).
+ * The agent wants to do something that needs the user: save or change a file
+ * in their folders, delete one, run a command, install, or use a tool set to
+ * Ask. No answer by the deadline counts as No (the backend decides; this only
+ * shows the clock). "Allow for this task" covers the rest of the chat.
  */
-export function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "approval" }>; live: boolean }) {
+export function ApprovalCard({ part, live }: { part: ApprovalPart; live: boolean }) {
+  const prefs = usePrefs()
   const [now, setNow] = useState(() => Date.now())
   const [sent, setSent] = useState(false)
   const pending = part.status === "pending" && live
@@ -29,42 +29,52 @@ export function ApprovalCard({ part, live }: { part: Extract<Part, { kind: "appr
     return () => clearInterval(timer)
   }, [pending])
   const left = Math.max(0, Math.ceil((part.expires_at - now) / 1000))
+  const { title, showCommand } = question(part)
+  const denyFirst = part.request === "page"
   const outcome = {
     pending: live ? null : "Not answered",
     allowed: "Allowed",
-    denied: "Declined: not run",
-    expired: "No answer in time: not run",
+    allowed_chat: "Allowed for this task",
+    denied: "Declined",
+    expired: "No answer in time",
   }[part.status]
+  const answer = (allow: boolean, scope?: "chat") => {
+    setSent(true)
+    void atlas.answerApproval(part.id, allow, scope)
+  }
   return (
-    <div className={cn("my-3 rounded-xl border p-3.5",
-                       pending ? "border-amber-500/50 bg-amber-500/5" : "bg-muted/30")}>
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <ShieldAlert className={cn("h-4 w-4", pending ? "text-amber-500" : "text-muted-foreground")} />
-        {(pending ? ASK_TITLE : DONE_TITLE)[part.request ?? "install"]}
-        {pending && <span className="ml-auto font-mono text-xs text-muted-foreground">{left}s</span>}
+    <div className={cn("my-3 rounded-xl border p-3 first:mt-0 last:mb-0",
+                       pending ? "border-ask bg-ask/10" : "bg-muted/30")}>
+      <div className="flex items-start gap-2 text-[13px] font-semibold">
+        <ShieldAlert className={cn("mt-0.5 h-4 w-4 shrink-0", pending ? "text-ask" : "text-muted-foreground")} />
+        <span className="font-display">{title}</span>
         {outcome && (
-          <span className={cn("ml-auto text-xs", part.status === "allowed" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+          <span className={cn("ml-auto shrink-0 text-xs", part.status.startsWith("allowed") ? "text-ok" : "text-muted-foreground")}>
             {outcome}
           </span>
         )}
       </div>
-      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-code p-2.5 font-mono text-xs text-code-foreground">{part.command}</pre>
+      {(showCommand || prefs.taskDetails) && (
+        <pre className="mt-2.5 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border bg-card px-2.5 py-2 font-mono text-xs">{part.command}</pre>
+      )}
       {pending && (
-        <div className="mt-3 flex items-center gap-2">
-          <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, true) }}
-                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
-            Allow
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* After outside content the safe answer is the easy one: No comes first, as the main button. */}
+          {denyFirst && (
+            <button type="button" disabled={sent} onClick={() => answer(false)} className={cn(BUTTON, PRIMARY)}>No</button>
+          )}
+          <button type="button" disabled={sent} onClick={() => answer(true)} className={cn(BUTTON, denyFirst ? PLAIN : PRIMARY)}>
+            {denyFirst ? "Allow once" : "Allow"}
           </button>
-          <button type="button" disabled={sent} onClick={() => { setSent(true); void atlas.answerApproval(part.id, false) }}
-                  className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
-            Deny
-          </button>
-          <span className="text-[11px] text-muted-foreground">
-            {part.request === "access" && part.folder
-              ? <>Allows {part.access === "write" ? "changing" : "reading"} {part.folder} for the rest of this
-                  answer. To allow it always, add it under Settings &gt; Access.</>
-              : "Runs on this computer with your permissions."}
-          </span>
+          {part.chat && (
+            <button type="button" disabled={sent} onClick={() => answer(true, "chat")} className={cn(BUTTON, PLAIN)}>
+              Allow for this task
+            </button>
+          )}
+          {!denyFirst && (
+            <button type="button" disabled={sent} onClick={() => answer(false)} className={cn(BUTTON, PLAIN)}>No</button>
+          )}
+          <span className="ml-1 font-mono text-xs tabular-nums text-muted-foreground" title="No answer by then counts as No">{left}s</span>
         </div>
       )}
     </div>

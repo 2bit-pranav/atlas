@@ -35,6 +35,7 @@ import type {
   RunRef,
   SettingsView,
   StartedRun,
+  Turn,
   TurnStats,
 } from "@/api/types"
 
@@ -56,10 +57,18 @@ export interface AtlasState {
   staged: Staged[]
   /** The chat a staged upload belongs to. Uploads need a chat to live in. */
   stagedChat: string | null
+  /**
+   * The message just sent, shown at once while it is on its way: the page is
+   * read, the chat made and the run started before the server answers, which
+   * took seconds on a page like a YouTube video. Replaced by the real turn.
+   */
+  pending: Turn | null
   error: string | null
   connected: boolean
   /** Bumps when something asks the composer to take focus. */
   focusTick: number
+  /** Text a starter on the home page puts in the composer; `tick` makes the same text land twice. */
+  prefill: { text: string; tick: number } | null
   /** A restart from the UI in progress (llama-server and the backend). */
   restarting: boolean
   /** Why the last restart failed; the model is not running until another one works. */
@@ -79,9 +88,11 @@ class Store {
     thinking: false,
     staged: [],
     stagedChat: null,
+    pending: null,
     error: null,
     connected: true,
     focusTick: 0,
+    prefill: null,
     restarting: false,
     restartError: null,
   }
@@ -169,6 +180,11 @@ class Store {
     }
   }
 
+  /** Put text in the composer (a home page starter) and focus it. */
+  prefillComposer(text: string) {
+    this.set({ prefill: { text, tick: (this.state.prefill?.tick ?? 0) + 1 }, focusTick: this.state.focusTick + 1 })
+  }
+
   async refreshChats() {
     try {
       this.set({ chats: await api.listChats() })
@@ -252,6 +268,10 @@ class Store {
   origin: api.PageRef | null = null
   /** Runs before a message is sent: the extension attaches a PDF tab here. */
   beforeSend: (() => Promise<void>) | null = null
+  /** Reads the page when a message is sent, so it goes with it (no tool call to read it). */
+  pageContent: ((focus?: string) => Promise<{ content?: string; kind?: string } | null>) | null = null
+  /** A passage the next message is about (the selection chip): only the page around it is sent. */
+  pageFocus: string | null = null
   /** Runs a client call (a page operation) and returns its result. */
   onClientCall: ((op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null
 
@@ -271,6 +291,20 @@ class Store {
       await api.answerCall(run.id, event.id, result).catch(() => undefined)
     }
     void answer()
+  }
+
+  /** The page as it is now, for the message about to go. A failed read sends the page without content. */
+  private async pageNow(): Promise<api.PageRef | null> {
+    if (!this.page) return null
+    const focus = this.pageFocus ?? undefined
+    this.pageFocus = null
+    if (!this.pageContent) return this.page
+    try {
+      const read = await this.pageContent(focus)
+      return read ? { ...this.page, ...read } : this.page
+    } catch {
+      return this.page
+    }
   }
 
   private async ensureChat(): Promise<string> {
@@ -345,38 +379,56 @@ class Store {
   // ------------------------------------------------------------- turning --
 
   get busy() {
-    return this.state.run !== null
+    return this.state.run !== null || this.state.pending !== null
   }
 
   async send(text: string): Promise<boolean> {
     if (this.busy || this.state.staged.some((s) => s.uploading)) return false
-    if (this.beforeSend) {
-      try {
-        await this.beforeSend()
-      } catch (error) {
-        this.fail(error)
+    const shown = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
+    if (!text.trim() && !shown.length && !this.beforeSend) return false
+    this.set({ pending: {
+      id: "pending", parent_id: null, user_text: text, files: shown, refs: [], status: "running",
+      created_at: Date.now() / 1000, render: [], stats: null, error: null, version: 1, versions: [],
+    } })
+    try {
+      await this.beforeSend?.()
+      const files = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
+      if (!text.trim() && !files.length) {
+        this.set({ pending: null })
         return false
       }
-    }
-    const files = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
-    if (!text.trim() && !files.length) return false
-    try {
       const chatId = await this.ensureChat()
-      const started = await api.send(chatId, { text, files, thinking: this.state.thinking, page: this.page })
-      this.set({ staged: [], stagedChat: null })
+      const started = await api.send(chatId, { text, files, thinking: this.state.thinking, page: await this.pageNow() })
+      this.set({ staged: [], stagedChat: null, pending: null })
       this.begin(started)
       void this.refreshChats()
       return true
     } catch (error) {
+      this.set({ pending: null })
       this.fail(error)
       return false
     }
   }
 
+  /**
+   * The attached video's key moments, added to the chat as a finished turn: no
+   * run, nothing streamed (`server/routes/extension.py`). Throws with the
+   * server's reason, for the caller to show.
+   */
+  async keyMoments(): Promise<void> {
+    if (this.busy) throw new Error("Wait for the answer being written to finish.")
+    const page = await this.pageNow()
+    if (!page?.content) throw new Error("Could not read the video. Reload the page and try again.")
+    const chatId = await this.ensureChat()
+    const { chat } = await api.keyMoments(chatId, page)
+    this.set({ chat, stagedChat: this.state.stagedChat === chatId ? null : this.state.stagedChat })
+    void this.refreshChats()
+  }
+
   async retry(turnId: string) {
     if (this.busy) return
     try {
-      this.begin(await api.retry(turnId, this.state.thinking, this.page))
+      this.begin(await api.retry(turnId, this.state.thinking, await this.pageNow()))
     } catch (error) {
       this.fail(error)
     }
@@ -385,7 +437,7 @@ class Store {
   async edit(turnId: string, text: string, files?: ChatFile[]): Promise<boolean> {
     if (this.busy) return false
     try {
-      this.begin(await api.edit(turnId, { text, files, thinking: this.state.thinking, page: this.page }))
+      this.begin(await api.edit(turnId, { text, files, thinking: this.state.thinking, page: await this.pageNow() }))
       return true
     } catch (error) {
       this.fail(error)
@@ -415,11 +467,11 @@ class Store {
     }
   }
 
-  async answerApproval(approvalId: string, allow: boolean) {
+  async answerApproval(approvalId: string, allow: boolean, scope: "once" | "chat" = "once") {
     const run = this.state.run
     if (!run) return
     try {
-      await api.answerApproval(run.id, approvalId, allow)
+      await api.answerApproval(run.id, approvalId, allow, scope)
     } catch (error) {
       this.fail(error)
     }

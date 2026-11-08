@@ -50,6 +50,26 @@ export function timeAgo(then: number, current: number): string {
   })
 }
 
+/** The same, as short as a task list needs: now, 12m, 3h, yest., Tue, 12 Oct. */
+export function shortAgo(then: number, current: number): string {
+  const minutes = Math.floor(Math.max(0, current - then) / 60_000)
+  if (minutes < 1) return "now"
+  if (minutes < 60) return `${minutes}m`
+  const startOfToday = new Date(current).setHours(0, 0, 0, 0)
+  if (then >= startOfToday) return `${Math.floor(minutes / 60)}h`
+  if (then >= startOfToday - DAY) return "yest."
+  const date = new Date(then)
+  return then >= startOfToday - 6 * DAY
+    ? date.toLocaleDateString(undefined, { weekday: "short" })
+    : date.toLocaleDateString(undefined, { day: "numeric", month: "short" })
+}
+
+/** "0:41", "12:05": a run's length. */
+export const clock = (ms: number) => {
+  const s = Math.round(ms / 1000)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+}
+
 /** The exact time, for a tooltip. */
 export function fullTime(then: number): string {
   return new Date(then).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
