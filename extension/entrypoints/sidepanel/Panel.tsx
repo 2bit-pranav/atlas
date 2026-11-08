@@ -245,7 +245,7 @@ export function Panel() {
                         </button>
                       )}
                       emptyView={<PanelHome tab={attached && !blockedReason ? attached : null} reading={reading} blocked={blockedReason}
-                                            onOpen={(c) => void openPast(c)} />}
+                                            onOpen={(c) => void openPast(c)} onFill={() => attached && void suggestFill(attached, setFillStatus)} />}
                       placeholder={reading && attached && !blockedReason ? "Ask about this page…" : "Ask Atlas…"} />
         </AnswerExtras.Provider>
       </main>

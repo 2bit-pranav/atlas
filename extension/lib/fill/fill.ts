@@ -3,12 +3,13 @@
  * values over them, and fill them only when the user applies. Never submits.
  *
  * What is sent to Atlas is each field's label, type and options, never what
- * is typed in it. Passwords, one-time codes, card numbers, CVVs and captchas
+ * is typed in it. Google Forms questions come from their roles (gforms.ts). Passwords, one-time codes, card numbers, CVVs and captchas
  * are never collected and never filled.
  */
 
 import { box, button, shadow, toast } from "@ext/ui/overlay"
 import { fieldName, visible } from "@ext/page/read"
+import { answer, holds, isGoogleForm, questions, type GQuestion } from "@ext/fill/gforms"
 
 export interface Field {
   id: string
@@ -21,7 +22,11 @@ export interface Field {
 const SECRET = /pass(word)?|otp|one.?time|cvv|cvc|card.?(no|number)|\bpin\b|captcha|security.?code/i
 const TYPES = new Set(["text", "email", "tel", "number", "date", "url", "search", "month", "week", "time", "datetime-local", ""])
 
-let fields = new Map<string, HTMLElement | HTMLInputElement[]>()
+/** A form field, a group of radio buttons, or a Google Forms question. */
+type Target = HTMLElement | HTMLInputElement[] | GQuestion
+const isQuestion = (t: Target): t is GQuestion => !Array.isArray(t) && "item" in t && "kind" in t
+
+let fields = new Map<string, Target>()
 let preview: { values: Record<string, string>; layer: HTMLDivElement; bar: HTMLDivElement; frame: number } | null = null
 
 function secret(el: Element, label: string): boolean {
@@ -34,6 +39,18 @@ function secret(el: Element, label: string): boolean {
 export function formFields(): Field[] {
   fields = new Map()
   const out: Field[] = []
+  if (isGoogleForm()) {
+    // Its questions are not form fields: read them from their roles (gforms.ts).
+    const TYPE = { text: "text", textarea: "textarea", date: "date", radio: "radio", checkbox: "checkbox", dropdown: "select" } as const
+    for (const [i, q] of questions().entries()) {
+      if (SECRET.test(q.label)) continue
+      const id = `g${i + 1}`
+      fields.set(id, q)
+      out.push({ id, label: q.label.slice(0, 160), type: TYPE[q.kind], ...(q.options.length ? { options: q.options } : {}),
+                 ...(q.required ? { required: true } : {}) })
+    }
+    return out.slice(0, 60)
+  }
   const radios = new Map<string, HTMLInputElement[]>()
   let n = 0
   for (const el of Array.from(document.querySelectorAll<HTMLElement>("input, select, textarea"))) {
@@ -67,9 +84,8 @@ export function formFields(): Field[] {
   return out.slice(0, 60)
 }
 
-function rectOf(target: HTMLElement | HTMLInputElement[]): DOMRect {
-  return (Array.isArray(target) ? target[0] : target).getBoundingClientRect()
-}
+const elementOf = (target: Target): HTMLElement => (isQuestion(target) ? target.item : Array.isArray(target) ? target[0] : target)
+const rectOf = (target: Target): DOMRect => elementOf(target).getBoundingClientRect()
 
 /** Show the suggested values over their fields, with Apply / Discard. Nothing is filled yet. */
 export function previewFill(values: Record<string, string>): { shown: number } {
@@ -82,7 +98,7 @@ export function previewFill(values: Record<string, string>): { shown: number } {
   const label = document.createElement("span")
   label.className = "logo"
   label.textContent = `Atlas suggests ${ids.length} value${ids.length === 1 ? "" : "s"}`
-  bar.append(label, button("Apply", () => applyFill()), button("Discard", () => discardFill()))
+  bar.append(label, button("Apply", () => void applyFill()), button("Discard", () => discardFill()))
   const draw = () => {
     layer.replaceChildren(...ids.map((id) => {
       const r = rectOf(fields.get(id)!)
@@ -90,7 +106,7 @@ export function previewFill(values: Record<string, string>): { shown: number } {
       tag.style.cssText = `position:fixed;z-index:2147483646;left:${r.left - 2}px;top:${r.top - 2}px;width:${r.width}px;` +
         `height:${r.height}px;border:2px dashed #ca8a04;border-radius:6px;pointer-events:none;`
       const value = document.createElement("div")
-      value.textContent = values[id]
+      value.textContent = values[id].replace(/\n/g, ", ")
       value.style.cssText = "position:absolute;left:0;bottom:100%;margin-bottom:2px;max-width:320px;overflow:hidden;" +
         "text-overflow:ellipsis;white-space:nowrap;background:#fef3c7;color:#713f12;font:11px/1.4 system-ui,sans-serif;" +
         "padding:1px 6px;border-radius:4px;"
@@ -101,8 +117,7 @@ export function previewFill(values: Record<string, string>): { shown: number } {
   }
   preview = { values, layer, bar, frame: 0 }
   draw()
-  ;(Array.isArray(fields.get(ids[0])) ? (fields.get(ids[0]) as HTMLInputElement[])[0] : fields.get(ids[0]) as HTMLElement)
-    .scrollIntoView({ behavior: "smooth", block: "center" })
+  elementOf(fields.get(ids[0])!).scrollIntoView({ behavior: "smooth", block: "center" })
   return { shown: ids.length }
 }
 
@@ -115,13 +130,20 @@ function setValue(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
 }
 
 /** Fill the previewed values. Never submits the form. */
-export function applyFill(): { filled: number } {
-  if (!preview) return { filled: 0 }
+export async function applyFill(): Promise<{ filled: number; missed: string[] }> {
+  if (!preview) return { filled: 0, missed: [] }
+  const values = preview.values
   let filled = 0
-  for (const [id, value] of Object.entries(preview.values)) {
+  const missed: string[] = []
+  for (const [id, value] of Object.entries(values)) {
     const target = fields.get(id)
     if (!target) continue
-    if (Array.isArray(target)) {
+    if (isQuestion(target)) {
+      // Answered as a person would, then checked: a miss is reported, not assumed.
+      await answer(target, value)
+      if (holds(target, value)) filled++
+      else missed.push(target.label)
+    } else if (Array.isArray(target)) {
       const radio = target.find((r) => (fieldName(r).trim() || r.value) === value)
       if (radio) {
         radio.click()
@@ -140,8 +162,10 @@ export function applyFill(): { filled: number } {
     }
   }
   discardFill()
-  toast(`Filled ${filled} field${filled === 1 ? "" : "s"}. Check them, then submit the form yourself.`, false, 6000)
-  return { filled }
+  toast(`Filled ${filled} field${filled === 1 ? "" : "s"}.` +
+        (missed.length ? ` Did not take: ${missed.slice(0, 3).join(", ")}${missed.length > 3 ? "…" : ""}. Fill ${missed.length === 1 ? "it" : "them"} yourself.` : "") +
+        " Check them, then submit the form yourself.", missed.length > 0, 8000)
+  return { filled, missed }
 }
 
 export function discardFill(): { ok: boolean } {

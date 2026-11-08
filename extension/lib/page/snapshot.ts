@@ -15,8 +15,9 @@
 import { readable } from "@ext/page/read"
 import { outline } from "@ext/page/ax"
 import { cleanTitle, googleTarget, googleText, type GoogleApp } from "@ext/page/google"
+import { isYouTubeVideo, youtube } from "@ext/page/youtube"
 
-export type SnapshotKind = "page" | "article" | "selection" | GoogleApp
+export type SnapshotKind = "page" | "article" | "selection" | "youtube" | GoogleApp
 
 export interface Snapshot {
   title: string
@@ -44,6 +45,10 @@ export function around(text: string, root: Element = document.body): Element | n
 
 export async function snapshot(focus?: string): Promise<Snapshot> {
   const page = { title: document.title, url: location.href }
+  if (isYouTubeVideo() && !focus) {
+    const video = await youtube()
+    return { title: video.title, url: page.url, kind: "youtube", content: video.content }
+  }
   const google = googleTarget(location.href)
   if (google) {
     const title = cleanTitle(document.title)

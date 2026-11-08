@@ -6,6 +6,7 @@
  */
 
 import { byRef, refOf, show } from "@ext/page/ax"
+import { playFrom } from "@ext/page/youtube"
 
 // -------------------------------------------------------- find, highlight --
 
@@ -231,12 +232,12 @@ export function clearHighlights() {
 // ------------------------------------------------------------ pointing --
 
 /** What an answer pointed at: a passage it quoted, or an element by its ref (`e12`). */
-export type Pointer = { quote: string } | { ref: string }
+export type Pointer = { quote: string } | { ref: string } | { time: number; label: string }
 
 export interface Place {
   found: boolean
   /** How a quote matched: the page's exact words, or the passage that says the same. Elements are "element". */
-  how: "exact" | "similar" | "element" | "none"
+  how: "exact" | "similar" | "element" | "time" | "none"
   /** What it is on the page: Heading, Table row, Link, Button... */
   kind: string
   /** A short stretch of the page around it, or the element's name. */
@@ -250,7 +251,7 @@ const KIND: [string, string][] = [["h1,h2,h3,h4,h5,h6,[role=heading]", "Heading"
   ["input,select,textarea", "Field"], ["caption", "Table caption"]]
 const kindOf = (el: Element | null) => KIND.find(([sel]) => el?.closest(sel))?.[1] ?? "Text"
 
-let places: (Range | Element | null)[] = []
+let places: (Range | Element | { time: number } | null)[] = []
 
 /**
  * Find each place an answer pointed at; highlight the passages. Quotes match
@@ -261,6 +262,11 @@ export function point(pointers: Pointer[]): { places: Place[] } {
   const index = textIndex()
   const out: Place[] = []
   places = pointers.map((p) => {
+    if ("time" in p) {
+      const video = document.querySelector("video")
+      out.push({ found: Boolean(video), how: video ? "time" : "none", kind: "Video", text: p.label })
+      return video ? { time: p.time } : null
+    }
     if ("ref" in p) {
       const el = byRef(p.ref)
       out.push(el ? { found: true, how: "element", kind: kindOf(el), text: (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
@@ -289,6 +295,7 @@ export function go(i: number): { ok: boolean } {
   const place = places[i]
   if (!place) return { ok: false }
   if (place instanceof Range) return { ok: scrollTo(marked.indexOf(place)) }
+  if ("time" in place) return { ok: playFrom(place.time) }
   paint(marked, -1)
   return { ok: show(refOf(place)).ok }
 }

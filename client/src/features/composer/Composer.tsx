@@ -303,7 +303,8 @@ export const Composer = memo(function Composer({ edit, placeholder, look = "chat
       {!recording && hearsAudio && !text.trim() && typeof MediaRecorder !== "undefined" && (
         <Tip label="Record audio">
           <button type="button" onClick={() => void startRecording()} aria-label="Record audio"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground md:h-8 md:w-8">
+                  className={cn("flex shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground",
+                                panel ? "h-8 w-8" : "h-9 w-9 md:h-8 md:w-8")}>
             <Mic className="h-4 w-4" />
           </button>
         </Tip>
@@ -311,7 +312,7 @@ export const Composer = memo(function Composer({ edit, placeholder, look = "chat
       {recording ? null : busy && !edit && !text.trim() ? (
         <Tip label="Stop">
           <button type="button" onClick={() => void atlas.cancel()} aria-label="Stop"
-                  className={cn("group flex h-9 w-9 shrink-0 items-center justify-center md:h-8 md:w-8",
+                  className={cn("group flex shrink-0 items-center justify-center", panel ? "h-8 w-8" : "h-9 w-9 md:h-8 md:w-8",
                                 panel ? "rounded-lg bg-primary text-primary-foreground"
                                   : "rounded-full border border-muted bg-muted/30 shadow-sm hover:bg-muted dark:bg-muted-foreground/15")}>
             <Square className={cn("h-3 w-3", panel ? "fill-current" : "fill-muted-foreground text-muted-foreground group-hover:fill-destructive group-hover:text-destructive")} />
@@ -325,7 +326,8 @@ export const Composer = memo(function Composer({ edit, placeholder, look = "chat
           </button>
         ) : (
           <button type="submit" disabled={!canSend} aria-label="Send"
-                  className={cn("flex h-9 w-9 shrink-0 items-center justify-center bg-primary text-primary-foreground transition-opacity disabled:opacity-40 md:h-8 md:w-8",
+                  className={cn("flex shrink-0 items-center justify-center bg-primary text-primary-foreground transition-opacity disabled:opacity-40",
+                                panel ? "h-8 w-8" : "h-9 w-9 md:h-8 md:w-8",
                                 task || panel ? "rounded-lg" : "rounded-full")}>
             {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
           </button>

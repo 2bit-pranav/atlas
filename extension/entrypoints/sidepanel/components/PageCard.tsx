@@ -4,6 +4,8 @@ import { Eye, EyeOff, FileText, Globe, ShieldOff, TextCursorInput } from "lucide
 import { cn } from "@/lib/cn"
 import { type TabInfo } from "@ext/shared/tab"
 import { googleTarget } from "@ext/page/google"
+import { isYouTubeVideo } from "@ext/page/youtube"
+import { isGoogleForm } from "@ext/fill/gforms"
 
 const APP: Record<string, string> = {
   document: "Google Doc", spreadsheets: "Google Sheet", presentation: "Google Slides", "drive-file": "Drive file",
@@ -27,8 +29,11 @@ export function PageCard({ tab, blocked, pdf, reading, compact, onReading, onFil
     host = ""
   }
   const app = tab ? googleTarget(tab.url)?.app : undefined
+  const video = isYouTubeVideo(tab?.url ?? "")
+  // Forms can be filled; a Google file or a video has none.
+  const fillable = !tab?.viewer && !app && !video
   const readable = Boolean(tab && !blocked)
-  const where = app ? `${APP[app]} · ${host}` : pdf ? `PDF · ${host || "on this computer"}` : tab?.viewer ? "PDF in the Atlas viewer" : host
+  const where = app ? `${APP[app]} · ${host}` : video ? "YouTube video" : isGoogleForm(tab?.url ?? "") ? "Google Form" : pdf ? `PDF · ${host || "on this computer"}` : tab?.viewer ? "PDF in the Atlas viewer" : host
 
   const toggle = readable && (
     <button type="button" aria-pressed={reading} onClick={() => onReading(!reading)}
@@ -52,7 +57,7 @@ export function PageCard({ tab, blocked, pdf, reading, compact, onReading, onFil
         {readable && reading && pdf && (
           <button type="button" onClick={onViewer} className="shrink-0 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">Open in viewer</button>
         )}
-        {readable && reading && !pdf && !tab?.viewer && !app && (
+        {readable && reading && !pdf && fillable && (
           <button type="button" aria-label="Fill this form from my details" title="Fill this form from my details" onClick={onFill}
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
             <TextCursorInput className="h-3.5 w-3.5" />
@@ -76,12 +81,12 @@ export function PageCard({ tab, blocked, pdf, reading, compact, onReading, onFil
         </span>
         {toggle}
       </div>
-      {readable && reading && (pdf || (!tab?.viewer && !app)) && (
+      {readable && reading && (pdf || fillable) && (
         <div className="mt-2 flex flex-wrap gap-1 border-t pt-2">
           {pdf ? (
             <button type="button" onClick={onViewer} className={TOOL}>Open in Atlas viewer</button>
           ) : (
-            !tab?.viewer && !app && (
+            fillable && (
               <button type="button" onClick={onFill} className={TOOL}><TextCursorInput className="h-3.5 w-3.5" />Fill this form</button>
             )
           )}

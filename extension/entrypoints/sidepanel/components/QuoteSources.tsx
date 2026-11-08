@@ -5,7 +5,8 @@
  * Found ones are highlighted on the page; Go to scrolls to one and marks it,
  * the arrows step through them. A quote the page does not hold is shown as not
  * found: with a small model, that is how an unsupported claim becomes visible.
- * For "find" and "where" questions the first place is gone to at once.
+ * For "find" and "where" questions the first place is gone to at once. A time
+ * in a video ("[12:34]") plays it from there; never on its own.
  */
 
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
@@ -41,7 +42,7 @@ export function QuoteSources({ turn, answer, tabId }: { turn: Turn; answer: stri
   useEffect(() => {
     if (!latest || !targets.length || !extrasActive) return
     void locate().then((found) => {
-      const first = found.findIndex((p) => p?.found)
+      const first = found.findIndex((p, i) => p?.found && !("time" in targets[i]))   // a video never starts on its own
       if (first >= 0 && (wantsToGo(turn.user_text) || targets.some((t) => "ref" in t))) void tabCall(tabId, "go", { index: first }).then((r) => r.ok && setActive(first))
     })
   }, [latest, targets, extrasActive, locate, tabId, turn.user_text])
@@ -78,20 +79,20 @@ export function QuoteSources({ turn, answer, tabId }: { turn: Turn; answer: stri
                                 isActive ? "bg-run text-white" : "bg-muted text-foreground/80")}>{i + 1}</span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span>{place?.kind ?? ("ref" in t ? "Element" : "Passage")}</span>
+                <span>{place?.kind ?? ("ref" in t ? "Element" : "time" in t ? "Video" : "Passage")}</span>
                 {place?.how === "exact" && <span className="rounded bg-ok/15 px-1 text-ok">Exact</span>}
                 {place?.how === "similar" && <span className="rounded bg-ask/15 px-1 text-ask">Similar</span>}
-                {missing && <span className="italic">{"ref" in t ? "not on the page now" : "not found on the page"}</span>}
+                {missing && <span className="italic">{"ref" in t ? "not on the page now" : "time" in t ? "no video on the page" : "not found on the page"}</span>}
               </div>
               <p className={cn("line-clamp-2 text-[12.5px] leading-snug", missing && "text-muted-foreground line-through decoration-muted-foreground/40")}>
-                {place?.text || ("quote" in t ? `“${t.quote}”` : t.ref)}
+                {place?.text || ("quote" in t ? `“${t.quote}”` : "ref" in t ? t.ref : t.label)}
               </p>
             </div>
             {!missing && (
               <div className="flex shrink-0 items-center gap-1 self-center">
                 <button type="button" onClick={() => void goTo(i)}
                         className={cn("h-7 rounded-md px-2.5 text-xs font-medium", isActive ? "bg-primary text-primary-foreground" : "border bg-card hover:bg-accent")}>
-                  {"ref" in t ? "Show" : "Go to"}
+                  {"ref" in t ? "Show" : "time" in t ? "Play from here" : "Go to"}
                 </button>
                 {place?.href && /^https?:/i.test(place.href) && (
                   <button type="button" aria-label="Open the link" onClick={() => void browser.tabs.create({ url: place.href! })}

@@ -19,6 +19,12 @@ from agent.tools.page import UNTRUSTED
 
 #: Up to this much of the page goes in the message; the rest is in a file.
 INLINE_CHARS = 12_000
+#: A video's transcript, whole when it can be (about 6k tokens): questions about a video span all of it.
+INLINE_VIDEO_CHARS = 24_000
+
+
+def inline_limit(kind: str) -> int:
+    return INLINE_VIDEO_CHARS if kind == "youtube" else INLINE_CHARS
 
 _INTRO = {
     "selection": "The part of the page around the passage the user selected:",
@@ -26,6 +32,9 @@ _INTRO = {
     "spreadsheets": "The Google Sheet's open tab, as CSV:",
     "presentation": "The Google Slides deck's text:",
     "pdf": "The PDF's text:",
+    "youtube": ("The YouTube video: its details and transcript, each line starting with its time. Cite the "
+                "time of what you use, like [12:34]: each becomes a button that plays the video from there. "
+                "Without a transcript, say you can only go by the description."),
 }
 
 _HOW = ("Answer from the page above; do not search for what is already in it. To point the user at a "
@@ -65,11 +74,11 @@ def page_note(page: dict[str, Any], *, already_sent: bool = False, saved_as: str
                 "the page with a short exact quote in double quotes, so it can be highlighted for the user.]")
     if already_sent:
         return f"[The user is still on {where}. Its content has not changed since it was given earlier in this chat. {_HOW}]"
-    body = head(content)
+    body = head(content, inline_limit(kind))
     rest = (f"\n(The page is longer: all of it is in {saved_as}. Search it with page_find, or read the file.)"
             if saved_as and len(body) < len(content) else "")
     intro = _INTRO.get(kind, "The page, as text and its links and controls:")
     return (f"[The user is looking at {where}.]\n{UNTRUSTED}{intro}\n<page>\n{body}{rest}\n</page>\n[{_HOW}]")
 
 
-__all__ = ["INLINE_CHARS", "head", "page_hash", "page_note"]
+__all__ = ["INLINE_CHARS", "head", "inline_limit", "page_hash", "page_note"]

@@ -21,8 +21,7 @@ from agent.model import server as llama
 from agent.model.sampling import RetryPlan
 from agent.platform.winpaths import model_path
 from agent.prompt.notes import clock_note, retry_hint
-from agent.prompt.page import INLINE_CHARS as PAGE_INLINE_CHARS
-from agent.prompt.page import page_hash, page_note
+from agent.prompt.page import inline_limit, page_hash, page_note
 from agent.runtime.factory import build_agent
 from agent.store.chats import CANCELLED, COMPLETED, FAILED, ChatStore
 from agent.store.snapshots import SessionManager
@@ -163,7 +162,7 @@ class Atlas:
         if digest in self._earlier_page_hashes(turn):
             return page_note(page, already_sent=True)
         saved = None
-        if len(content) > PAGE_INLINE_CHARS:
+        if len(content) > inline_limit(str(page.get("kind") or "")):
             workspace.mkdir(parents=True, exist_ok=True)
             path = workspace / page_file_name(str(page.get("title") or ""))
             path.write_text(f"# {page.get('title') or ''}\n\nSource: {page.get('url') or ''}\n\n{content}", encoding="utf-8")

@@ -72,6 +72,12 @@ pdf.js is the viewer's alone.
      Open shadow roots and same-origin frames are walked; each element keeps
      its ref across snapshots; hard caps (60k nodes, 1.5 s) so no page can
      hang the tab.
+   - a YouTube video (`youtube.ts`): title, channel, length, description and
+     the transcript in ~300-character passages, each with its time. The
+     transcript is read from YouTube's own panel ("Show transcript", opened if
+     needed; its caption files need a token only its player makes). Up to 24k
+     characters go in the message, so a talk is usually whole. Answers cite
+     times as [12:34], each a "Play from here";
    - a question from the selection chip: only the section around the passage.
    The backend puts it after the user's text, marked as page content, taints
    the chat at once, saves a page over 12k characters to the workspace with
@@ -129,6 +135,13 @@ the tool result (llama-server accepts images in tool messages); the panel
 captures the tab or fetches the image with the user's session. The camera
 button attaches a screenshot to the next message, and "Ask Atlas about this
 image" on the right-click menu sends one image.
+
+**Google Forms** (`lib/fill/gforms.ts`): its questions are read from their
+roles (a choice is a `role="radio"` div, a dropdown a `role="listbox"`), answered
+as a person would (typed, clicked, the dropdown opened then its option clicked),
+and each answer checked afterwards: one that did not take is reported on Apply.
+A checkbox question takes any of its options. Only the section on screen;
+Next and Submit are the user's.
 
 **Fill suggestions.** The Fill button sends the form's fields (labels,
 types, options; never their contents) to `/api/extension/fill`. The backend

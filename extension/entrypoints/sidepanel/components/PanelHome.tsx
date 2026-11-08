@@ -1,17 +1,29 @@
 /** The panel's start screen: what to do with this page, and earlier chats on the same site. */
 
-import { FileSpreadsheet, FolderOpen, ListTree, Search, Sparkles } from "lucide-react"
+import { Clock, FileSpreadsheet, FolderOpen, ListTree, Search, Sparkles, TextCursorInput } from "lucide-react"
 import { atlas, useAtlas } from "@/state/store"
 import type { ChatSummary } from "@/api/types"
 import { shortAgo, useNow } from "@/lib/time"
 import { googleTarget } from "@ext/page/google"
+import { isYouTubeVideo } from "@ext/page/youtube"
+import { isGoogleForm } from "@ext/fill/gforms"
 import { type TabInfo } from "@ext/shared/tab"
 
-type Starter = { icon: typeof Search; label: string; send?: string; prefill?: string; wide?: boolean; hint?: string }
+type Starter = { icon: typeof Search; label: string; send?: string; prefill?: string; fill?: boolean; wide?: boolean; hint?: string }
 
 /** Starters by what the page is. Ones that need the user's words prefill the box; the rest send. */
 function startersFor(url: string): Starter[] {
   const app = googleTarget(url)?.app
+  if (isYouTubeVideo(url)) return [
+    { icon: ListTree, label: "Summarise this video", send: "Summarise this video in a few points, with the time of each." },
+    { icon: Clock, label: "Key moments", send: "List the key moments of this video, each with its time." },
+    { icon: Search, label: "Find where they say…", prefill: "Where in the video do they talk about " },
+    { icon: Sparkles, label: "Explain simply", send: "Explain what this video teaches in simple words." }]
+  if (isGoogleForm(url)) return [
+    { icon: TextCursorInput, label: "Fill it from my details", fill: true, wide: true,
+      hint: "Shown on the form first; nothing is filled until you Apply, never submitted" },
+    { icon: ListTree, label: "What does it ask for?", send: "What does this form ask for? List the questions, and which are required." },
+    { icon: Sparkles, label: "Explain a question", prefill: "Explain this question on the form: " }]
   const files: Starter = { icon: FolderOpen, label: "Ask with my files", prefill: "Compare this with my ", wide: true,
                            hint: "Compare it with your resume, notes or documents" }
   if (app === "spreadsheets") return [
@@ -39,8 +51,8 @@ const hostOf = (url: string) => {
   }
 }
 
-export function PanelHome({ tab, reading, blocked, onOpen }: {
-  tab: TabInfo | null; reading: boolean; blocked: string | null; onOpen: (c: ChatSummary) => void
+export function PanelHome({ tab, reading, blocked, onOpen, onFill }: {
+  tab: TabInfo | null; reading: boolean; blocked: string | null; onOpen: (c: ChatSummary) => void; onFill: () => void
 }) {
   const chats = useAtlas((s) => s.chats)
   const now = useNow()
@@ -64,7 +76,7 @@ export function PanelHome({ tab, reading, blocked, onOpen }: {
         <div className="grid grid-cols-2 gap-2">
           {startersFor(tab.url).map((s) => (
             <button key={s.label} type="button"
-                    onClick={() => (s.send ? void atlas.send(s.send) : atlas.prefillComposer(s.prefill ?? ""))}
+                    onClick={() => (s.fill ? onFill() : s.send ? void atlas.send(s.send) : atlas.prefillComposer(s.prefill ?? ""))}
                     className={`flex min-h-[4.25rem] flex-col gap-1.5 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-accent ${s.wide ? "col-span-2" : ""}`}>
               <s.icon className="h-4 w-4 text-run" />
               <span className="text-[13px] font-medium">{s.label}</span>

@@ -29,7 +29,8 @@ from agent.model import server as llama
 SYSTEM = (
     "You fill web forms from the user's details. For each field, give the value from the details that "
     "answers the field's label. Copy values exactly as written in the details, adjusted only to the "
-    "field's format (a date field takes YYYY-MM-DD; a choice field takes one of its options). If the "
+    "field's format (a date field takes YYYY-MM-DD; a choice field takes one of its options; a "
+    "checkbox field takes every option that applies, or none). If the "
     'details do not say, give "". Never invent a value.'
 )
 
@@ -55,7 +56,7 @@ def _describe(field: dict[str, Any]) -> str:
     kind = str(field.get("type") or "text")
     line = f'- {field["id"]}: "{field.get("label", "")}" ({kind}'
     if field.get("options"):
-        line += ": " + ", ".join(str(o) for o in field["options"][:40])
+        line += (": any of " if kind == "checkbox" else ": ") + ", ".join(str(o) for o in field["options"][:40])
     if field.get("required"):
         line += ", required"
     return line + ")"
@@ -65,7 +66,11 @@ def _schema(fields: list[dict[str, Any]]) -> dict[str, Any]:
     props: dict[str, Any] = {}
     for f in fields:
         options = [str(o) for o in f.get("options") or []]
-        props[f["id"]] = {"type": "string", "enum": [*options, ""]} if options else {"type": "string", "maxLength": 300}
+        if f.get("type") == "checkbox" and options:
+            # "Select all that apply": any number of its options.
+            props[f["id"]] = {"type": "array", "items": {"type": "string", "enum": options}, "uniqueItems": True}
+        else:
+            props[f["id"]] = {"type": "string", "enum": [*options, ""]} if options else {"type": "string", "maxLength": 300}
     return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
 
 
@@ -98,14 +103,26 @@ def suggest(settings: Settings, fields: list[dict[str, Any]], title: str = "") -
     except (httpx.HTTPError, KeyError, ValueError) as exc:
         raise ValueError(f"the model could not answer: {exc}") from exc
 
+    return {"values": (values := checked(fields, answer)),
+            "missing": [str(f["label"]) for f in fields if f["id"] not in values]}
+
+
+def checked(fields: list[dict[str, Any]], answer: dict[str, Any]) -> dict[str, str]:
+    """The answers that fit their fields: one of a choice's options; for checkboxes, the options
+    that are real, one per line (the page splits them). Anything else is left out, never guessed."""
     values: dict[str, str] = {}
     for f in fields:
-        value = str(answer.get(f["id"], "") or "").strip()
+        raw = answer.get(f["id"])
         options = [str(o) for o in f.get("options") or []]
+        if f.get("type") == "checkbox" and options:
+            picked = [str(v) for v in (raw if isinstance(raw, list) else []) if str(v) in options]
+            if picked:
+                values[f["id"]] = "\n".join(dict.fromkeys(picked))
+            continue
+        value = str(raw or "").strip()
         if value and (not options or value in options):
             values[f["id"]] = value
-    missing = [str(f["label"]) for f in fields if f["id"] not in values]
-    return {"values": values, "missing": missing}
+    return values
 
 
-__all__ = ["SYSTEM", "profile_path", "read_profile", "suggest", "write_profile"]
+__all__ = ["SYSTEM", "checked", "profile_path", "read_profile", "suggest", "write_profile"]

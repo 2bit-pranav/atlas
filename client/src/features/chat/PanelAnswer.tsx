@@ -2,8 +2,8 @@
  * An answer in the browser extension's side panel: made to leave the most
  * room for the answer and for what points back at the page.
  *
- * - While it works: one box, the steps done and the thinking as one live line
- *   ("Show" opens the reasoning). Not a Reasoning block per model call.
+ * - While it works: one box, the steps done and "Thinking" (only the word, as
+ *   in the web app; "Show" opens the reasoning). Not a Reasoning block per model call.
  * - Once it answers: the work folds into one line ("Read the page · Found 3
  *   places"); a click opens the reasoning and the tool calls.
  * - No token counts, speeds, model names or times.
@@ -58,9 +58,6 @@ export function PanelAnswer({ turn, chatId, parts, stats, running, isLast }: {
                         className="text-xs text-muted-foreground hover:text-foreground">{open ? "Hide" : "Show"}</button>
               )}
             </div>
-          )}
-          {reasoning && !open && (
-            <p className="truncate pl-5 text-xs italic text-muted-foreground">{reasoning.split("\n").filter(Boolean).at(-1)}</p>
           )}
           {reasoning && open && (
             <div className="max-h-56 overflow-y-auto whitespace-pre-wrap border-l pl-3 text-xs text-muted-foreground">{reasoning}</div>

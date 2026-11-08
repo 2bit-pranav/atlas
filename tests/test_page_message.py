@@ -75,3 +75,11 @@ def test_a_long_page_goes_to_a_file_with_its_start_inline(tmp_path) -> None:
     assert saved and "Line 2999" in saved[0].read_text(encoding="utf-8")
     assert "Line 0 " in note and "Line 2999" not in note and "all of it is in" in note
     assert len(note) < INLINE_CHARS + 2000
+
+
+def test_a_video_transcript_is_sent_whole_when_it_fits_and_its_times_cited() -> None:
+    transcript = "\n".join(f"[{i}:00] words of the talk said here" for i in range(400))
+    assert 12_000 < len(transcript) < 24_000
+    note = page_note({**PAGE, "kind": "youtube", "content": transcript})
+    assert "[399:00]" in note and "[12:34]" in note and "plays the video from there" in note
+
