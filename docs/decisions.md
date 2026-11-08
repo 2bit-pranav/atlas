@@ -1071,3 +1071,14 @@ to the transcript's own by a schema enum and checked again. Labels are page
 text: markdown is stripped so they cannot add links or extra times, and the
 chat is marked as having read outside content. A custom question about the
 video is still a normal turn.
+
+**A sent message shows at once** (2026-11-08). Between Enter and the turn
+appearing, the panel read the page, made the chat and started the run, and
+showed nothing meanwhile. Measured: the backend's send 50 ms; the page
+snapshot 5-420 ms on ordinary pages (Wikipedia's longest article 419 ms) and
+942 ms on a YouTube video, which reopened its transcript every time (3 s more
+on a video without captions, waiting for a button that never comes). Now the
+message and the working box show the moment it is sent (`pending` in the
+store, replaced by the real turn), and a video's read is kept per video id
+(the next message: 20 ms). What remains before the first word is the model
+reading the prompt.

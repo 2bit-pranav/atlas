@@ -98,7 +98,34 @@ async function openTranscript(): Promise<boolean> {
   return false
 }
 
+/** The video's id from its address (watch?v=, /shorts/, /live/), or "". */
+export function videoId(url: string): string {
+  try {
+    const u = new URL(url)
+    return u.searchParams.get("v") ?? /^\/(?:shorts|live)\/([\w-]+)/.exec(u.pathname)?.[1] ?? ""
+  } catch {
+    return ""
+  }
+}
+
+/**
+ * The last video read, kept for the next message: reading it opens the
+ * transcript panel and waits for it (and for a video without captions, waits
+ * 3 s for a button that never comes), seconds before each message went.
+ * Kept only when the page shows that video (YouTube changes videos without
+ * reloading, and its old details linger for a moment after the address changes).
+ */
+let kept: { id: string; read: { title: string; content: string } } | null = null
+
 export async function youtube(): Promise<{ title: string; content: string }> {
+  const id = videoId(location.href)
+  if (id && kept?.id === id) return kept.read
+  const read = await readVideo()
+  if (id && document.querySelector("ytd-watch-flexy")?.getAttribute("video-id") === id) kept = { id, read }
+  return read
+}
+
+async function readVideo(): Promise<{ title: string; content: string }> {
   // The video's details arrive after the page itself.
   await until(() => document.querySelector("ytd-watch-metadata ytd-text-inline-expander, #owner #channel-name"), 5000)
   const title = clean(document.querySelector("h1.ytd-watch-metadata, #title h1, h1.title")?.textContent) ||

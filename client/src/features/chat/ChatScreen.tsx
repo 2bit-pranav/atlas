@@ -40,8 +40,11 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder, composerEx
   const live = useAtlas((s) => s.live)
   const runTurn = useAtlas((s) => s.run?.turn_id ?? null)
   const prefs = usePrefs()
+  const pending = useAtlas((s) => s.pending)
   const turns = useMemo(() => chat?.turns ?? [], [chat])
-  const empty = turns.length === 0
+  // The message on its way shows at once, as the newest turn, working.
+  const shown = useMemo(() => (pending ? [...turns, pending] : turns), [turns, pending])
+  const empty = shown.length === 0
   // The panel covers every turn shown; the running one (always the newest) with its live parts.
   const panelTurns = useMemo<PanelTurn[]>(() => turns.map((t) => t.id === runTurn
     ? { turn: t, parts: live?.parts ?? [], stats: live?.stats ?? null, running: true }
@@ -68,14 +71,16 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder, composerEx
   // A new run (send, regenerate, edit): bring its question to the top and let
   // the answer grow below it, so it can be read from the first line while it
   // is still being written.
+  // The message on its way counts too: it is where the run's turn will be.
+  const newest = pending ? pending.id : runTurn
   useLayoutEffect(() => {
     const el = scroller.current
-    if (!runTurn || !el) return
-    const row = el.querySelector<HTMLElement>(`[data-turn-id="${runTurn}"]`)
+    if (!newest || !el) return
+    const row = el.querySelector<HTMLElement>(`[data-turn-id="${newest}"]`)
     if (!row) return
     pinned.current = false
     el.scrollTo({ top: row.offsetTop - 16, behavior: "smooth" })
-  }, [runTurn])
+  }, [newest])
 
   // Following the stream is opt-in, and stops as soon as the reader scrolls.
   useLayoutEffect(() => {
@@ -144,17 +149,17 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder, composerEx
               <div className="mt-8 text-left"><Composer /></div>
             </div>
           ) : (
-            turns.map((turn, i) => (
-              <div key={turn.id} style={i === turns.length - 1 ? { minHeight: Math.max(0, viewport - 40) } : undefined}>
+            shown.map((turn, i) => (
+              <div key={turn.id} style={i === shown.length - 1 ? { minHeight: Math.max(0, viewport - 40) } : undefined}>
               <TurnRow
                 turn={turn}
-                chatId={chat!.id}
-                isLast={i === turns.length - 1}
-                laterCount={turns.length - 1 - i}
-                liveParts={turn.id === runTurn ? live?.parts ?? [] : null}
+                chatId={chat?.id ?? ""}
+                isLast={i === shown.length - 1}
+                laterCount={shown.length - 1 - i}
+                liveParts={turn === pending ? [] : turn.id === runTurn ? live?.parts ?? [] : null}
                 liveStats={turn.id === runTurn ? live?.stats ?? null : null}
               />
-              {i === turns.length - 1 && tail}
+              {i === shown.length - 1 && !pending && tail}
               </div>
             ))
           )}

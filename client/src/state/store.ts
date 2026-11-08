@@ -35,6 +35,7 @@ import type {
   RunRef,
   SettingsView,
   StartedRun,
+  Turn,
   TurnStats,
 } from "@/api/types"
 
@@ -56,6 +57,12 @@ export interface AtlasState {
   staged: Staged[]
   /** The chat a staged upload belongs to. Uploads need a chat to live in. */
   stagedChat: string | null
+  /**
+   * The message just sent, shown at once while it is on its way: the page is
+   * read, the chat made and the run started before the server answers, which
+   * took seconds on a page like a YouTube video. Replaced by the real turn.
+   */
+  pending: Turn | null
   error: string | null
   connected: boolean
   /** Bumps when something asks the composer to take focus. */
@@ -81,6 +88,7 @@ class Store {
     thinking: false,
     staged: [],
     stagedChat: null,
+    pending: null,
     error: null,
     connected: true,
     focusTick: 0,
@@ -371,29 +379,32 @@ class Store {
   // ------------------------------------------------------------- turning --
 
   get busy() {
-    return this.state.run !== null
+    return this.state.run !== null || this.state.pending !== null
   }
 
   async send(text: string): Promise<boolean> {
     if (this.busy || this.state.staged.some((s) => s.uploading)) return false
-    if (this.beforeSend) {
-      try {
-        await this.beforeSend()
-      } catch (error) {
-        this.fail(error)
+    const shown = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
+    if (!text.trim() && !shown.length && !this.beforeSend) return false
+    this.set({ pending: {
+      id: "pending", parent_id: null, user_text: text, files: shown, refs: [], status: "running",
+      created_at: Date.now() / 1000, render: [], stats: null, error: null, version: 1, versions: [],
+    } })
+    try {
+      await this.beforeSend?.()
+      const files = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
+      if (!text.trim() && !files.length) {
+        this.set({ pending: null })
         return false
       }
-    }
-    const files = this.state.staged.map(({ key: _k, uploading: _u, ...f }) => f)
-    if (!text.trim() && !files.length) return false
-    try {
       const chatId = await this.ensureChat()
       const started = await api.send(chatId, { text, files, thinking: this.state.thinking, page: await this.pageNow() })
-      this.set({ staged: [], stagedChat: null })
+      this.set({ staged: [], stagedChat: null, pending: null })
       this.begin(started)
       void this.refreshChats()
       return true
     } catch (error) {
+      this.set({ pending: null })
       this.fail(error)
       return false
     }

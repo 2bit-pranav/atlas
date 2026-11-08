@@ -75,7 +75,8 @@ pdf.js is the viewer's alone.
    - a YouTube video (`youtube.ts`): title, channel, length, description and
      the transcript in ~300-character passages, each with its time. The
      transcript is read from YouTube's own panel ("Show transcript", opened if
-     needed; its caption files need a token only its player makes). Up to 24k
+     needed; its caption files need a token only its player makes). The read is kept
+     per video for later messages (opening the transcript took ~1 s; again: 20 ms). Up to 24k
      characters go in the message, so a talk is usually whole. Answers cite
      times as [12:34], each a "Play from here";
    - a question from the selection chip: only the section around the passage.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest"
-import { clockOf, isYouTubeVideo, seconds, transcriptLines } from "./youtube"
+import { clockOf, isYouTubeVideo, seconds, transcriptLines, videoId } from "./youtube"
 import { pointers } from "./pointers"
 import { go, point } from "./highlight"
 
@@ -45,5 +45,14 @@ describe("moments in a video, labelled by the answer", () => {
     expect(labels[2][0]).toBe("12:30")
     expect(labels[2][1].startsWith("Later, he explains how weights and biases set each neuron's activation")).toBe(true)
     expect(labels[2][1].length).toBeLessThanOrEqual(110)
+  })
+})
+
+describe("videoId", () => {
+  it("keys the kept read by the video, not the address", () => {
+    expect(videoId("https://www.youtube.com/watch?v=aircAruvnKk&t=30s")).toBe("aircAruvnKk")
+    expect(videoId("https://www.youtube.com/shorts/abc_D-1")).toBe("abc_D-1")
+    expect(videoId("https://www.youtube.com/feed")).toBe("")
+    expect(videoId("not a url")).toBe("")
   })
 })

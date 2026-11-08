@@ -115,7 +115,7 @@ export function Panel() {
 
   // The chat follows the tab in front, except while an answer is being written:
   // that run's page operations stay on the page it started on.
-  const running = useAtlas((s) => s.run !== null)
+  const running = useAtlas((s) => s.run !== null || s.pending !== null)
   useEffect(() => {
     if (current && !running) setAttached(current)
   }, [current, running])

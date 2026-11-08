@@ -37,6 +37,7 @@ export const Composer = memo(function Composer({ edit, placeholder, look = "chat
   const task = look === "home" || look === "follow"
   const prefs = usePrefs()
   const busy = useAtlas((s) => s.run !== null)
+  const sending = useAtlas((s) => s.pending !== null)   // a message on its way, before its run
   // While llama-server restarts there is no model to answer: sending would only fail.
   const restarting = useAtlas((s) => s.restarting)
   const staged = useAtlas((s) => s.staged)
@@ -113,7 +114,7 @@ export const Composer = memo(function Composer({ edit, placeholder, look = "chat
   // Documents are parsed as soon as they are uploaded; the chips show how far it has got.
   const ingest = useIngest(chatId, files.filter((f) => !f.uploading).map((f) => f.name))
   const canSend = !uploading && !restarting && (text.trim().length > 0 || files.length > 0) &&
-    (!busy || Boolean(edit))
+    ((!busy && !sending) || Boolean(edit))
 
   // Grow with the text, up to llama.cpp's max-message-height.
   useLayoutEffect(() => {

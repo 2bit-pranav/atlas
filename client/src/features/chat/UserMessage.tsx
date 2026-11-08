@@ -17,7 +17,7 @@ export function UserMessage({ turn, chatId, editing, setEditing, laterCount, par
   turn: Turn; chatId: string; editing: boolean; setEditing: (v: boolean) => void; laterCount: number
   parts: Part[]; stats: TurnStats | null
 }) {
-  const busy = useAtlas((s) => s.run !== null)
+  const busy = useAtlas((s) => s.run !== null || s.pending !== null)
   const task = useContext(TaskLayout)
   const panel = useContext(PanelLayout)
 
