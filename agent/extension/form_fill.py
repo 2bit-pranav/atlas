@@ -32,6 +32,9 @@ from agent.config.settings import Settings
 from agent.extension.basket import Basket, candidates, card, shown
 from agent.model import server as llama
 
+#: Cards per upload field: the model's picks, then the search's best other matches.
+OFFERED_PER_FIELD = 3
+
 SYSTEM = (
     "You fill web forms from the user's details. For each field, give the value from the details that "
     "answers the field's label. Copy values exactly as written in the details, adjusted only to the "
@@ -124,16 +127,20 @@ def suggest(settings: Settings, fields: list[dict[str, Any]], title: str = "",
         raise ValueError(f"the model could not answer: {exc}") from exc
 
     values = checked(asked, answer)
-    # Picked files become basket cards; an upload field is never given a typed value.
+    # Files become basket cards; an upload field is never given a typed value. The model's picks
+    # come first, then the search's other best matches: the basket only offers, the user drags.
+    # Asked to "never invent", the model picked none even for "Resume" with Resume.pdf found
+    # (2026-11-08), so it orders the cards but cannot hide them.
     cards: list[dict[str, Any]] = []
     basket = basket or Basket()
     for f in uploads:
-        for choice in values.pop(f["id"], "").split("\n"):
-            if (path := found.get(f["id"], {}).get(choice)) is not None:
-                key = basket.offer(path, str(f["label"]))
-                entry = basket.get(key)
-                if entry:
-                    cards.append(card(settings, key, entry))
+        options = found.get(f["id"], {})
+        picked = [c for c in values.pop(f["id"], "").split("\n") if c in options]
+        for choice in [*picked, *(c for c in options if c not in picked)][:OFFERED_PER_FIELD]:
+            key = basket.offer(options[choice], str(f["label"]))
+            entry = basket.get(key)
+            if entry:
+                cards.append(card(settings, key, entry))
     offered = {c["field"] for c in cards}
     missing = [str(f["label"]) for f in others if f["id"] not in values] + \
               [str(f["label"]) for f in uploads if str(f["label"]) not in offered]

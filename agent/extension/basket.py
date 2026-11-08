@@ -105,12 +105,22 @@ def _kind(accept: str) -> str:
     return " ".join(dict.fromkeys(out))
 
 
+def _entries(folder: Path) -> int:
+    try:
+        return sum(1 for _ in folder.iterdir())
+    except OSError:
+        return 0
+
+
 def candidates(settings: Settings, label: str, accept: str = "", limit: int = 4) -> list[Path]:
     """The files in the allowed folders that best match an upload field ("Upload your resume")."""
     scope = _scope(settings)
     bases = [f.resolve() for f in scope.folders if f.is_dir()]
     if not bases:
         return []
+    # Smallest folders first: the search has one budget for all of them, and a Desktop of 60,000
+    # files would spend it before a small "Resume" folder was reached.
+    bases.sort(key=_entries)
     ranked = rank(scope, bases, label, _kind(accept))
     return [p for p, entry in ranked if entry["hits"] and refusal(settings, p) is None][:limit]
 

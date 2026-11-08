@@ -113,3 +113,20 @@ def test_a_basket_entry_expires(home, monkeypatch) -> None:
     key = basket.offer(tmp / "Docs" / "Photos" / "passport.jpg", "Photo")
     monkeypatch.setattr(basket_mod.time, "time", lambda: 10**12)
     assert basket.get(key) is None
+
+
+def test_files_are_offered_even_when_the_model_picks_none(home, monkeypatch) -> None:
+    """Told to "never invent", the model picked no file for "Resume" though Resume.pdf was found."""
+    _, path = home
+    settings = load_settings(path)
+
+    class Reply:
+        def raise_for_status(self) -> None: ...
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": json.dumps({"u1": []})}}]}
+
+    monkeypatch.setattr(form_fill.httpx, "post", lambda *a, **k: Reply())
+    out = form_fill.suggest(settings, [{"id": "u1", "label": "Resume", "type": "file"}], "", Basket())
+    assert {c["name"] for c in out["files"]} >= {"Resume_2026.pdf", "Resume_2019.docx"}
+    assert out["missing"] == []
+
