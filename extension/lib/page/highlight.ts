@@ -232,7 +232,7 @@ export function clearHighlights() {
 // ------------------------------------------------------------ pointing --
 
 /** What an answer pointed at: a passage it quoted, or an element by its ref (`e12`). */
-export type Pointer = { quote: string } | { ref: string } | { time: number; label: string }
+export type Pointer = { quote: string } | { ref: string } | { time: number; label: string; about?: string }
 
 export interface Place {
   found: boolean
@@ -264,7 +264,8 @@ export function point(pointers: Pointer[]): { places: Place[] } {
   places = pointers.map((p) => {
     if ("time" in p) {
       const video = document.querySelector("video")
-      out.push({ found: Boolean(video), how: video ? "time" : "none", kind: "Video", text: p.label })
+      // The time is the kind ("12:34"); what the answer says happens there is the text.
+      out.push({ found: Boolean(video), how: video ? "time" : "none", kind: p.label, text: p.about || "In the video" })
       return video ? { time: p.time } : null
     }
     if ("ref" in p) {

@@ -25,11 +25,25 @@ describe("YouTube", () => {
 
   it("turns a cited time into a place that plays the video from there", () => {
     expect([seconds("12:34"), seconds("1:02:03"), clockOf(3723)]).toEqual([754, 3723, "1:02:03"])
-    expect(pointers("He explains it at [12:34] and again at [1:02:03].")).toEqual([{ time: 754, label: "12:34" }, { time: 3723, label: "1:02:03" }])
+    expect(pointers("He explains it at [12:34] and again at [1:02:03].")).toMatchObject([{ time: 754, label: "12:34" }, { time: 3723, label: "1:02:03" }])
     document.body.innerHTML = `<video></video>`
     const { places } = point([{ time: 754, label: "12:34" }])
-    expect(places[0]).toMatchObject({ found: true, how: "time", kind: "Video" })
+    expect(places[0]).toMatchObject({ found: true, how: "time", kind: "12:34" })
     expect(go(0).ok).toBe(true)
     expect(document.querySelector("video")!.currentTime).toBe(754)
+  })
+})
+
+describe("moments in a video, labelled by the answer", () => {
+  it("names each time by what the answer says happens there", async () => {
+    const { pointers } = await import("./pointers")
+    const answer = "Key moments:\n- [0:04] **Why digits are hard** for a program to read\n- [4:10]: The layered structure of the network\n\n" +
+      "He first shows a sloppy three. Later, at [12:30], he explains how weights and biases set each neuron's activation, " +
+      "which is the core of the video and takes a while to build up properly with the pictures he uses."
+    const labels = pointers(answer).map((p) => ("time" in p ? [p.label, p.about ?? ""] : ["", ""]))
+    expect(labels.slice(0, 2)).toEqual([["0:04", "Why digits are hard for a program to read"], ["4:10", "The layered structure of the network"]])
+    expect(labels[2][0]).toBe("12:30")
+    expect(labels[2][1].startsWith("Later, he explains how weights and biases set each neuron's activation")).toBe(true)
+    expect(labels[2][1].length).toBeLessThanOrEqual(110)
   })
 })
