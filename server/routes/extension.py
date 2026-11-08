@@ -11,8 +11,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from agent.extension import basket, form_fill, moments
-from agent.store.chats import COMPLETED
 from agent.extension.table_export import write_table
+from agent.store.chats import COMPLETED
 from server.schemas import (
     FillBody,
     MomentsBody,

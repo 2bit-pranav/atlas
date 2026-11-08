@@ -8,8 +8,8 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-
 from helpers import settings_file
+
 from agent.extension import moments
 from server.app import create_app
 
