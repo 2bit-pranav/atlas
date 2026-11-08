@@ -6,9 +6,10 @@
  * would: an upload field gets it as its file, a drop zone gets a file drop.
  *
  * Only a real drop by the user counts: a page script can fake a drop with
- * the marker in it, and the browser marks that one untrusted. While a card is
- * dragged over the page, the upload target under the pointer is outlined
- * (a site's own drop zone does not light up for it: it carries no file yet).
+ * the marker in it, and the browser marks that one untrusted. Nothing is drawn
+ * while a card is dragged: an outline of ours would claim a spot takes the file
+ * when the page may not (Google Forms' "Add file" button opens a picker and
+ * ignores drops). The page's own drop styling, if it has any, is the signal.
  *
  * Proven in Edge before it was built (scratchpad spike, 2026-11-08): the drag
  * carries the marker out of the extension page; a plain upload field and a
@@ -37,45 +38,19 @@ export function uploadField(el: Element | null): HTMLInputElement | null {
   return null
 }
 
-let mark: HTMLDivElement | null = null
-
-function outline(el: Element | null) {
-  if (!el) {
-    mark?.remove()
-    mark = null
-    return
-  }
-  const r = el.getBoundingClientRect()
-  mark ??= document.createElement("div")
-  mark.style.cssText = `position:fixed;z-index:2147483646;pointer-events:none;left:${r.left - 3}px;top:${r.top - 3}px;` +
-    `width:${r.width + 6}px;height:${r.height + 6}px;border:2px dashed #3b82f6;border-radius:8px;background:rgb(59 130 246 / .08)`
-  if (!mark.isConnected) document.documentElement.appendChild(mark)
-}
-
-/** What gets the file: the upload field when there is one, else the element itself (a drop zone). */
-const targetOf = (el: Element | null) => {
-  const field = uploadField(el)
-  // A hidden upload field is shown by its visible box: outline that, not a zero-size input.
-  return { field, shown: field && field.getClientRects().length ? field : el }
-}
-
 export function basketDrops(onStatus: (text: string, failed?: boolean) => void, off: () => boolean) {
   const hover = (e: DragEvent) => {
     if (!ours(e) || off()) return
     e.preventDefault()                                     // lets the drop happen here
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
-    outline(targetOf(document.elementFromPoint(e.clientX, e.clientY)).shown)
   }
   document.addEventListener("dragenter", hover, true)
   document.addEventListener("dragover", hover, true)
-  document.addEventListener("dragleave", (e) => { if (ours(e) && !e.relatedTarget) outline(null) }, true)
-  document.addEventListener("dragend", () => outline(null), true)
 
   document.addEventListener("drop", async (e) => {
     if (!ours(e) || off()) return
     e.preventDefault()
     e.stopPropagation()
-    outline(null)
     if (!e.isTrusted) return                               // made by a page script, not the user
     const id = e.dataTransfer?.getData(BASKET_MIME) ?? ""
     const under = document.elementFromPoint(e.clientX, e.clientY) ?? (e.target as Element)
@@ -86,7 +61,7 @@ export function basketDrops(onStatus: (text: string, failed?: boolean) => void, 
     const file = new File([bytes], got.name ?? "file", { type: got.type })
     const dt = new DataTransfer()
     dt.items.add(file)
-    const { field } = targetOf(under)
+    const field = uploadField(under)
     if (field) {
       if (field.accept && !accepts(field.accept, file)) return onStatus(`This field takes ${field.accept}, not ${file.name}.`, true)
       field.files = dt.files
@@ -97,7 +72,7 @@ export function basketDrops(onStatus: (text: string, failed?: boolean) => void, 
     // A drop zone: the drop replayed with the file in it.
     for (const type of ["dragenter", "dragover", "drop"])
       under.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: e.clientX, clientY: e.clientY }))
-    onStatus(`Dropped ${file.name} here. If the page did not take it, drop it on the upload button instead.`)
+    onStatus(`Dropped ${file.name} here. If the page did not take it, open the page's own file picker and drop it in there.`)
   }, true)
 }
 

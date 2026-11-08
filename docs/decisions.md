@@ -1049,3 +1049,13 @@ real file for an upload field (`input.files` from a DataTransfer) and for a
 react-dropzone-style zone (a replayed file drop); a drop faked by a page
 script is untrusted and refused. Not proven: Google Forms' upload dialog (it
 needs a sign-in), which has Download as its fallback.
+
+**Panel: actions report as cards, not turns; ask-next pills; no drag outline**
+(2026-11-08). Fill's progress and result show in a card above the composer
+(closed by the user, or by another page in front); nothing goes into the chat,
+since Fill is an action, not a question. After each finished answer the panel
+offers fixed pills for the page kind (the starters not asked yet, plus
+"Simpler" and "Translate…"); no model call. While a basket card is dragged,
+Atlas no longer outlines a target: on Google Forms the outline sat on the
+"Add file" button, which ignores drops, and looked like a valid target. The
+page's own drop styling is the only signal now.

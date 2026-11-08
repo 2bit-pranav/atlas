@@ -50,10 +50,11 @@ import { SettingsView } from "./components/SettingsView"
 import { HistoryView } from "./components/HistoryView"
 import { PageCard } from "./components/PageCard"
 import { FileBasket } from "./components/FileBasket"
-import { PanelHome } from "./components/PanelHome"
+import { FollowUps, PanelHome } from "./components/PanelHome"
+import { ActionNote } from "./components/ActionNote"
 import { bindPage } from "./actions/bindPage"
 import { exportUrl, googleTarget } from "@ext/page/google"
-import { suggestFill } from "./actions/suggestFill"
+import { suggestFill, type FillNote } from "./actions/suggestFill"
 
 export function Panel() {
   const [settings, setSettings] = useState<ExtensionSettings | null>(null)
@@ -171,7 +172,9 @@ export function Panel() {
     await atlas.openChat(summary.id)
     if (current) setAttached(current)
   }
-  const [fillStatus, setFillStatus] = useState("")
+  const [fillNote, setFillNote] = useState<FillNote | null>(null)
+  // Fill's result is about one page: another page in front closes it.
+  useEffect(() => setFillNote(null), [attached?.id, attached?.url])
   // Files Fill found for upload fields: kept for the browser session, so they outlive the panel closing.
   const [basket, setBasket] = useState<api.BasketCard[]>([])
   useEffect(() => {
@@ -181,7 +184,7 @@ export function Panel() {
     setBasket(cards)
     void browser.storage.session.set({ basket: cards })
   }, [])
-  const fill = useCallback((tab: TabInfo) => suggestFill(tab, setFillStatus, (found) =>
+  const fill = useCallback((tab: TabInfo) => suggestFill(tab, setFillNote, (found) =>
     keepBasket([...found, ...basket.filter((b) => !found.some((f) => f.name === b.name && f.folder === b.folder))])), [basket, keepBasket])
 
   const extras = useMemo(() => (attached && !blockedReason && !pdf && reading
@@ -203,6 +206,11 @@ export function Panel() {
     )
 
   const readable = Boolean(attached && !blockedReason && !pdf)
+  // Ask-next pills under the newest answer, once it is done.
+  const last = chat?.turns.at(-1)
+  const followUps = readable && reading && attached && !running && last?.status === "completed"
+    ? <FollowUps url={attached.url} asked={chat!.turns.map((t) => t.user_text)} onFill={() => void fill(attached)} />
+    : null
   const takeScreenshot = async () => {
     if (!attached) return
     const shot = await screenshot(attached.id)
@@ -237,12 +245,6 @@ export function Panel() {
                 onViewer={() => attached && void browser.tabs.update(attached.id, { url: viewerUrl(attached.url) })}
                 onFill={() => attached && void fill(attached)} />
       <FileBasket cards={basket} onClear={() => keepBasket([])} />
-      {fillStatus && (
-        <div className="flex items-start gap-2 border-b bg-muted/60 px-3 py-2 text-xs">
-          <span className="min-w-0 flex-1 whitespace-pre-wrap">{fillStatus}</span>
-          <button type="button" onClick={() => setFillStatus("")}>×</button>
-        </div>
-      )}
       {error && (
         <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <span className="min-w-0 flex-1 whitespace-pre-wrap">{error}</span>
@@ -251,7 +253,9 @@ export function Panel() {
       )}
       <main className="min-h-0 flex-1">
         <AnswerExtras.Provider value={extras}>
-          <ChatScreen layout="panel" composerExtra={readable && (
+          <ChatScreen layout="panel" tail={followUps}
+                      composerTop={fillNote && <ActionNote note={fillNote} onClose={() => setFillNote(null)} />}
+                      composerExtra={readable && (
                         <button type="button" aria-label="Attach a screenshot of the page" title="Attach a screenshot of the page" onClick={takeScreenshot}
                                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
                           <Camera className="h-4 w-4" />

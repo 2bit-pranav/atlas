@@ -12,7 +12,7 @@ import { type TabInfo } from "@ext/shared/tab"
 type Starter = { icon: typeof Search; label: string; send?: string; prefill?: string; fill?: boolean; wide?: boolean; hint?: string }
 
 /** Starters by what the page is. Ones that need the user's words prefill the box; the rest send. */
-function startersFor(url: string): Starter[] {
+export function startersFor(url: string): Starter[] {
   const app = googleTarget(url)?.app
   if (isYouTubeVideo(url)) return [
     { icon: ListTree, label: "Summarise this video", send: "Summarise this video in a few points, with the time of each." },
@@ -104,6 +104,35 @@ export function PanelHome({ tab, reading, blocked, onOpen, onFill }: {
           ))}
         </section>
       )}
+    </div>
+  )
+}
+
+/** Asks about the answer just given, offered after every turn on top of the page's own starters. */
+const ABOUT_ANSWER: Starter[] = [
+  { icon: Sparkles, label: "Simpler", send: "Say that again in simpler words." },
+  { icon: Sparkles, label: "Translate…", prefill: "Translate that into " },
+]
+
+/**
+ * Pills under the newest answer: what the user might ask next on this page.
+ * Fixed per page kind (no model call): the starters not asked yet, then
+ * "Simpler" and "Translate…". Ones that need the user's words prefill the box.
+ */
+export function FollowUps({ url, asked, onFill }: { url: string; asked: string[]; onFill: () => void }) {
+  const done = new Set(asked.map((a) => a.trim()))
+  const pills = [...startersFor(url).filter((s) => !s.wide || s.fill).filter((s) => !s.send || !done.has(s.send)).slice(0, 3),
+                 ...ABOUT_ANSWER.filter((s) => !s.send || !done.has(s.send))]
+  return (
+    <div aria-label="Ask next" className="flex flex-wrap gap-1.5 pb-2 pt-1">
+      {pills.map((s) => (
+        <button key={s.label} type="button"
+                onClick={() => (s.fill ? onFill() : s.send ? void atlas.send(s.send) : atlas.prefillComposer(s.prefill ?? ""))}
+                className="flex h-7 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs text-foreground/90 transition-colors hover:bg-accent">
+          <s.icon className="h-3.5 w-3.5 text-run" />
+          {s.fill ? "Fill this form" : s.label}
+        </button>
+      ))}
     </div>
   )
 }

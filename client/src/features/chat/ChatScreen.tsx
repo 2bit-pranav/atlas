@@ -22,10 +22,14 @@ import { PanelLayout, TaskLayout } from "@/features/task/layout"
 
 /** `layout="task"`: the web app's task view, a home page and a work panel beside the answer.
  * The extension's narrow side panel keeps the chat layout. */
-export function ChatScreen({ layout = "chat", emptyView, placeholder, composerExtra }: {
+export function ChatScreen({ layout = "chat", emptyView, placeholder, composerExtra, tail, composerTop }: {
   layout?: "chat" | "task" | "panel"
   /** Buttons beside the composer's + (the side panel's screenshot). */
   composerExtra?: React.ReactNode
+  /** Shown under the newest answer (the side panel's follow-up pills). */
+  tail?: React.ReactNode
+  /** Shown just above the composer, outside the chat (the side panel's action results, like Fill's). */
+  composerTop?: React.ReactNode
   /** What an empty chat shows instead of the greeting, with the composer at the bottom (the extension's start screen). */
   emptyView?: React.ReactNode
   placeholder?: string
@@ -150,6 +154,7 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder, composerEx
                 liveParts={turn.id === runTurn ? live?.parts ?? [] : null}
                 liveStats={turn.id === runTurn ? live?.stats ?? null : null}
               />
+              {i === turns.length - 1 && tail}
               </div>
             ))
           )}
@@ -172,6 +177,7 @@ export function ChatScreen({ layout = "chat", emptyView, placeholder, composerEx
               This task has read outside content: commands, and changes outside its folder, ask you first.
             </p>
           ) : null}
+          {composerTop}
           <Composer look={task ? "follow" : panel ? "panel" : "chat"} extra={composerExtra}
                     placeholder={placeholder ?? (task ? "Ask a follow-up, or tell Atlas what to change…" : undefined)} />
         </div>
