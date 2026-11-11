@@ -30,265 +30,455 @@
  *   back when the panel opens again on its page.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Camera, ExternalLink, History, Plus, Settings } from "lucide-react"
-import * as api from "@/api/client"
-import { atlas, useAtlas } from "@/state/store"
-import { AnswerExtras } from "@/state/slots"
-import type { ChatSummary, Turn } from "@/api/types"
-import { ChatScreen } from "@/features/chat/ChatScreen"
-import { blocked, loadSettings, saveSettings, type ExtensionSettings } from "@ext/shared/settings"
-import { activeTab, viewerUrl, type TabInfo } from "@ext/shared/tab"
-import { dataUrlToFile, screenshot } from "@ext/shared/capture"
-import { Status } from "./status"
-import { isPdf, pdfName, savePdf } from "./actions/pdf"
-import { usePendingAsks } from "./hooks/usePendingAsks"
-import { sameUrl } from "./url"
-import { QuoteSources } from "./components/QuoteSources"
-import { Centered } from "./components/Centered"
-import { SettingsView } from "./components/SettingsView"
-import { HistoryView } from "./components/HistoryView"
-import { PageCard } from "./components/PageCard"
-import { FileBasket } from "./components/FileBasket"
-import { FollowUps, PanelHome, type PanelAction } from "./components/PanelHome"
-import { ActionNote } from "./components/ActionNote"
-import { bindPage } from "./actions/bindPage"
-import { exportUrl, googleTarget } from "@ext/page/google"
-import { suggestFill, type FillNote } from "./actions/suggestFill"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Camera, ExternalLink, History, Plus, Settings } from "lucide-react";
+import * as api from "@/api/client";
+import { atlas, useAtlas } from "@/state/store";
+import { AnswerExtras } from "@/state/slots";
+import type { ChatSummary, Turn } from "@/api/types";
+import { ChatScreen } from "@/features/chat/ChatScreen";
+import {
+    blocked,
+    loadSettings,
+    saveSettings,
+    type ExtensionSettings,
+} from "@ext/shared/settings";
+import { activeTab, viewerUrl, type TabInfo } from "@ext/shared/tab";
+import { dataUrlToFile, screenshot } from "@ext/shared/capture";
+import { Status } from "./status";
+import { isPdf, pdfName, savePdf } from "./actions/pdf";
+import { usePendingAsks } from "./hooks/usePendingAsks";
+import { sameUrl } from "./url";
+import { QuoteSources } from "./components/QuoteSources";
+import { Centered } from "./components/Centered";
+import { SettingsView } from "./components/SettingsView";
+import { HistoryView } from "./components/HistoryView";
+import { PageCard } from "./components/PageCard";
+import { FileBasket } from "./components/FileBasket";
+import { FollowUps, PanelHome, type PanelAction } from "./components/PanelHome";
+import { ActionNote } from "./components/ActionNote";
+import { bindPage } from "./actions/bindPage";
+import { exportUrl, googleTarget } from "@ext/page/google";
+import { suggestFill, type FillNote } from "./actions/suggestFill";
 
 export function Panel() {
-  const [settings, setSettings] = useState<ExtensionSettings | null>(null)
-  const [status, setStatus] = useState<Status>("loading")
-  const [showSettings, setShowSettings] = useState(false)
-  const [showHistory, setShowHistory] = useState(false)
-  const [current, setCurrent] = useState<TabInfo | null>(null)
-  const [attached, setAttached] = useState<TabInfo | null>(null)
-  /** "Can read": each message carries the page. Off, messages are not about it. */
-  const [reading, setReading] = useState(true)
-  const chat = useAtlas((s) => s.chat)
-  const error = useAtlas((s) => s.error)
+    const [settings, setSettings] = useState<ExtensionSettings | null>(null);
+    const [status, setStatus] = useState<Status>("loading");
+    const [showSettings, setShowSettings] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
+    const [current, setCurrent] = useState<TabInfo | null>(null);
+    const [attached, setAttached] = useState<TabInfo | null>(null);
+    const [reading, setReading] = useState(true);
+    const chat = useAtlas((s) => s.chat);
+    const error = useAtlas((s) => s.error);
 
-  const connect = useCallback(async (s: ExtensionSettings) => {
-    api.configureApi({ base: s.base, token: s.token })
-    if (!s.token) return setStatus("unpaired")
-    try {
-      const response = await fetch(`${s.base.replace(/\/$/, "")}/api/health`, {
-        headers: { Authorization: `Bearer ${s.token}` },
-      })
-      if (response.status === 401) return setStatus("unpaired")
-      if (!response.ok) return setStatus("offline")
-    } catch {
-      return setStatus("offline")
-    }
-    await atlas.init()
-    setStatus("ready")
-  }, [])
+    const connect = useCallback(async (s: ExtensionSettings) => {
+        api.configureApi({ base: s.base, token: s.token });
+        if (!s.token) return setStatus("unpaired");
+        try {
+            const response = await fetch(
+                `${s.base.replace(/\/$/, "")}/api/health`,
+                {
+                    headers: { Authorization: `Bearer ${s.token}` },
+                },
+            );
+            if (response.status === 401) return setStatus("unpaired");
+            if (!response.ok) return setStatus("offline");
+        } catch {
+            return setStatus("offline");
+        }
+        await atlas.init();
+        setStatus("ready");
+    }, []);
 
-  useEffect(() => {
-    const load = () => void loadSettings().then((s) => {
-      setSettings(s)
-      void connect(s)
-    })
-    load()
-    // Paired from Atlas's page while the panel is open: connect straight away.
-    const changed = (changes: Record<string, unknown>) => {
-      if ("settings" in changes) load()
-    }
-    browser.storage.onChanged.addListener(changed)
-    return () => browser.storage.onChanged.removeListener(changed)
-  }, [connect])
+    useEffect(() => {
+        const load = () =>
+            void loadSettings().then((s) => {
+                setSettings(s);
+                void connect(s);
+            });
+        load();
+        // Paired from Atlas's page while the panel is open: connect straight away.
+        const changed = (changes: Record<string, unknown>) => {
+            if ("settings" in changes) load();
+        };
+        browser.storage.onChanged.addListener(changed);
+        return () => browser.storage.onChanged.removeListener(changed);
+    }, [connect]);
 
-  // The current tab, kept up to date.
-  useEffect(() => {
-    const refresh = () => void activeTab().then(setCurrent)
-    refresh()
-    const onUpdated = (_id: number, info: { url?: string; title?: string; status?: string }) => {
-      if (info.url || info.title || info.status === "complete") refresh()
-    }
-    browser.tabs.onActivated.addListener(refresh)
-    browser.tabs.onUpdated.addListener(onUpdated)
-    return () => {
-      browser.tabs.onActivated.removeListener(refresh)
-      browser.tabs.onUpdated.removeListener(onUpdated)
-    }
-  }, [])
+    // The current tab, kept up to date.
+    useEffect(() => {
+        const refresh = () => void activeTab().then(setCurrent);
+        refresh();
+        const onUpdated = (
+            _id: number,
+            info: { url?: string; title?: string; status?: string },
+        ) => {
+            if (info.url || info.title || info.status === "complete") refresh();
+        };
+        browser.tabs.onActivated.addListener(refresh);
+        browser.tabs.onUpdated.addListener(onUpdated);
+        return () => {
+            browser.tabs.onActivated.removeListener(refresh);
+            browser.tabs.onUpdated.removeListener(onUpdated);
+        };
+    }, []);
 
-  // The chat follows the tab in front, except while an answer is being written:
-  // that run's page operations stay on the page it started on.
-  const running = useAtlas((s) => s.run !== null || s.pending !== null)
-  useEffect(() => {
-    if (current && !running) setAttached(current)
-  }, [current, running])
+    // The chat follows the tab in front, except while an answer is being written:
+    // that run's page operations stay on the page it started on.
+    const running = useAtlas((s) => s.run !== null || s.pending !== null);
+    useEffect(() => {
+        if (current && !running) setAttached(current);
+    }, [current, running]);
 
-  const blockedReason = settings && attached ? blocked(attached.url, settings.neverRead) : null
-  // A PDF in the browser's own viewer: sent as a file. In the Atlas viewer it is a readable page.
-  const pdf = attached !== null && !attached.viewer && !blockedReason && isPdf(attached.url)
-  // A file on Google Drive: downloaded with the user's session and attached, like a PDF tab.
-  const drive = attached && !blockedReason ? googleTarget(attached.url) : null
-  const driveId = drive?.app === "drive-file" ? drive.id : null
+    const blockedReason =
+        settings && attached ? blocked(attached.url, settings.neverRead) : null;
+    // A PDF in the browser's own viewer: sent as a file. In the Atlas viewer it is a readable page.
+    const pdf =
+        attached !== null &&
+        !attached.viewer &&
+        !blockedReason &&
+        isPdf(attached.url);
+    // A file on Google Drive: downloaded with the user's session and attached, like a PDF tab.
+    const drive =
+        attached && !blockedReason ? googleTarget(attached.url) : null;
+    const driveId = drive?.app === "drive-file" ? drive.id : null;
 
-  // The store sends the attached page with each message and runs client calls there.
-  // A PDF has no content script: it goes as a file instead, attached once per chat.
-  const sentPdfs = useRef(new Set<string>())
-  useEffect(() => {
-    atlas.origin = attached && !blockedReason ? { url: attached.url, title: attached.title } : null
-    bindPage(attached && !blockedReason && !pdf ? attached : null, reading)
-    const named = (title: string) => `${title.replace(/\s+-\s+Google Drive$/i, "").replace(/\.pdf$/i, "") || "document"}.pdf`
-    const file = !reading || !attached ? null
-      : pdf ? { url: attached.url, name: pdfName(attached.url) }
-      : driveId ? { url: exportUrl({ app: "drive-file", id: driveId }), name: named(attached.title) }
-      : null
-    atlas.beforeSend = file ? async () => {
-      const chatId = atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""
-      if (sentPdfs.current.has(`${chatId}|${file.url}`)) return
-      await atlas.attachSaved(file.name, (id) => savePdf(id, file.url, file.name))
-      sentPdfs.current.add(`${atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""}|${file.url}`)
-    } : null
-  }, [attached, blockedReason, pdf, reading, driveId])
+    // The store sends the attached page with each message and runs client calls there.
+    // A PDF has no content script: it goes as a file instead, attached once per chat.
+    const sentPdfs = useRef(new Set<string>());
+    useEffect(() => {
+        atlas.origin =
+            attached && !blockedReason
+                ? { url: attached.url, title: attached.title }
+                : null;
+        bindPage(attached && !blockedReason && !pdf ? attached : null, reading);
+        const named = (title: string) =>
+            `${title.replace(/\s+-\s+Google Drive$/i, "").replace(/\.pdf$/i, "") || "document"}.pdf`;
+        const file =
+            !reading || !attached
+                ? null
+                : pdf
+                  ? { url: attached.url, name: pdfName(attached.url) }
+                  : driveId
+                    ? {
+                          url: exportUrl({ app: "drive-file", id: driveId }),
+                          name: named(attached.title),
+                      }
+                    : null;
+        atlas.beforeSend = file
+            ? async () => {
+                  const chatId =
+                      atlas.state.chat?.id ?? atlas.state.stagedChat ?? "";
+                  if (sentPdfs.current.has(`${chatId}|${file.url}`)) return;
+                  await atlas.attachSaved(file.name, (id) =>
+                      savePdf(id, file.url, file.name),
+                  );
+                  sentPdfs.current.add(
+                      `${atlas.state.chat?.id ?? atlas.state.stagedChat ?? ""}|${file.url}`,
+                  );
+              }
+            : null;
+    }, [attached, blockedReason, pdf, reading, driveId]);
 
-  usePendingAsks(status === "ready", setAttached)
+    usePendingAsks(status === "ready", setAttached);
 
-  // The last chat, remembered with its page, comes back when the panel opens there again.
-  useEffect(() => {
-    if (chat?.id && chat.turns.length && attached)
-      void browser.storage.local.set({ lastChat: { id: chat.id, url: attached.url } })
-  }, [chat?.id, chat?.turns.length, attached])
-  const restored = useRef(false)
-  useEffect(() => {
-    if (status !== "ready" || !current || restored.current) return
-    restored.current = true
-    void browser.storage.local.get("lastChat").then(async ({ lastChat }) => {
-      const last = lastChat as { id: string; url: string } | undefined
-      if (last && sameUrl(last.url, current.url) && !atlas.state.chat) {
-        await atlas.openChat(last.id)
-        setAttached(current)
-      }
-    })
-  }, [status, current])
+    // The last chat, remembered with its page, comes back when the panel opens there again.
+    useEffect(() => {
+        if (chat?.id && chat.turns.length && attached)
+            void browser.storage.local.set({
+                lastChat: { id: chat.id, url: attached.url },
+            });
+    }, [chat?.id, chat?.turns.length, attached]);
+    const restored = useRef(false);
+    useEffect(() => {
+        if (status !== "ready" || !current || restored.current) return;
+        restored.current = true;
+        void browser.storage.local
+            .get("lastChat")
+            .then(async ({ lastChat }) => {
+                const last = lastChat as
+                    | { id: string; url: string }
+                    | undefined;
+                if (
+                    last &&
+                    sameUrl(last.url, current.url) &&
+                    !atlas.state.chat
+                ) {
+                    await atlas.openChat(last.id);
+                    setAttached(current);
+                }
+            });
+    }, [status, current]);
 
-  /** Reopen a past chat. It goes on about the tab in front, like every chat. */
-  const openPast = async (summary: ChatSummary) => {
-    setShowHistory(false)
-    await atlas.openChat(summary.id)
-    if (current) setAttached(current)
-  }
-  // An action's progress and result (Fill, Key moments): about one page, so another page in front closes it.
-  const [note, setNote] = useState<FillNote | null>(null)
-  useEffect(() => setNote(null), [attached?.id, attached?.url])
-  // Files Fill found for upload fields: kept for the browser session, so they outlive the panel closing.
-  const [basket, setBasket] = useState<api.BasketCard[]>([])
-  useEffect(() => {
-    void browser.storage.session.get("basket").then(({ basket: kept }) => Array.isArray(kept) && setBasket(kept as api.BasketCard[]))
-  }, [])
-  const keepBasket = useCallback((cards: api.BasketCard[]) => {
-    setBasket(cards)
-    void browser.storage.session.set({ basket: cards })
-  }, [])
-  const fill = useCallback((tab: TabInfo) => suggestFill(tab, setNote, (found) =>
-    keepBasket([...found, ...basket.filter((b) => !found.some((f) => f.name === b.name && f.folder === b.folder))])), [basket, keepBasket])
-  /** Key moments: a ready-made turn (chapters, or one model call), not an agent run. The card shows only while it works. */
-  const moments = useCallback(async () => {
-    setNote({ state: "working", title: "Finding the key moments…" })
-    try {
-      await atlas.keyMoments()
-      setNote(null)
-    } catch (error) {
-      setNote({ state: "failed", title: "No key moments", lines: [error instanceof Error ? error.message : String(error)] })
-    }
-  }, [])
-  const act = useCallback((a: PanelAction) => {
-    if (!attached) return
-    void (a === "fill" ? fill(attached) : moments())
-  }, [attached, fill, moments])
+    /** Reopen a past chat. It goes on about the tab in front, like every chat. */
+    const openPast = async (summary: ChatSummary) => {
+        setShowHistory(false);
+        await atlas.openChat(summary.id);
+        if (current) setAttached(current);
+    };
+    // An action's progress and result (Fill, Key moments): about one page, so another page in front closes it.
+    const [note, setNote] = useState<FillNote | null>(null);
+    useEffect(() => setNote(null), [attached?.id, attached?.url]);
+    // Files Fill found for upload fields: kept for the browser session, so they outlive the panel closing.
+    const [basket, setBasket] = useState<api.BasketCard[]>([]);
+    useEffect(() => {
+        void browser.storage.session
+            .get("basket")
+            .then(
+                ({ basket: kept }) =>
+                    Array.isArray(kept) && setBasket(kept as api.BasketCard[]),
+            );
+    }, []);
+    const keepBasket = useCallback((cards: api.BasketCard[]) => {
+        setBasket(cards);
+        void browser.storage.session.set({ basket: cards });
+    }, []);
+    const fill = useCallback(
+        (tab: TabInfo) =>
+            suggestFill(tab, setNote, (found) =>
+                keepBasket([
+                    ...found,
+                    ...basket.filter(
+                        (b) =>
+                            !found.some(
+                                (f) =>
+                                    f.name === b.name && f.folder === b.folder,
+                            ),
+                    ),
+                ]),
+            ),
+        [basket, keepBasket],
+    );
+    /** Key moments: a ready-made turn (chapters, or one model call), not an agent run. The card shows only while it works. */
+    const moments = useCallback(async () => {
+        setNote({ state: "working", title: "Finding the key moments…" });
+        try {
+            await atlas.keyMoments();
+            setNote(null);
+        } catch (error) {
+            setNote({
+                state: "failed",
+                title: "No key moments",
+                lines: [error instanceof Error ? error.message : String(error)],
+            });
+        }
+    }, []);
+    const act = useCallback(
+        (a: PanelAction) => {
+            if (!attached) return;
+            void (a === "fill" ? fill(attached) : moments());
+        },
+        [attached, fill, moments],
+    );
 
-  const extras = useMemo(() => (attached && !blockedReason && !pdf && reading
-    ? (turn: Turn, answer: string) => <QuoteSources turn={turn} answer={answer} tabId={attached.id} />
-    : null), [attached, blockedReason, pdf, reading])
+    const extras = useMemo(
+        () =>
+            attached && !blockedReason && !pdf && reading
+                ? (turn: Turn, answer: string) => (
+                      <QuoteSources
+                          turn={turn}
+                          answer={answer}
+                          tabId={attached.id}
+                      />
+                  )
+                : null,
+        [attached, blockedReason, pdf, reading],
+    );
 
-  if (!settings || status === "loading") return <Centered>Connecting to Atlas…</Centered>
-  if (showSettings || status === "unpaired" || status === "offline")
+    if (!settings || status === "loading")
+        return <Centered>Connecting to Atlas…</Centered>;
+    if (showSettings || status === "unpaired" || status === "offline")
+        return (
+            <SettingsView
+                settings={settings}
+                status={status}
+                onSave={async (patch) => {
+                    await saveSettings(patch); // the storage listener reconnects
+                    setShowSettings(false);
+                }}
+                onClose={
+                    status === "ready"
+                        ? () => setShowSettings(false)
+                        : undefined
+                }
+            />
+        );
+
+    const readable = Boolean(attached && !blockedReason && !pdf);
+    // Ask-next pills under the newest answer, once it is done.
+    const last = chat?.turns.at(-1);
+    const followUps =
+        readable &&
+        reading &&
+        attached &&
+        !running &&
+        last?.status === "completed" ? (
+            <FollowUps
+                url={attached.url}
+                asked={chat!.turns.map((t) => t.user_text)}
+                onAction={act}
+            />
+        ) : null;
+    const takeScreenshot = async () => {
+        if (!attached) return;
+        const shot = await screenshot(attached.id);
+        if ("error" in shot) return void atlas.fail(new Error(shot.error));
+        await atlas.attach_files([
+            dataUrlToFile(
+                `data:image/jpeg;base64,${shot.data}`,
+                "screenshot.jpg",
+            ),
+        ]);
+    };
+
+    if (showHistory)
+        return (
+            <HistoryView
+                onOpen={(c) => void openPast(c)}
+                onClose={() => setShowHistory(false)}
+            />
+        );
+
     return (
-      <SettingsView
-        settings={settings}
-        status={status}
-        onSave={async (patch) => {
-          await saveSettings(patch) // the storage listener reconnects
-          setShowSettings(false)
-        }}
-        onClose={status === "ready" ? () => setShowSettings(false) : undefined}
-      />
-    )
-
-  const readable = Boolean(attached && !blockedReason && !pdf)
-  // Ask-next pills under the newest answer, once it is done.
-  const last = chat?.turns.at(-1)
-  const followUps = readable && reading && attached && !running && last?.status === "completed"
-    ? <FollowUps url={attached.url} asked={chat!.turns.map((t) => t.user_text)} onAction={act} />
-    : null
-  const takeScreenshot = async () => {
-    if (!attached) return
-    const shot = await screenshot(attached.id)
-    if ("error" in shot) return void atlas.fail(new Error(shot.error))
-    await atlas.attach_files([dataUrlToFile(`data:image/jpeg;base64,${shot.data}`, "screenshot.jpg")])
-  }
-
-  if (showHistory) return <HistoryView onOpen={(c) => void openPast(c)} onClose={() => setShowHistory(false)} />
-
-  return (
-    <div className="flex h-dvh flex-col">
-      <header className="flex h-11 shrink-0 items-center gap-1.5 border-b pl-3 pr-1">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary font-display text-xs font-semibold text-primary-foreground">A</span>
-        <span className="min-w-0 flex-1 truncate font-display text-[15px] font-semibold">{chat?.title || "Atlas"}</span>
-        <HeaderButton label="Chats in the browser" onClick={() => {
-          setShowHistory(true)
-          void atlas.refreshChats()
-        }}><History className="h-4 w-4" /></HeaderButton>
-        <HeaderButton label="New chat about this page" onClick={() => {
-          atlas.newChat()
-          if (current) setAttached(current)
-        }}><Plus className="h-4 w-4" /></HeaderButton>
-        {chat && (
-          <HeaderButton label="Continue in Atlas" onClick={() => void browser.tabs.create({ url: `${settings.base}/c/${chat.id}` })}>
-            <ExternalLink className="h-4 w-4" />
-          </HeaderButton>
-        )}
-        <HeaderButton label="Settings" onClick={() => setShowSettings(true)}><Settings className="h-4 w-4" /></HeaderButton>
-      </header>
-      <PageCard tab={attached} blocked={blockedReason} pdf={pdf} reading={reading} onReading={setReading}
+        <div className="flex h-dvh flex-col">
+            <header className="flex h-11 shrink-0 items-center gap-1.5 border-b pl-3 pr-1">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary font-display text-xs font-semibold text-primary-foreground">
+                    A
+                </span>
+                <span className="min-w-0 flex-1 truncate font-display text-[15px] font-semibold">
+                    {chat?.title || "Atlas"}
+                </span>
+                <HeaderButton
+                    label="Chats in the browser"
+                    onClick={() => {
+                        setShowHistory(true);
+                        void atlas.refreshChats();
+                    }}
+                >
+                    <History className="h-4 w-4" />
+                </HeaderButton>
+                <HeaderButton
+                    label="New chat about this page"
+                    onClick={() => {
+                        atlas.newChat();
+                        if (current) setAttached(current);
+                    }}
+                >
+                    <Plus className="h-4 w-4" />
+                </HeaderButton>
+                {chat && (
+                    <HeaderButton
+                        label="Continue in Atlas"
+                        onClick={() =>
+                            void browser.tabs.create({
+                                url: `${settings.base}/c/${chat.id}`,
+                            })
+                        }
+                    >
+                        <ExternalLink className="h-4 w-4" />
+                    </HeaderButton>
+                )}
+                <HeaderButton
+                    label="Settings"
+                    onClick={() => setShowSettings(true)}
+                >
+                    <Settings className="h-4 w-4" />
+                </HeaderButton>
+            </header>
+            <PageCard
+                tab={attached}
+                blocked={blockedReason}
+                pdf={pdf}
+                reading={reading}
+                onReading={setReading}
                 compact={Boolean(chat && chat.turns.length > 0)}
-                onViewer={() => attached && void browser.tabs.update(attached.id, { url: viewerUrl(attached.url) })}
-                onFill={() => act("fill")} />
-      <FileBasket cards={basket} onClear={() => keepBasket([])} />
-      {error && (
-        <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          <span className="min-w-0 flex-1 whitespace-pre-wrap">{error}</span>
-          <button type="button" onClick={atlas.clearError}>×</button>
+                onViewer={() =>
+                    attached &&
+                    void browser.tabs.update(attached.id, {
+                        url: viewerUrl(attached.url),
+                    })
+                }
+                onFill={() => act("fill")}
+            />
+            <FileBasket cards={basket} onClear={() => keepBasket([])} />
+            {error && (
+                <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    <span className="min-w-0 flex-1 whitespace-pre-wrap">
+                        {error}
+                    </span>
+                    <button type="button" onClick={atlas.clearError}>
+                        ×
+                    </button>
+                </div>
+            )}
+            <main className="min-h-0 flex-1">
+                <AnswerExtras.Provider value={extras}>
+                    <ChatScreen
+                        layout="panel"
+                        tail={followUps}
+                        composerTop={
+                            note && (
+                                <ActionNote
+                                    note={note}
+                                    onClose={() => setNote(null)}
+                                />
+                            )
+                        }
+                        composerExtra={
+                            readable && (
+                                <button
+                                    type="button"
+                                    aria-label="Attach a screenshot of the page"
+                                    title="Attach a screenshot of the page"
+                                    onClick={takeScreenshot}
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
+                                    <Camera className="h-4 w-4" />
+                                </button>
+                            )
+                        }
+                        emptyView={
+                            <PanelHome
+                                tab={
+                                    attached && !blockedReason ? attached : null
+                                }
+                                reading={reading}
+                                blocked={blockedReason}
+                                onOpen={(c) => void openPast(c)}
+                                onAction={act}
+                            />
+                        }
+                        placeholder={
+                            reading && attached && !blockedReason
+                                ? "Ask about this page…"
+                                : "Ask Atlas…"
+                        }
+                    />
+                </AnswerExtras.Provider>
+            </main>
         </div>
-      )}
-      <main className="min-h-0 flex-1">
-        <AnswerExtras.Provider value={extras}>
-          <ChatScreen layout="panel" tail={followUps}
-                      composerTop={note && <ActionNote note={note} onClose={() => setNote(null)} />}
-                      composerExtra={readable && (
-                        <button type="button" aria-label="Attach a screenshot of the page" title="Attach a screenshot of the page" onClick={takeScreenshot}
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
-                          <Camera className="h-4 w-4" />
-                        </button>
-                      )}
-                      emptyView={<PanelHome tab={attached && !blockedReason ? attached : null} reading={reading} blocked={blockedReason}
-                                            onOpen={(c) => void openPast(c)} onAction={act} />}
-                      placeholder={reading && attached && !blockedReason ? "Ask about this page…" : "Ask Atlas…"} />
-        </AnswerExtras.Provider>
-      </main>
-    </div>
-  )
+    );
 }
 
-function HeaderButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" aria-label={label} title={label} onClick={onClick}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
-      {children}
-    </button>
-  )
+function HeaderButton({
+    label,
+    onClick,
+    children,
+}: {
+    label: string;
+    onClick: () => void;
+    children: React.ReactNode;
+}) {
+    return (
+        <button
+            type="button"
+            aria-label={label}
+            title={label}
+            onClick={onClick}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+            {children}
+        </button>
+    );
 }

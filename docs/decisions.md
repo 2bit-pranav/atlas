@@ -166,6 +166,17 @@ would show the model a second shell and file tool beside the Strands ones.
 
 ---
 
+**What a model can do is read from its files** (2026-11-07). "Model can think" and
+"Model can see images" were toggles the user had to know to set; set wrong, they
+sent images or a thinking switch to a model that cannot take them. The GGUF
+headers say it: the projector's `clip.has_vision_encoder` / `clip.has_audio_encoder`
+(exact), the chat template taking `enable_thinking` (a heuristic: none is
+unknown), and the trained context length. The toggles stay under Advanced as
+overrides that can only switch a capability off. Read with capped lengths
+(model files come from the internet), header only, cached per file version;
+about 0.2 s for a 260k-token vocabulary. A Files page was considered and
+dropped: it suggested files must be added before Atlas can read them.
+
 ## What a 2B model can do (measured)
 
 **Finding files: the baseline, and safety by luck** (2026-11-05,
@@ -983,35 +994,6 @@ speech-to-text step and nothing to install.
 
 ---
 
-## Tests
-
-**Tests are in the repository, with CI** (2026-10-30, reverses the entry
-below). A restructure needs something to check against, so the offline tests
-(policy, maths, chat tree, runs) are committed and `tests/check.py` runs every
-check (ruff, pyright as a ratchet at 73 errors, pytest, tsc, oxlint) locally
-and in GitHub Actions on Windows. The real-model checks
-(`tests/live/`) are committed too but run by hand: they need the GPU. No fake
-llama-server: behaviour is judged on the real model, and the policy-level bugs
-are tested by calling the policy directly.
-
-> Update 2026-11-04: the real-model checks are one suite, `tests/live/suite.py`; the pyright ratchet is at 35.
-
-~~**Tests stay out of the repository**~~ (2026-10-19, decided). The user tests by
-hand; the development tests and benchmark live in an ignored `tests/`.
-
-> Reversed on 2026-10-30: *Tests are in the repository, with CI*.
-
-**What a model can do is read from its files** (2026-11-07). "Model can think" and
-"Model can see images" were toggles the user had to know to set; set wrong, they
-sent images or a thinking switch to a model that cannot take them. The GGUF
-headers say it: the projector's `clip.has_vision_encoder` / `clip.has_audio_encoder`
-(exact), the chat template taking `enable_thinking` (a heuristic: none is
-unknown), and the trained context length. The toggles stay under Advanced as
-overrides that can only switch a capability off. Read with capped lengths
-(model files come from the internet), header only, cached per file version;
-about 0.2 s for a 260k-token vocabulary. A Files page was considered and
-dropped: it suggested files must be added before Atlas can read them.
-
 **The page goes with the message, as an accessibility tree** (2026-11-07). The
 side panel sent only a page's address; the model spent a tool call, and a model
 turn, reading it, and on canvas apps (Google Docs) and app-like pages it got
@@ -1082,3 +1064,21 @@ message and the working box show the moment it is sent (`pending` in the
 store, replaced by the real turn), and a video's read is kept per video id
 (the next message: 20 ms). What remains before the first word is the model
 reading the prompt.
+
+## Tests
+
+**Tests are in the repository, with CI** (2026-10-30, reverses the entry
+below). A restructure needs something to check against, so the offline tests
+(policy, maths, chat tree, runs) are committed and `tests/check.py` runs every
+check (ruff, pyright as a ratchet at 73 errors, pytest, tsc, oxlint) locally
+and in GitHub Actions on Windows. The real-model checks
+(`tests/live/`) are committed too but run by hand: they need the GPU. No fake
+llama-server: behaviour is judged on the real model, and the policy-level bugs
+are tested by calling the policy directly.
+
+> Update 2026-11-04: the real-model checks are one suite, `tests/live/suite.py`; the pyright ratchet is at 35.
+
+~~**Tests stay out of the repository**~~ (2026-10-19, decided). The user tests by
+hand; the development tests and benchmark live in an ignored `tests/`.
+
+> Reversed on 2026-10-30: *Tests are in the repository, with CI*.
