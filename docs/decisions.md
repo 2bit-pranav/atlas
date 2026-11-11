@@ -89,6 +89,17 @@ Atlas only configures it. Everything Atlas adds is listed in the README.
 
 ## llama.cpp, the model and the prompt
 
+**What a model can do is read from its files** (2026-11-07). "Model can think" and
+"Model can see images" were toggles the user had to know to set; set wrong, they
+sent images or a thinking switch to a model that cannot take them. The GGUF
+headers say it: the projector's `clip.has_vision_encoder` / `clip.has_audio_encoder`
+(exact), the chat template taking `enable_thinking` (a heuristic: none is
+unknown), and the trained context length. The toggles stay under Advanced as
+overrides that can only switch a capability off. Read with capped lengths
+(model files come from the internet), header only, cached per file version;
+about 0.2 s for a 260k-token vocabulary. A Files page was considered and
+dropped: it suggested files must be added before Atlas can read them.
+
 **Images go to the model inside tool results** (2026-10-21, measured).
 llama-server accepts an `image_url` part in a tool message: Gemma read
 "Experiment No - 05" from a screenshot returned by a tool. So
@@ -165,17 +176,6 @@ effort or budget control was verifiable.
 would show the model a second shell and file tool beside the Strands ones.
 
 ---
-
-**What a model can do is read from its files** (2026-11-07). "Model can think" and
-"Model can see images" were toggles the user had to know to set; set wrong, they
-sent images or a thinking switch to a model that cannot take them. The GGUF
-headers say it: the projector's `clip.has_vision_encoder` / `clip.has_audio_encoder`
-(exact), the chat template taking `enable_thinking` (a heuristic: none is
-unknown), and the trained context length. The toggles stay under Advanced as
-overrides that can only switch a capability off. Read with capped lengths
-(model files come from the internet), header only, cached per file version;
-about 0.2 s for a 260k-token vocabulary. A Files page was considered and
-dropped: it suggested files must be added before Atlas can read them.
 
 ## What a 2B model can do (measured)
 
@@ -905,6 +905,77 @@ results at times. Searches are cached for ten minutes.
 
 ## The web UI and the extension
 
+**A sent message shows at once** (2026-11-08). Between Enter and the turn
+appearing, the panel read the page, made the chat and started the run, and
+showed nothing meanwhile. Measured: the backend's send 50 ms; the page
+snapshot 5-420 ms on ordinary pages (Wikipedia's longest article 419 ms) and
+942 ms on a YouTube video, which reopened its transcript every time (3 s more
+on a video without captions, waiting for a button that never comes). Now the
+message and the working box show the moment it is sent (`pending` in the
+store, replaced by the real turn), and a video's read is kept per video id
+(the next message: 20 ms). What remains before the first word is the model
+reading the prompt.
+
+**Key moments: a ready-made turn, not an agent run** (2026-11-08). "Key moments"
+on a YouTube video saves a finished turn ("Found N key moments in <title>",
+then one "[m:ss] label" per moment, which the panel shows as Play-from-here
+rows) with no run and nothing streamed. It persists like any answer, and later
+questions see it in the history. Source: the description's chapters when the
+video has them (YouTube's rule: three or more, from 0:00, in order), with no
+model; otherwise one model call over the transcript whose times are limited
+to the transcript's own by a schema enum and checked again. Labels are page
+text: markdown is stripped so they cannot add links or extra times, and the
+chat is marked as having read outside content. A custom question about the
+video is still a normal turn.
+
+**Panel: actions report as cards, not turns; ask-next pills; no drag outline**
+(2026-11-08). Fill's progress and result show in a card above the composer
+(closed by the user, or by another page in front); nothing goes into the chat,
+since Fill is an action, not a question. After each finished answer the panel
+offers fixed pills for the page kind (the starters not asked yet, plus
+"Simpler" and "Translate…"); no model call. While a basket card is dragged,
+Atlas no longer outlines a target: on Google Forms the outline sat on the
+"Add file" button, which ignores drops, and looked like a valid target. The
+page's own drop styling is the only signal now.
+
+**Files for upload fields: a basket the user drags from** (2026-11-08). Fill
+finds files for a form's upload fields (find_files' search, picked in the same
+single model call) and shows them as cards; the user drags one onto the page.
+Atlas never uploads by itself. Before building, a spike in Edge proved the
+parts that depend on the browser: a drag from an extension page carries a
+custom marker to the page; the content script can turn a trusted drop into a
+real file for an upload field (`input.files` from a DataTransfer) and for a
+react-dropzone-style zone (a replayed file drop); a drop faked by a page
+script is untrusted and refused. Not proven: Google Forms' upload dialog (it
+needs a sign-in), which has Download as its fallback.
+
+**The side panel answers by taking the user to the page** (2026-11-07). Asked to
+find "semester V regular", the model searched three times and said it was not
+there; nothing in the panel led to the page. The page is already in the message,
+so the model now points by quoting the page's own words or naming an element's
+ref, and the panel turns each into a Go to (exact or similar match, scrolled to
+and marked). The page's text index joined text nodes with a space each, which
+doubled spaces at every bold or link ("as the  University"), so quotes copied
+from the page matched only as similar; nodes now join with exactly one space.
+The panel no longer asks before following another tab (a banner users found
+an annoyance); it holds the tab only while an answer is being written.
+
+**The page goes with the message, as an accessibility tree** (2026-11-07). The
+side panel sent only a page's address; the model spent a tool call, and a model
+turn, reading it, and on canvas apps (Google Docs) and app-like pages it got
+nothing useful. Now the content script builds a snapshot when the message is
+sent and it goes with it: Google Docs, Sheets and Slides through their exports
+(with the user's session), articles through Readability (gated by its
+`isProbablyReaderable`, which a news front page fails), anything else as the
+accessibility tree, with roles and names from `dom-accessibility-api` and a ref
+per element (agent-browser's format; agent-browser itself drives its own
+browser and cannot run in an extension, and the browser's own tree needs the
+debugger permission and its warning bar). Measured in Edge on real pages: 4-156
+ms per snapshot; a form becomes one line per field ("[textbox: E-mail address
+(empty)](e3)"), Hacker News its table of stories. The chat is tainted as soon
+as page content is in the message. Approval cards after page content make No
+the main button.
+
 **Fixes after the first real use** (2026-10-22). The mic had vanished: with
 the parallel start, the backend asked llama-server for its modalities while
 the model was still loading, got a 503 without them, and cached "none" for
@@ -993,77 +1064,6 @@ inventing it; 16 s. Never submits; secrets never collected.
 speech-to-text step and nothing to install.
 
 ---
-
-**The page goes with the message, as an accessibility tree** (2026-11-07). The
-side panel sent only a page's address; the model spent a tool call, and a model
-turn, reading it, and on canvas apps (Google Docs) and app-like pages it got
-nothing useful. Now the content script builds a snapshot when the message is
-sent and it goes with it: Google Docs, Sheets and Slides through their exports
-(with the user's session), articles through Readability (gated by its
-`isProbablyReaderable`, which a news front page fails), anything else as the
-accessibility tree, with roles and names from `dom-accessibility-api` and a ref
-per element (agent-browser's format; agent-browser itself drives its own
-browser and cannot run in an extension, and the browser's own tree needs the
-debugger permission and its warning bar). Measured in Edge on real pages: 4-156
-ms per snapshot; a form becomes one line per field ("[textbox: E-mail address
-(empty)](e3)"), Hacker News its table of stories. The chat is tainted as soon
-as page content is in the message. Approval cards after page content make No
-the main button.
-
-**The side panel answers by taking the user to the page** (2026-11-07). Asked to
-find "semester V regular", the model searched three times and said it was not
-there; nothing in the panel led to the page. The page is already in the message,
-so the model now points by quoting the page's own words or naming an element's
-ref, and the panel turns each into a Go to (exact or similar match, scrolled to
-and marked). The page's text index joined text nodes with a space each, which
-doubled spaces at every bold or link ("as the  University"), so quotes copied
-from the page matched only as similar; nodes now join with exactly one space.
-The panel no longer asks before following another tab (a banner users found
-an annoyance); it holds the tab only while an answer is being written.
-
-**Files for upload fields: a basket the user drags from** (2026-11-08). Fill
-finds files for a form's upload fields (find_files' search, picked in the same
-single model call) and shows them as cards; the user drags one onto the page.
-Atlas never uploads by itself. Before building, a spike in Edge proved the
-parts that depend on the browser: a drag from an extension page carries a
-custom marker to the page; the content script can turn a trusted drop into a
-real file for an upload field (`input.files` from a DataTransfer) and for a
-react-dropzone-style zone (a replayed file drop); a drop faked by a page
-script is untrusted and refused. Not proven: Google Forms' upload dialog (it
-needs a sign-in), which has Download as its fallback.
-
-**Panel: actions report as cards, not turns; ask-next pills; no drag outline**
-(2026-11-08). Fill's progress and result show in a card above the composer
-(closed by the user, or by another page in front); nothing goes into the chat,
-since Fill is an action, not a question. After each finished answer the panel
-offers fixed pills for the page kind (the starters not asked yet, plus
-"Simpler" and "Translate…"); no model call. While a basket card is dragged,
-Atlas no longer outlines a target: on Google Forms the outline sat on the
-"Add file" button, which ignores drops, and looked like a valid target. The
-page's own drop styling is the only signal now.
-
-**Key moments: a ready-made turn, not an agent run** (2026-11-08). "Key moments"
-on a YouTube video saves a finished turn ("Found N key moments in <title>",
-then one "[m:ss] label" per moment, which the panel shows as Play-from-here
-rows) with no run and nothing streamed. It persists like any answer, and later
-questions see it in the history. Source: the description's chapters when the
-video has them (YouTube's rule: three or more, from 0:00, in order), with no
-model; otherwise one model call over the transcript whose times are limited
-to the transcript's own by a schema enum and checked again. Labels are page
-text: markdown is stripped so they cannot add links or extra times, and the
-chat is marked as having read outside content. A custom question about the
-video is still a normal turn.
-
-**A sent message shows at once** (2026-11-08). Between Enter and the turn
-appearing, the panel read the page, made the chat and started the run, and
-showed nothing meanwhile. Measured: the backend's send 50 ms; the page
-snapshot 5-420 ms on ordinary pages (Wikipedia's longest article 419 ms) and
-942 ms on a YouTube video, which reopened its transcript every time (3 s more
-on a video without captions, waiting for a button that never comes). Now the
-message and the working box show the moment it is sent (`pending` in the
-store, replaced by the real turn), and a video's read is kept per video id
-(the next message: 20 ms). What remains before the first word is the model
-reading the prompt.
 
 ## Tests
 
