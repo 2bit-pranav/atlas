@@ -27,7 +27,7 @@ skipped, and `rm -rf ~/Downloads/*` passed every check (decisions.md,
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +43,7 @@ from agent.safety.call_paths import (
 from agent.safety.scope import Scope, _absolute
 from agent.safety.shell import _PYTHON, _operands, classify
 
-ZONES = ("workspace", "folders", "elsewhere", "system")
+ZONES = ("workspace", "folders", "elsewhere", "system", "upload")
 ACTIONS = ("read", "create", "change", "delete", "run")
 MODES = ("look", "ask", "work")
 
@@ -51,12 +51,17 @@ R, A, X = "run", "ask", "refuse"
 #: mode -> zone -> verdict per action, in ACTIONS order.
 GRID: dict[str, dict[str, tuple[str, str, str, str, str]]] = {
     "look": {"workspace": (R, R, R, R, X), "folders": (R, X, X, X, X),
-             "elsewhere": (A, X, X, X, X), "system": (A, X, X, X, X)},
+             "elsewhere": (A, X, X, X, X), "system": (A, X, X, X, X), "upload": (R, X, X, X, X)},
     "ask": {"workspace": (R, R, R, R, A), "folders": (R, R, A, A, A),
-            "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X)},
+            "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X), "upload": (R, R, A, A, A)},
     "work": {"workspace": (R, R, R, R, R), "folders": (R, R, R, A, R),
-             "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X)},
+             "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X), "upload": (R, R, A, A, R)},
 }
+#: "upload" is a file the user attached, replaced or deleted by anything but the tools
+#: made to edit a document in place (below): it asks in every mode. A script the model
+#: wrote saved CSV text over an uploaded CSV (2026-11-12); the user's own copy elsewhere
+#: was safe, the one the chat was working from was not.
+EDITS_IN_PLACE = {"edit_docx", "set_cell"}
 
 
 _HOME_FORMS = re.compile(r"^(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\$USERPROFILE|\$\{USERPROFILE\})(?=$|[/\\])")
@@ -76,6 +81,8 @@ class Effect:
     path: Path | None = None
     #: What the user is shown on a card, e.g. the command.
     what: str = ""
+    #: It changes or deletes a file the user attached (the "upload" zone).
+    upload: bool = False
 
 
 def zone(path: Path | None, scope: Scope, action: str = "read") -> str:
@@ -98,6 +105,14 @@ def verdict(mode: str, where: str, action: str) -> str:
 def effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[Effect]:
     """What a call does, wherever it can be seen. Tools with no file effect
     (calculate, page tools, skills) have none."""
+    found = _effects(name, args, tool, scope)
+    if name in EDITS_IN_PLACE or not scope.uploads:
+        return found
+    return [replace(e, upload=True) if e.action in ("change", "delete") and e.path is not None
+            and scope.is_upload(e.path) else e for e in found]
+
+
+def _effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[Effect]:
     from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
     out: list[Effect] = []
@@ -250,6 +265,8 @@ def _place_shell(raw: str, scope: Scope, after_cd: bool) -> Path | None:
 
 def placed_or_elsewhere(effect: Effect, scope: Scope) -> str:
     """The zone, with an unplaceable target as "elsewhere"."""
+    if effect.upload:
+        return "upload"
     if effect.path is None and effect.action != "run":
         return "elsewhere"
     return zone(effect.path, scope, effect.action)

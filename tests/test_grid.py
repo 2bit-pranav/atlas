@@ -304,3 +304,40 @@ def test_allowing_a_command_allows_that_command_only(home) -> None:
     assert len(asked.calls) == 1
     assert _call(policy, "shell", {"command": 'python -c "print(1)"'}) is False
     assert len(asked.calls) == 2                                                     # another command asks again
+
+
+def _with_upload(home: Path, mode: str = "ask", answer: str = "denied") -> tuple[ToolPolicy, Asked, Path]:
+    from agent.safety.scope import upload_key
+
+    policy, asked = _policy(home, mode=mode, answer=answer)
+    upload = home / ".data" / "chats" / "c1" / "orders.csv"
+    upload.write_text("id,total")
+    (upload.parent / "made.csv").write_text("made by the agent")
+    policy.scope.uploads = frozenset({upload_key(upload)})
+    return policy, asked, upload
+
+
+@pytest.mark.parametrize("mode", ["ask", "work"])
+@pytest.mark.parametrize("name, args", [
+    ("shell", {"command": "cat <<EOF > orders.csv\nx\nEOF"}), ("shell", {"command": "python x.py > ./orders.csv"}),
+    ("shell", {"command": "cp made.csv orders.csv"}), ("shell", {"command": "mv orders.csv old.csv"}),
+    ("shell", {"command": "sed -i s/a/b/ orders.csv"}), ("write", {"path": "orders.csv", "content": "x"}),
+    ("delete_file", {"path": "orders.csv"}), ("move_file", {"path": "orders.csv", "destination": "o2.csv"}),
+])
+def test_changing_or_deleting_a_file_the_user_attached_asks(home, mode, name, args) -> None:
+    """A script the model wrote saved CSV text over an uploaded CSV, in the workspace, unasked (2026-11-12)."""
+    policy, asked, _ = _with_upload(home, mode)
+    assert _call(policy, name, args), (name, args)
+    assert len(asked.calls) == 1, (name, args, asked.calls)
+
+
+def test_the_rest_of_the_workspace_and_the_edit_tools_do_not_ask(home) -> None:
+    policy, asked, _ = _with_upload(home)
+    for name, args in (("shell", {"command": "cat orders.csv"}), ("shell", {"command": "cp orders.csv copy.csv"}),
+                       ("write", {"path": "made.csv", "content": "x"}), ("delete_file", {"path": "made.csv"}),
+                       ("set_cell", {"path": "orders.csv", "cell": "A1", "value": "1"}),
+                       ("edit_docx", {"path": "orders.csv", "id": "b1", "text": "x"})):
+        assert _call(policy, name, args) is False, (name, args)
+    assert asked.calls == []
+    policy, asked, _ = _with_upload(home, mode="look")
+    assert _call(policy, "write", {"path": "orders.csv", "content": "x"}) and asked.calls == []   # Look refuses, no card

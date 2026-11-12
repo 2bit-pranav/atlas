@@ -237,6 +237,8 @@ class Atlas:
                 tainted=lambda: run.tainted,
                 untrusted=self.mcp.is_untrusted,
                 on_taint=lambda: self.taint(run),
+                uploads=[f["path"] for row in self.store.path(run.chat_id)
+                         for f in json.loads(row["files_json"] or "[]") if isinstance(f, dict) and f.get("path")],
             )
             run.agent = agent
             if run.cancel.is_set():

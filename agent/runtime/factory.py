@@ -8,7 +8,7 @@ the next message. It needs no server.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,7 @@ from agent.safety.approvals import Approver
 from agent.safety.limits import RunLimits
 from agent.safety.policy import TaintTracker, ToolPolicy
 from agent.safety.protected import Protected
-from agent.safety.scope import Scope
+from agent.safety.scope import Scope, upload_key
 from agent.store.snapshots import SessionManager
 from agent.tools.doc_reading import doc_read_tools
 from agent.tools.documents.tool import document_tools
@@ -94,6 +94,7 @@ def build_agent(
     untrusted: Callable[[str], bool] | None = None,
     on_taint: Callable[[], None] | None = None,
     sandbox: Any = None,
+    uploads: Iterable[Path | str] = (),
 ) -> Any:
     """Build one Strands `Agent` for one turn.
 
@@ -111,6 +112,7 @@ def build_agent(
         tainted: whether outside content (a web page, a fetch) has entered the chat.
         untrusted: whether an MCP tool, by its agent-facing name, returns outside content.
         on_taint: called when a tool brings outside content in (`TaintTracker`).
+        uploads: the files the user attached to this chat: changing or deleting one asks.
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -127,7 +129,7 @@ def build_agent(
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
     enabled = set(tool_manager.atlas_tools())
-    scope = _scope(settings, workspace_dir)
+    scope = _scope(settings, workspace_dir, uploads)
     # The tools place a path exactly as the policy checks it: one rule (Scope.place).
     resolve = scope.place
     shown = shown_in(workspace_dir)
@@ -191,7 +193,7 @@ def build_agent(
     return agent
 
 
-def _scope(settings: Settings, workspace: Path) -> Scope:
+def _scope(settings: Settings, workspace: Path, uploads: Iterable[Path | str] = ()) -> Scope:
     """What a turn may touch without asking: its workspace and the allowed folders.
 
     Readable as well: the skills (their SKILL.md and scripts) and the Python
@@ -206,6 +208,7 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
         protected=Protected(root=paths.ROOT, data=paths.data_dir(settings),
                             mcp_config=paths.mcp_config(settings), venv=Path(sys.prefix),
                             skills=paths.skills_dir(settings), workspace=workspace),
+        uploads=frozenset(upload_key(u) for u in uploads),
     )
 
 
