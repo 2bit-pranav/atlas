@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -64,9 +65,46 @@ def _inline(token: Any) -> list[Run]:
     return runs
 
 
+_BLOCK_ID = re.compile(r"^\[b\d+\]\s*|\s*\[b\d+\]\s*$", re.M)
+_TABLE_HEAD = re.compile(r"^\[t\d+:[^\n]*$")
+_TABLE_ROW = re.compile(r"^r\d+:\s?(.*)$")
+
+
+def without_reader_marks(text: str) -> str:
+    """The reader's addresses taken back out of text copied from it.
+
+    read_docx prints `[b2]` before a paragraph, `[b3]` after a heading, and a table
+    as a `[t1: table, ...]` line then `r1: a | b | c` rows, so edit_docx can name
+    them. Asked to rebuild a document, the model copied that output as it was: the
+    new file held the marks as text and the table as lines of prose (3 of 4 runs,
+    2026-11-12). Here the marks go, and the rows become a table again.
+    """
+    out: list[str] = []
+    rows: list[str] = []
+
+    def flush() -> None:
+        if rows:
+            out.append("| " + rows[0] + " |")
+            out.append("|" + "---|" * (rows[0].count("|") + 1))
+            out.extend("| " + r + " |" for r in rows[1:])
+            rows.clear()
+
+    for line in text.split("\n"):
+        if _TABLE_HEAD.match(line):
+            flush()
+            continue
+        if (row := _TABLE_ROW.match(line)) and (rows or "|" in line):
+            rows.append(row.group(1).strip())
+            continue
+        flush()
+        out.append(_BLOCK_ID.sub("", line))
+    flush()
+    return "\n".join(out)
+
+
 def parse_markdown(text: str) -> list[Block]:
     md = MarkdownIt("commonmark").enable("table").enable("strikethrough")
-    tokens = md.parse(text)
+    tokens = md.parse(without_reader_marks(text))
     blocks: list[Block] = []
     lists: list[dict[str, Any]] = []      # stack of {"ordered", "n"}
     quote = 0
