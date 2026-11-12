@@ -241,8 +241,9 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    like every tool's; unquoted `C:\...` in
    a shell command becomes `C:/...` (bash eats the backslashes).
 2. **floor**: refused outright, no card: Atlas's own files (protected.py), the
-   floor's shell rules (rules.toml), and shell writes or deletes that land in
-   Atlas's data or another chat (relative paths placed from the workspace).
+   floor's shell rules (rules.toml), and anything a shell command names, to
+   read, write or delete, that lands in Atlas's data or another chat (every
+   path placed from where the command runs: `grid.shell_reads`).
 3. **documents**: `write`/`edit` on a binary document is redirected, before
    the grid, so a call that would be redirected never shows a card.
 4. **grid** (`safety/grid.py`): every call, of any tool, is described as
@@ -267,7 +268,12 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    unlabelled as a change. A shell delete outside the workspace is refused and
    pointed to `delete_file` (Recycle Bin). One card per call (kind `access`
    with a path, `tool` for a command); Allow covers that action, or a lesser
-   one, in that folder (that program, for a command) for the rest of the turn.
+   one, in that folder (that exact command, for a command) for the rest of the turn.
+   Two more places: a file the user attached is the **upload** zone (changing or
+   deleting it asks in every mode, except through `edit_docx` and `set_cell`),
+   and a command that talks to the network (`curl`, `wget`, `scp` ...) asks in
+   every mode. A skill script runs unasked only as one simple command whose
+   script is inside `skills/<skill>/scripts/`.
    **Outside content in the chat** (the extension's page tools, a PDF
    `read_pdf` downloads, an MCP tool from an untrusted server) makes every
    run, change and delete, every create outside the workspace and every
@@ -299,8 +305,9 @@ What is checked:
   one goes where its folder exists). The file tools, the skill scripts
   (`$ATLAS_FOLDERS`) and MCP arguments follow the same rule, so
   `Demo/Invoices/x.pdf` means one file to every tool.
-- `shell`: absolute drive paths in the command (`/c/...`, `C:/...`, `C:\...`,
-  quoted or bare). `/tmp` and other POSIX paths are the shell's own.
+- `shell`: every path the command names: operands, `--x=path` values and
+  `< file`, relative ones placed from the workspace (or from where a `cd` led),
+  with `~`, `$HOME` and `$ATLAS_SKILLS` expanded. One that cannot be placed asks.
 - MCP tools: any string argument that is a drive path.
 
 Outside the scope the user gets an Allow / Deny card naming the folder. Allow

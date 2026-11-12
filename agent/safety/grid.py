@@ -69,6 +69,9 @@ _SKILLS_VAR = re.compile(r"\$\{?ATLAS_SKILLS\}?(?=$|[/\\])")
 _URL = re.compile(r"^[A-Za-z][\w+.-]*://")
 #: Programs whose first operand is a pattern or a script, not a file.
 _PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg", "sed", "awk", "gawk", "jq"}
+#: Programs that send or fetch over the network.
+_NETWORK = {"curl", "wget", "scp", "sftp", "ftp", "ssh", "rsync", "nc", "ncat", "netcat", "telnet",
+            "invoke-webrequest", "invoke-restmethod", "iwr", "irm", "certutil", "bitsadmin"}
 #: Programs whose arguments are words, not files.
 _NO_FILES = {"echo", "printf", "expr", "seq", "sleep", "true", "false", "basename", "dirname"}
 
@@ -83,6 +86,8 @@ class Effect:
     what: str = ""
     #: It changes or deletes a file the user attached (the "upload" zone).
     upload: bool = False
+    #: A command that talks to the network: it asks in every mode, as "elsewhere" does.
+    outbound: bool = False
 
 
 def zone(path: Path | None, scope: Scope, action: str = "read") -> str:
@@ -244,7 +249,10 @@ def _shell(command: str, scope: Scope) -> list[Effect]:
                     "change" if target is not None and target.exists() else "create")
                 out.append(Effect(action, target, command))
         elif e.kind == "other" and not skill:
-            out.append(Effect("run", None, command))
+            # Work mode runs commands unasked; one that can send a file out still asks
+            # (`curl -F f=@report.docx <url>` ran silently there, 2026-11-12). A script can
+            # still open a connection itself: the egress gate (plan, phase 4) is the real fix.
+            out.append(Effect("run", None, command, outbound=e.program in _NETWORK))
     # Paths a command only names (cat, a script's input or output) are read, or
     # written by a skill script: placed, so outside the folders asks.
     for raw in _shell_paths(command):
@@ -267,6 +275,8 @@ def placed_or_elsewhere(effect: Effect, scope: Scope) -> str:
     """The zone, with an unplaceable target as "elsewhere"."""
     if effect.upload:
         return "upload"
+    if effect.outbound:
+        return "elsewhere"
     if effect.path is None and effect.action != "run":
         return "elsewhere"
     return zone(effect.path, scope, effect.action)

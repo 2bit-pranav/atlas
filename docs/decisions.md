@@ -546,6 +546,39 @@ recognises safe commands, and every construct it does not know is a hole.
 > address go inside the marked page block, one capped line each, and `</page>` in
 > any page text is neutralised (`prompt/page.py`). The request schema is not
 > capped: a too-long title would fail the whole message, so it is cut in the note.
+>
+> Update 2026-11-12 (the rest of phase 0; the probe now shows no silent row):
+> - 0.4: `read_url` refuses an address over 500 characters, one holding a drive
+>   path, or one with a file path or a 12-digit number after its `?` or `#`.
+> - 0.5: allowing a command covers that command's text, not its program.
+> - 0.6: a file the user attached is in the "upload" zone: changing or deleting
+>   it asks in every mode, except through `edit_docx` and `set_cell`, the tools
+>   made to edit an attached document in place (the user had agreed to edits
+>   landing on the uploaded copy; what must not happen unasked is a script or a
+>   redirect replacing it).
+> - 0.7: an upload from the side panel, a PDF imported from the web and
+>   `page_show` mark the chat as having read outside content. A file picked in
+>   the web UI does not: detecting instructions inside the user's own documents
+>   is phase 4.
+> - 0.8: a message's attachments must be files inside its own chat's folder
+>   (422 otherwise); a quoted passage keeps no path from the client. A `file://`
+>   import is refused for Atlas's own data and other chats. Any other PDF on the
+>   disk can still be attached by the paired extension: that is the feature.
+> - 0.9: Fill suggests only for fields a person can see (`read.ts::seen`: size,
+>   on the page, opacity and clipping of the field and everything it sits in),
+>   and its bar has a Review list of every field with its whole value, open by
+>   itself when a value is long. Checked in Edge: of seven fields, the five
+>   hidden ones were not collected.
+> - 0.11: the pairing token is under its own storage key and `storage.local` is
+>   closed to content scripts, which get their settings from the worker (checked
+>   in Edge: a content script's read is refused). Document links open only
+>   public addresses, at every redirect; the live suite's fixture server needs
+>   Atlas started with `ATLAS_LOCAL_LINKS=127.0.0.1:18090`.
+> - Also: shell commands no longer inherit `ATLAS_*` or anything named like a
+>   key, token, secret or password from the backend's environment; a command
+>   that talks to the network (`curl`, `wget`, `scp` ...) asks in every mode.
+> - Not done here: nothing was run on the real model, and the pairing token
+>   printed during the evaluation still has to be reset by the user.
 
 **The web UI is a task view, calm by default** (2026-11-06). A mockup was
 reviewed first (two rounds: the first showed every stat and read as noise to

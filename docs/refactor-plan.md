@@ -63,6 +63,13 @@ evaluation), and stop passing the full process environment to shell commands
 
 Exit: `probe_policy.py` shows no "RAN SILENTLY" row; the injection probe leaks nothing in 8 runs.
 
+**Status, 2026-11-12:** every row above is done, each with a test, plus the
+environment item; the probe shows no silent row. 0.6 exempts `edit_docx` and
+`set_cell`; 0.10 cuts the title in the note instead of capping the schema; a
+network command asks in every mode (not in the table). What each did is in
+decisions.md under *Shell reads by relative path*. Still open: the injection
+probe on the real model (it needs the GPU), and resetting the pairing token.
+
 ## Phase 1: see what happens
 
 | # | Change | Where |

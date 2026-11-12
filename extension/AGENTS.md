@@ -170,7 +170,14 @@ options, against the user's details (`<data>/profile.md`, edited in Settings
 > Browser extension and never readable by the extension). The values appear
 over the fields with Apply / Discard; Apply sets them with input and change
 events. The form is never submitted. Password, OTP, CVV, card and captcha
-fields are never collected.
+fields are never collected, nor is a field a person could not see (`seen` in
+`read.ts`: too small, off the page, transparent or clipped, by itself or by
+what it sits in). The bar's Review lists every field with its whole value.
+
+**The pairing token** is under its own storage key (`pairing`), and
+`storage.local` is closed to content scripts (`lockStorage`, when the worker
+starts): they run inside web pages. A content script asks the worker for its
+settings (`atlas:settings`), which never include the token.
 
 **History.** The clock button lists the browser's own chats (`source:
 extension`), newest first, with their site; reopening one about another page
