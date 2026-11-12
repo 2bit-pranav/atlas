@@ -82,7 +82,7 @@ def test_editing_the_first_message_empties_the_chat(store) -> None:
 def test_running_turns_become_interrupted_after_a_crash(store) -> None:
     chat = store.create_chat()["id"]
     store.insert_turn(chat, "left running", parent_turn_id=None, before_snap=None)
-    assert store.mark_interrupted() == 1
+    assert [r["chat_id"] for r in store.mark_interrupted()] == [chat]
     assert store.leaf(chat)["status"] == "interrupted"
 
 

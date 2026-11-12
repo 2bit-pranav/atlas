@@ -117,6 +117,10 @@ export interface TurnStats {
   prompt_per_second?: number
   model_calls?: number
   duration_ms?: number
+  /** The run that wrote this turn: its trace is `atlas trace <run_id>`. */
+  run_id?: string
+  /** Each model call's own numbers (the fields above are the last call's). */
+  calls?: { prompt_fresh: number; prompt_cached: number; completion: number; prompt_ms: number; generation_ms: number }[]
 }
 
 export interface Turn {

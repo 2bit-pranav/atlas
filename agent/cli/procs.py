@@ -178,7 +178,7 @@ class LogRelay:
                 with self._lock:
                     self.tail.append(text)
                     with contextlib.suppress(ValueError, OSError):
-                        self._log.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+                        self._log.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {text}\n")
                         self._log.flush()
                 self._on_line(self.service, text)
         except (ValueError, OSError):

@@ -5,6 +5,8 @@
     atlas status
     atlas logs [llama|backend|web] [-f] [-n N]
     atlas settings check | show [--restart-required]
+    atlas trace [RUN] [--prompt N]
+    atlas replay RUN [--call N]
 
 `atlas start` shows the start screen in a terminal (`screen.py`), filtered
 logs with a pinned status line with `--dev`, and plain lines when piped or
@@ -21,6 +23,7 @@ import sys
 
 from agent.cli.commands import (
     ROOT,
+    _settings,
     cmd_logs,
     cmd_settings_check,
     cmd_settings_show,
@@ -29,6 +32,8 @@ from agent.cli.commands import (
     cmd_stop,
 )
 from agent.cli.launcher.supervisor import SERVICES
+from agent.cli.tracing import cmd_replay, cmd_trace
+from agent.config import paths
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -63,6 +68,17 @@ def build_parser() -> argparse.ArgumentParser:
     show = settings_sub.add_parser("show", help="print the resolved settings")
     show.add_argument("--restart-required", action="store_true")
     show.set_defaults(func=cmd_settings_show)
+
+    trace_cmd = sub.add_parser("trace", help="what a run did: each model call, tool and policy decision")
+    trace_cmd.add_argument("run", nargs="?", help="the run's id or its start (default: the newest run)")
+    trace_cmd.add_argument("--last", action="store_true", help="the newest run (the default)")
+    trace_cmd.add_argument("--prompt", type=int, metavar="N", help="print model call N's request in full")
+    trace_cmd.set_defaults(func=lambda a: cmd_trace(a, paths.data_dir(_settings(a))))
+
+    replay = sub.add_parser("replay", help="send a run's model call again and compare the answer")
+    replay.add_argument("run", help="the run's id or its start")
+    replay.add_argument("--call", type=int, default=1, help="which model call (default 1)")
+    replay.set_defaults(func=lambda a: cmd_replay(a, _settings(a).ports.backend))
     return parser
 
 

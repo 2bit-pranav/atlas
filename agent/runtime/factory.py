@@ -176,7 +176,7 @@ def build_agent(
         # Before a tool runs: the run's limits, then one ordered policy
         # (policy.py), so a refused repeat never shows a card. After: recovery.
         hooks=[RunLimits(settings.limits, notify=observer),
-               ToolPolicy(scope, approver=approver,
+               ToolPolicy(scope, approver=approver, observer=observer,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           mode=settings.access.mode, chat_grants=chat_grants),
                ToolFailureRecovery(settings.resilience, notify=observer),

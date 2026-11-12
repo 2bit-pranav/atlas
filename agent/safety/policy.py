@@ -85,11 +85,14 @@ class ToolPolicy(HookProvider):
         tainted: Callable[[], bool] | None = None,
         mode: str = "ask",
         chat_grants: list[tuple[Path | str, int]] | None = None,
+        observer: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.scope = scope
+        #: Where each decision goes (the run's trace): {"type": "policy", ...}.
+        self.observer = observer
         self.mode = mode if mode in MODES else "ask"
         self.tainted = tainted or (lambda: False)
-        self.approver = approver
+        self.approver = _noted(approver, self._note) if approver is not None else None
         self.ask_outside = ask_outside
         self.sensitive = sensitive or (lambda name: False)
         #: What the user allowed this turn: (folder or file, the action up to which
@@ -110,15 +113,26 @@ class ToolPolicy(HookProvider):
         registry.add_callback(BeforeToolCallEvent, self._before)
 
     async def _before(self, event: BeforeToolCallEvent) -> None:
+        tool = event.tool_use.get("name", "")
         for step in self.steps:
             decision = await step(event)
             if decision is None:
                 continue
             if decision.rewrite is not None:
                 event.tool_use = {**event.tool_use, "input": decision.rewrite}
+                self._note(step=step.__name__.strip("_"), tool=tool, verdict="rewrite", args=decision.rewrite)
             if decision.refuse is not None:
                 event.cancel_tool = decision.refuse
+                self._note(step=step.__name__.strip("_"), tool=tool, verdict="refuse", reason=decision.refuse,
+                           args=event.tool_use.get("input"))
                 return
+
+    def _note(self, **data: Any) -> None:
+        if self.observer is not None:
+            try:
+                self.observer({"type": "policy", "mode": self.mode, "tainted": self.tainted(), **data})
+            except Exception:  # noqa: BLE001 - a trace must never change a decision
+                logger.debug("policy observer failed", exc_info=True)
 
     # ----------------------------------------------------------------- steps --
 
@@ -236,6 +250,8 @@ class ToolPolicy(HookProvider):
                                           or (effect.action == "create" and where != "workspace")):
                 v = "ask"
             if v == "refuse":
+                self._note(step="grid", tool=name, verdict="zone", action=effect.action, zone=where,
+                           path=str(effect.path) if effect.path else None)
                 return Decision(refuse=self._refusal(effect, where))
             if v == "ask" and not self._covered(effect):
                 asks.append((effect, where))
@@ -245,6 +261,8 @@ class ToolPolicy(HookProvider):
                 asks.append((Effect("run", None, command), "workspace"))
         if not asks:
             return None
+        self._note(step="grid", tool=name, verdict="zones",
+                   asks=[{"action": e.action, "zone": w, "path": str(e.path) if e.path else None} for e, w in asks])
         if self.approver is None:
             return Decision(refuse="This needs the user's approval, and no one can be asked here.")
         decision = await self.approver(*self._card(name, asks, tainted))
@@ -415,6 +433,15 @@ class ToolPolicy(HookProvider):
                 else "the `create_document` tool")
         return Decision(refuse=(f"{Path(path).name} is a binary {ext} file; writing text into it would "
                                 f"corrupt it. Use {what} instead."))
+
+
+def _noted(approver: Approver, note: Callable[..., None]) -> Approver:
+    """The approver, with each question and its answer written down."""
+    async def asked(kind: str, detail: dict[str, Any]) -> str:
+        decision = await approver(kind, detail)
+        note(step="approval", verdict=decision, kind=kind, detail=detail)
+        return decision
+    return asked
 
 
 def _describe(tool: str, effect: Effect) -> str:

@@ -287,13 +287,14 @@ class ChatStore:
                       None if stats is None else json.dumps(stats),
                       error, turn_id)))
 
-    def mark_interrupted(self) -> int:
-        """Turns left `running` by a crash become `interrupted`; retry recovers them."""
+    def mark_interrupted(self) -> list[dict[str, Any]]:
+        """Turns left `running` by a crash become `interrupted`; retry recovers them.
+        Returns them, so what their trace recorded can be shown."""
         with self._lock:
-            n = self._conn.execute("UPDATE turns SET status=? WHERE status=?",
-                                   (INTERRUPTED, RUNNING)).rowcount
+            rows = [dict(r) for r in self._conn.execute("SELECT id, chat_id FROM turns WHERE status=?", (RUNNING,))]
+            self._conn.execute("UPDATE turns SET status=? WHERE status=?", (INTERRUPTED, RUNNING))
             self._conn.commit()
-        return n
+        return rows
 
     # ------------------------------------------------------------ siblings --
 

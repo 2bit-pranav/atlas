@@ -10,6 +10,24 @@ it through and say what replaced it, rather than deleting it. Ids like B28 and
 
 ## Strands and the harness
 
+**A trace per run, on disk as it happens** (2026-11-12, plan phase 1). Nothing of
+a run was kept but its folded transcript, written when it ended: what the model
+was actually sent was not recoverable, a refusal's reason only showed if the model
+repeated it, and a crash lost the partial turn. Now every run writes
+`<data>/traces/<chat>/<turn>-<run>.jsonl`, one flushed line per record: every run
+event, the exact body of every model request, every response with llama's own
+`timings`, every policy step that rewrote, asked or refused (and the answer). A
+turn a crash left `interrupted` is shown from its trace at the next start. Each
+model call's own numbers are kept in the turn's stats (`calls`); the old fields
+were the last call's. `atlas trace` prints the run as a tree, `--prompt N` one
+call's request in full; `atlas replay RUN --call N` sends it again and diffs the
+answer, through the backend, because the llama key is never written down. A
+trace holds the whole conversation and the pages read: it is in the data folder
+(the agent cannot read it), goes with its chat, and is deleted after 14 days.
+Request headers are never traced. Log file lines now carry the date. Size, not
+measured on a real run yet: the request body is sent whole each call, so a
+40-call run holds 40 copies of a growing prompt (a few MB).
+
 **Keep the current turn's reasoning in the history** (2026-10-19, found by
 test). Atlas stripped every `reasoningContent` block before sending history
 to llama-server. Within one turn the model then lost its plan after each tool

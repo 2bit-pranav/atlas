@@ -63,6 +63,8 @@ class RunLimits(HookProvider):
             event.cancel_tool = (f"Refused: this exact call has already run {self.settings.repeat_limit} "
                                  "time(s) in this message. Use the result you already have, or try "
                                  "something different; repeating it will not change the answer.")
+            self._notify({"type": "policy", "step": "limits", "tool": use.get("name"), "verdict": "refuse",
+                          "reason": "repeated call", "args": use.get("input")})
 
     # ----------------------------------------------------------- helpers --
 

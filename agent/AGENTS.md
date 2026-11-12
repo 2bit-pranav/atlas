@@ -53,10 +53,12 @@ agent/
                 basket.py        files found for upload fields, handed out by short-lived id
                 table_export.py  a web page's table as xlsx or csv, no model
   common/       ids.py           sortable ids
+                trace.py         a run's trace: every event, model request and response, policy decision
                 redact.py        credentials in free text (install output), hidden before the UI
 agent/cli/
   main.py            argument parsing and the entry point (`atlas`)
   commands.py        atlas start | stop | status | logs | settings
+  tracing.py         atlas trace [RUN] [--prompt N] | replay RUN [--call N]
   launcher/          supervisor.py (Launcher: starts, health-checks, supervises, restarts, stops;
                      emits events, prints nothing), services.py (each service's command line),
                      logs.py (per-service parsing; drop / collapse / rewrite rules)

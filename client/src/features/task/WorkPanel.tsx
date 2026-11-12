@@ -226,6 +226,12 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
               </div>
             )}
           </div>
+          {stats.run_id && (
+            // Everything this run sent the model and every permission decision, on this computer.
+            <p className="mt-2.5 text-[11px] text-muted-foreground">
+              Trace: <code className="select-all rounded bg-muted px-1 py-0.5 font-mono">atlas trace {stats.run_id.slice(0, 8)}</code>
+            </p>
+          )}
         </section>
       )}
     </aside>

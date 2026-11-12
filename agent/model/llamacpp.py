@@ -131,6 +131,8 @@ class AtlasLlamaCppModel(LlamaCppModel):
         try:
             request = self._format_request(messages, tool_specs, system_prompt)
             self._observe({"type": "call_start"})
+            # The exact body, for the run's trace (headers, and so the key, are not part of it).
+            self._observe({"type": "model_request", "body": request})
             async with self.client.stream("POST", "/v1/chat/completions", json=request) as response:
                 if response.status_code >= 400:
                     # A streamed response has no body yet; read it so the error
@@ -141,6 +143,7 @@ class AtlasLlamaCppModel(LlamaCppModel):
                     yield chunk
 
         except httpx.HTTPStatusError as e:
+            self._observe({"type": "model_error", "error": f"HTTP {e.response.status_code}: {e.response.text[:2000]}"})
             if e.response.status_code == 400:
                 try:
                     error_data = e.response.json()
@@ -151,6 +154,9 @@ class AtlasLlamaCppModel(LlamaCppModel):
                     raise ContextWindowOverflowException(f"Context window exceeded: {error_msg}") from e
             elif e.response.status_code == 503:
                 raise ModelThrottledException("llama.cpp server is busy or overloaded") from e
+            raise
+        except Exception as e:
+            self._observe({"type": "model_error", "error": f"{type(e).__name__}: {e}"})
             raise
         # Anything else propagates unchanged; agent/recovery/ decides what is
         # worth retrying. (A substring test for "rate" would also match
@@ -167,6 +173,11 @@ class AtlasLlamaCppModel(LlamaCppModel):
         usage_data = None
         finish_reason = None
         in_think_tag = False
+        # What came back, whole, for the run's trace: the raw text (think tags and all),
+        # reasoning, the last timings exactly as llama-server sent them.
+        said: list[str] = []
+        thought: list[str] = []
+        last_timings: dict[str, Any] | None = None
 
         async for line in response.aiter_lines():
             if not line.strip() or not line.startswith("data: "):
@@ -182,6 +193,7 @@ class AtlasLlamaCppModel(LlamaCppModel):
                 continue
 
             if isinstance(event.get("timings"), dict):
+                last_timings = event["timings"]
                 self._observe({"type": "timings", **event["timings"]})
 
             # Usage can ride on a chunk that also carries the finish reason, so
@@ -197,6 +209,7 @@ class AtlasLlamaCppModel(LlamaCppModel):
 
             reasoning = delta.get("reasoning_content")
             if reasoning:
+                thought.append(reasoning)
                 yield self._format_chunk(
                     {
                         "chunk_type": "content_delta",
@@ -207,6 +220,7 @@ class AtlasLlamaCppModel(LlamaCppModel):
 
             content = delta.get("content")
             if content:
+                said.append(content)
                 # Fallback for reasoning left inline as <think>...</think>
                 # rather than sent as reasoning_content.
                 if "<think>" in content and not in_think_tag:
@@ -318,6 +332,15 @@ class AtlasLlamaCppModel(LlamaCppModel):
             yield self._format_chunk({"chunk_type": "content_stop"})
 
         stop_reason = "tool_calls" if (finish_reason == "tool_calls" or tool_calls) else (finish_reason or "end_turn")
+        self._observe({
+            "type": "model_response", "text": "".join(said), "reasoning": "".join(thought),
+            "tool_calls": [{"name": next((d.get("function", {}).get("name") for d in deltas
+                                          if d.get("function", {}).get("name")), ""),
+                            "arguments": "".join(d.get("function", {}).get("arguments") or "" for d in deltas)}
+                           for deltas in tool_calls.values()],
+            "finish_reason": finish_reason, "timings": last_timings, "usage": usage_data,
+            "ms": int((time.perf_counter() - start_time) * 1000),
+        })
         yield self._format_chunk({"chunk_type": "message_stop", "data": stop_reason})
 
         if usage_data:

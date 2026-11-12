@@ -85,6 +85,12 @@ probe on the real model (it needs the GPU), and resetting the pairing token.
 Exit: for any turn, completed or not, `atlas trace` shows each model call's
 exact prompt and the reason for every refusal.
 
+**Status, 2026-11-12:** 1.1 to 1.7 done, with tests (a stand-in llama-server
+for the adapter and for replay). The trace file is named by turn and run, so an
+interrupted turn finds its own. Replay goes through a backend route, because the
+llama key is never on disk. The UI part of 1.7 is a line under Details naming the
+`atlas trace` command, not a trace viewer. Not checked on a real model run yet.
+
 ## Phase 2: documents that come out right
 
 | # | Change | Where | Addresses |

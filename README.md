@@ -20,6 +20,8 @@ atlas start                      # the model, the backend and the web UI, at htt
 atlas stop                       # stops everything, one line per service
 atlas status                     # what is running, on which ports, since when
 atlas logs [llama|backend|web]   # the full logs (-f to follow, -n N lines)
+atlas trace [RUN] [--prompt N]   # what a run did: each model call, tool and policy decision (default: the newest)
+atlas replay RUN [--call N]      # send a run's model call again and compare the answer
 ```
 
 `atlas start` shows a small live panel (o opens the UI, l shows logs, r

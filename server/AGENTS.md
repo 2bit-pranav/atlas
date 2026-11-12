@@ -37,8 +37,17 @@ A run is an asyncio task plus an in-memory event buffer.
 - One run at a time; a second start is a 409, checked *before* the tree is
   changed so a refused send leaves nothing behind.
 - When a run ends, its folded transcript and stats are written to the turn
-  (`render_json`, `stats_json`). A backend crash loses the partial text; the
-  turn becomes `interrupted` and retry recovers it.
+  (`render_json`, `stats_json`, which holds the run's id and each model call's
+  own numbers). A backend crash leaves the turn `interrupted`; at the next start
+  it is shown from its trace, and retry runs it again.
+- **Every run has a trace** (`agent/common/trace.py`): one JSON line per record
+  in `<data>/traces/<chat>/<turn>-<run>.jsonl`, flushed as it happens. Every run
+  event, the exact body of every model request, every response (text, reasoning,
+  tool calls, finish reason, llama's own `timings`), every policy decision that
+  rewrote, asked or refused, with the answer. Never a header, so never the key.
+  Deleted with the chat, and after 14 days. `atlas trace` reads it; `atlas
+  replay RUN --call N` sends a call's saved request again through
+  `POST /traces/{run}/replay` (the key lives only here; not an extension route).
 
 ## Events (`GET /api/runs/{id}/events?after=N`)
 
@@ -78,6 +87,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `POST /chats/{id}/files`, `GET /chats/{id}/files/{path}` | upload into the chat's workspace (a pdf/docx/xlsx is queued for ingest); a file as a download (raster images inline) |
 | `GET /chats/{id}/ingest?names=a.pdf,b.docx` | how far each attachment's parsing has got: `{name: {status, done, total}}` (the composer's chips; not open to the extension) |
 | `GET /chats/{id}/workspace` | every file in the workspace, newest first. Outlives edits |
+| `POST /traces/{run}/replay?call=N` | a run's model call N sent again as saved; then and now (`atlas replay`). 409 during a run. Not open to the extension |
 | `POST /chats/{id}/files/import` | `{url}`: a PDF by its link (`file://` copied, `http(s)://` downloaded) into the workspace, as an attachment |
 | `DELETE /chats/{id}/files/{path}` | remove an upload before it is sent |
 | `POST /chats/{id}/messages` | send `{text, files, refs, thinking}` → `{run, chat}` |
