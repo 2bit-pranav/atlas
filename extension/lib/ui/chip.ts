@@ -5,7 +5,7 @@
 
 import { box, button, toast } from "@ext/ui/overlay"
 import { tableRows, tableTitle } from "@ext/page/tables"
-import type { ExtensionSettings } from "@ext/shared/settings"
+import type { PageSettings } from "@ext/shared/settings"
 
 // ------------------------------------------------------------ selection chip --
 
@@ -16,7 +16,7 @@ import type { ExtensionSettings } from "@ext/shared/settings"
  * which would also stop a native dropdown from ever opening). When the
  * selection is inside a data table, the chip also offers to save the table.
  */
-export function selectionChip(settings: () => ExtensionSettings, off: () => boolean) {
+export function selectionChip(settings: () => PageSettings, off: () => boolean) {
   let chip: HTMLDivElement | null = null
   const hide = () => {
     chip?.remove()

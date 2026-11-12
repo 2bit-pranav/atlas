@@ -19,20 +19,53 @@ export const DEFAULTS: ExtensionSettings = {
     languages: ["English", "Hindi", "Marathi"],
 };
 
+/** What a content script may know: everything but the pairing token. */
+export type PageSettings = Omit<ExtensionSettings, "token">;
+
+/**
+ * For the worker and the extension's own pages only. The token is kept under
+ * its own key (`pairing`), apart from the settings a content script needs, and
+ * `lockStorage` closes the whole area to content scripts: they run inside web
+ * pages, and one that a page took over could read the token from storage, and
+ * with it every chat (2026-11-12). They ask the worker instead (`loadPageSettings`).
+ */
 export async function loadSettings(): Promise<ExtensionSettings> {
-    const stored = await browser.storage.local.get("settings");
-    return {
-        ...DEFAULTS,
-        ...(stored.settings as Partial<ExtensionSettings> | undefined),
-    };
+    const stored = await browser.storage.local.get(["settings", "pairing"]);
+    const settings = (stored.settings ?? {}) as Partial<ExtensionSettings>;
+    const pairing = stored.pairing as { token?: string } | undefined;
+    // An install from before the split kept the token inside `settings`.
+    return { ...DEFAULTS, ...settings, token: pairing?.token ?? settings.token ?? "" };
 }
 
 export async function saveSettings(
     patch: Partial<ExtensionSettings>,
 ): Promise<ExtensionSettings> {
     const next = { ...(await loadSettings()), ...patch };
-    await browser.storage.local.set({ settings: next });
+    await browser.storage.local.set({ settings: pageSettings(next), pairing: { token: next.token } });
     return next;
+}
+
+export function pageSettings(settings: ExtensionSettings): PageSettings {
+    const { token: _token, ...rest } = settings;
+    return rest;
+}
+
+/** Storage is for the worker and the extension's pages, not for content scripts. Called when the worker starts. */
+export function lockStorage(): void {
+    const area = browser.storage.local as unknown as {
+        setAccessLevel?: (level: { accessLevel: string }) => Promise<void>;
+    };
+    void area.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" })?.catch(() => undefined);
+}
+
+/** A content script's settings, from the worker: storage is closed to it. */
+export async function loadPageSettings(): Promise<PageSettings> {
+    try {
+        const answer = (await browser.runtime.sendMessage({ type: "atlas:settings" })) as Partial<PageSettings> | undefined;
+        return { ...pageSettings(DEFAULTS), ...answer };
+    } catch {
+        return pageSettings(DEFAULTS);
+    }
 }
 
 /** An address on this computer over plain http: the only place Atlas runs, and the only page that may pair the extension. */

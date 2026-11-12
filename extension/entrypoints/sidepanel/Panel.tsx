@@ -100,7 +100,7 @@ export function Panel() {
         load();
         // Paired from Atlas's page while the panel is open: connect straight away.
         const changed = (changes: Record<string, unknown>) => {
-            if ("settings" in changes) load();
+            if ("settings" in changes || "pairing" in changes) load();
         };
         browser.storage.onChanged.addListener(changed);
         return () => browser.storage.onChanged.removeListener(changed);

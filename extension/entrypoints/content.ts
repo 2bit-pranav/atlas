@@ -15,7 +15,7 @@
  * Nothing runs on sites in the never-read list.
  */
 
-import { blocked, loadSettings, localHttp, type ExtensionSettings } from "@ext/shared/settings"
+import { blocked, loadPageSettings, localHttp, type PageSettings } from "@ext/shared/settings"
 import { selectionChip } from "@ext/ui/chip"
 import * as fill from "@ext/fill/fill"
 import { outline, show } from "@ext/page/ax"
@@ -34,9 +34,11 @@ export default defineContentScript({
   // In frames too, for basket drops only: Google Forms' upload dialog is a frame of another Google site.
   allFrames: true,
   async main() {
-    let settings: ExtensionSettings = await loadSettings()
-    browser.storage.onChanged.addListener((changes) => {
-      if (changes.settings) void loadSettings().then((s) => (settings = s))
+    // From the worker, not from storage (closed to content scripts: the token is there),
+    // and again whenever the tab comes to the front, so a changed never-read list applies.
+    let settings: PageSettings = await loadPageSettings()
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && browser.runtime?.id) void loadPageSettings().then((s) => (settings = s))
     })
     // After the extension is reloaded or updated, this copy is cut off from it
     // (`runtime.id` goes away) and a fresh one is injected: this one goes quiet.
