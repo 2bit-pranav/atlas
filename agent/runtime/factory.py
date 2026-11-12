@@ -95,6 +95,7 @@ def build_agent(
     on_taint: Callable[[], None] | None = None,
     sandbox: Any = None,
     uploads: Iterable[Path | str] = (),
+    writes: Iterable[str] = (),
 ) -> Any:
     """Build one Strands `Agent` for one turn.
 
@@ -113,6 +114,7 @@ def build_agent(
         untrusted: whether an MCP tool, by its agent-facing name, returns outside content.
         on_taint: called when a tool brings outside content in (`TaintTracker`).
         uploads: the files the user attached to this chat: changing or deleting one asks.
+        writes: skills whose writing tools the turn starts with (`skill_tools.for_message`).
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -143,7 +145,7 @@ def build_agent(
                                *maths_tools())
                    if t.tool_name in enabled]
     # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
-    skill_tools = SkillTools({name: t for name, t in document_tools(
+    skill_tools = SkillTools(preload=set(writes), tools={name: t for name, t in document_tools(
         workspace_dir, shown, resolve, store, chat_id).items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))

@@ -25,6 +25,7 @@ from agent.platform.winpaths import model_path
 from agent.prompt.notes import clock_note, retry_hint
 from agent.prompt.page import inline_limit, page_hash, page_note
 from agent.runtime.factory import build_agent
+from agent.runtime.skill_tools import for_message
 from agent.store.chats import CANCELLED, COMPLETED, FAILED, INTERRUPTED, ChatStore
 from agent.store.snapshots import SessionManager
 from agent.tools.page import page_file_name, page_tools
@@ -269,6 +270,8 @@ class Atlas:
                 on_taint=lambda: self.taint(run),
                 uploads=[f["path"] for row in self.store.path(run.chat_id)
                          for f in json.loads(row["files_json"] or "[]") if isinstance(f, dict) and f.get("path")],
+                writes=for_message(turn["user_text"], [str(f.get("name") or f.get("path") or "") for f in
+                                                      json.loads(turn["files_json"] or "[]") if isinstance(f, dict)]),
             )
             run.agent = agent
             if run.cancel.is_set():
