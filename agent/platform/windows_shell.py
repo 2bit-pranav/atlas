@@ -152,7 +152,8 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
         """
         full = f"cd {shlex.quote(cwd or os.getcwd())} && {build_shell_env_prefix(_posix_env(env))}{command}"
         process = await asyncio.create_subprocess_exec(
-            "sh", "-c", full, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            "sh", "-c", full, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env=inherited_env())
         yield await self._finish(process, timeout)
 
     async def _finish(self, process: asyncio.subprocess.Process, timeout: float | None) -> ExecutionResult:
@@ -297,6 +298,19 @@ class WindowsLocalEnvironment(NotASandboxLocalEnvironment):
 # -------------------------------------------------------------- environment --
 
 
+#: Names a command never inherits: Atlas's own (the llama-server key, the restart
+#: files) and anything that reads like a credential in the user's environment.
+_NOT_INHERITED = re.compile("(?i)^ATLAS_|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL")
+
+
+def inherited_env() -> dict[str, str]:
+    """The backend's environment as a command gets it: without secrets. Every
+    command inherited all of it, `ATLAS_LLAMA_KEY` included, so `env` printed the
+    key that guards the model server (2026-11-12). `$ATLAS_WORKSPACE`, `$ATLAS_SKILLS`
+    and `$ATLAS_FOLDERS` are set per command, after this."""
+    return {k: v for k, v in os.environ.items() if not _NOT_INHERITED.search(k)}
+
+
 def _venv_first(env: dict[str, str] | None) -> dict[str, str]:
     """The environment, with the venv's `Scripts` directory first on PATH.
 
@@ -311,7 +325,7 @@ def _venv_first(env: dict[str, str] | None) -> dict[str, str]:
     Derived from `sys.executable` so it cannot drift from the interpreter that
     is running. `VIRTUAL_ENV` is set too, so `python -m ...` agrees.
     """
-    merged = {**os.environ, **(env or {})}
+    merged = {**inherited_env(), **(env or {})}
     scripts = Path(sys.executable).resolve().parent
     if not (scripts / "python.exe").is_file():
         return merged
