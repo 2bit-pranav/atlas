@@ -63,6 +63,13 @@ Numbers from different harnesses are not comparable: compare within a block.
 | 2026-11-05-full-after-cleanup | 142/156 | after the cleanup; 11 of the 14 failures are thinking off. docs 53/56, files 51/56, harm 20/20, read 28/28 |
 | 2026-11-05-full-workspace-paths-ddg-search | 74/90 | once each: the workspace never shown by its path, other chats refused; the 6 search tasks on the ddg-search MCP server (5/12 on them) |
 
+## Evaluation of 2026-11-12 (before the refactor plan)
+
+| Run | Passed | |
+|---|---|---|
+| 2026-11-12-eval-current-docs-safety | 56/60 | the suite's docs, safety and recovery tags: docs 25/28, write 10/10, harm 12/12, safety 25/26 |
+| 2026-11-12-harder-documents | 6/19 | not the suite: five harder writing tasks, the policy probed offline, injection in an attached PDF, and a code-driven pipeline on the same inputs (48/48, 8/8). Scripts are in the folder |
+
 ## Web search (6 `search` tasks, thinking off and on, twice: 24 runs)
 
 | Run | Passed | |

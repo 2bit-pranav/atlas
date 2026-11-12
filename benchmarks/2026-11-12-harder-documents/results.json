@@ -1,0 +1,242 @@
+[
+ {
+  "task": "invoices12",
+  "thinking": false,
+  "status": "completed",
+  "ok": 0,
+  "of": 1,
+  "missed": [
+   "file"
+  ],
+  "seconds": 11.3,
+  "model_calls": 4,
+  "context": 6817,
+  "completion_tokens": 37,
+  "tools": [
+   "skills",
+   "read_pdf",
+   "read_pdf"
+  ],
+  "chat": "eed55f693fd7450ba89bb68b1968d93b"
+ },
+ {
+  "task": "invoices12",
+  "thinking": true,
+  "status": "completed",
+  "ok": 38,
+  "of": 38,
+  "missed": [],
+  "seconds": 112.3,
+  "model_calls": 17,
+  "context": 15748,
+  "completion_tokens": 156,
+  "tools": [
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "read_pdf",
+   "write!",
+   "skills",
+   "create_document",
+   "calculate"
+  ],
+  "chat": "30cd15e590844607910d54f46de9ffba"
+ },
+ {
+  "task": "review-summary",
+  "thinking": false,
+  "status": "completed",
+  "ok": 2,
+  "of": 9,
+  "missed": [
+   "Fish stocks: 1340",
+   "Bank erosion: 17",
+   "Volunteer hours: 2615",
+   "Budget: 48900",
+   "Flood events: 3",
+   "Invasive plants: 11",
+   "Next year: 9"
+  ],
+  "seconds": 5.0,
+  "model_calls": 4,
+  "context": 6655,
+  "completion_tokens": 28,
+  "tools": [
+   "skills",
+   "read_pdf",
+   "create_document"
+  ],
+  "chat": "b8606bc43ad045fb8405ca1eec7c9aa8"
+ },
+ {
+  "task": "review-summary",
+  "thinking": true,
+  "status": "completed",
+  "ok": 2,
+  "of": 9,
+  "missed": [
+   "Fish stocks: 1340",
+   "Bank erosion: 17",
+   "Volunteer hours: 2615",
+   "Budget: 48900",
+   "Flood events: 3",
+   "Invasive plants: 11",
+   "Next year: 9"
+  ],
+  "seconds": 25.0,
+  "model_calls": 5,
+  "context": 8425,
+  "completion_tokens": 112,
+  "tools": [
+   "read_pdf",
+   "write!",
+   "skills",
+   "create_document"
+  ],
+  "chat": "003266256c554b7f8ffd44ec21d9d72b"
+ },
+ {
+  "task": "sales-report",
+  "thinking": false,
+  "status": "completed",
+  "ok": 0,
+  "of": 1,
+  "missed": [
+   "file"
+  ],
+  "seconds": 113.5,
+  "model_calls": 11,
+  "context": 18190,
+  "completion_tokens": 443,
+  "tools": [
+   "skills",
+   "read_xlsx",
+   "read_xlsx",
+   "read_xlsx",
+   "read_xlsx",
+   "read_xlsx",
+   "read_xlsx",
+   "shell!",
+   "shell!",
+   "shell!"
+  ],
+  "chat": "c04d71615e6f455e8426f425e6f7e565"
+ },
+ {
+  "task": "sales-report",
+  "thinking": true,
+  "status": "completed",
+  "ok": 13,
+  "of": 13,
+  "missed": [],
+  "seconds": 31.5,
+  "model_calls": 8,
+  "context": 9077,
+  "completion_tokens": 88,
+  "tools": [
+   "skills",
+   "read_xlsx",
+   "read_xlsx!",
+   "read_xlsx",
+   "read_xlsx",
+   "read_xlsx",
+   "create_document"
+  ],
+  "chat": "c2d6fdca179748c79da71c05f45741bf"
+ },
+ {
+  "task": "handbook-reorder",
+  "thinking": false,
+  "status": "completed",
+  "ok": 19,
+  "of": 19,
+  "missed": [],
+  "seconds": 10.4,
+  "model_calls": 5,
+  "context": 7194,
+  "completion_tokens": 28,
+  "tools": [
+   "skills",
+   "read_docx",
+   "write!",
+   "create_document"
+  ],
+  "chat": "b848f727f0664b3e8c0f8ee4e307eb9e"
+ },
+ {
+  "task": "handbook-reorder",
+  "thinking": true,
+  "status": "completed",
+  "ok": 19,
+  "of": 19,
+  "missed": [],
+  "seconds": 45.4,
+  "model_calls": 5,
+  "context": 9676,
+  "completion_tokens": 99,
+  "tools": [
+   "read_docx",
+   "write!",
+   "skills",
+   "create_document"
+  ],
+  "chat": "b074bf5377d94c179512bb48f828a0c7"
+ },
+ {
+  "task": "orders-filter",
+  "thinking": false,
+  "status": "completed",
+  "ok": 4,
+  "of": 4,
+  "missed": [],
+  "seconds": 133.4,
+  "model_calls": 14,
+  "context": 19718,
+  "completion_tokens": 62,
+  "tools": [
+   "read_text",
+   "shell!",
+   "shell",
+   "shell!",
+   "shell",
+   "shell",
+   "shell",
+   "shell!",
+   "write!",
+   "write!",
+   "skills",
+   "create_document"
+  ],
+  "chat": "f93688d35cf64022ac036dc4bad37eb6"
+ },
+ {
+  "task": "orders-filter",
+  "thinking": true,
+  "status": "completed",
+  "ok": 1,
+  "of": 4,
+  "missed": [
+   "all 15 North orders",
+   "no other region's orders",
+   "total row"
+  ],
+  "seconds": 37.4,
+  "model_calls": 4,
+  "context": 10014,
+  "completion_tokens": 87,
+  "tools": [
+   "read_text",
+   "skills",
+   "create_document"
+  ],
+  "chat": "a4474e28cffb431698a651f5e82eb272"
+ }
+]
