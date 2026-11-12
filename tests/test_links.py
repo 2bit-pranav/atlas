@@ -21,7 +21,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"%PDF-1.4 a local document")
 
-    def log_message(self, *args) -> None:
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - the base class's name
         pass
 
 

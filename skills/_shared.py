@@ -177,7 +177,7 @@ def _public(link: str) -> None:
     except OSError:
         raise LinkError(f"could not find {host}") from None
     for address in found:
-        ip = ipaddress.ip_address(address.split("%")[0])
+        ip = ipaddress.ip_address(str(address).split("%")[0])
         if not ip.is_global:
             raise LinkError(f"{host} is on this computer or the local network; only public links are opened")
 
