@@ -52,6 +52,8 @@ other Atlas first). Start an Atlas, then point them at it:
 .venv\Scripts\python tests\live\suite.py --tags docs safety --repeats 3
 .venv\Scripts\python tests\live\suite.py --compare model.context_size=16384   # each task with and without
 .venv\Scripts\python tests\live\suite.py --list
+# Start Atlas for a suite run with the fixture server allowed (it opens only public links otherwise):
+#   set ATLAS_LOCAL_LINKS=127.0.0.1:18090 && atlas start
 ```
 
 **The suite** (`live/suite.py`, inputs from `live/fixtures.py`) is what

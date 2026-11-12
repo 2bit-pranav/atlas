@@ -662,6 +662,8 @@ def main() -> int:
     web_server = http.server.ThreadingHTTPServer(("127.0.0.1", WEB_PORT), handler)
     threading.Thread(target=web_server.serve_forever, daemon=True).start()
     web = f"http://127.0.0.1:{WEB_PORT}"
+    # Atlas opens only public links (skills/_shared.py); the fixtures are served from here.
+    print(f"note: tasks that read a PDF by link need Atlas started with ATLAS_LOCAL_LINKS=127.0.0.1:{WEB_PORT}")
 
     client = httpx.Client(base_url=f"{args.url}/api", timeout=1800)
     settings = client.get("/settings").json()

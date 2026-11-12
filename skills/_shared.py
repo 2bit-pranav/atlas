@@ -151,6 +151,37 @@ class LinkError(ValueError):
     """A document link that cannot be opened; the message is one line."""
 
 
+def _public(link: str) -> None:
+    """Refuse a link to this computer or the local network (LinkError).
+
+    A document link is fetched from here, by the backend, which can reach what a
+    website cannot: Atlas's own API on 127.0.0.1 (it trusts local requests), the
+    model server, a router. Every address the name resolves to must be public.
+    `ATLAS_LOCAL_LINKS` (host:port, comma-separated, set when Atlas is started)
+    lets the live test suite serve its fixtures from 127.0.0.1; nothing else sets it.
+    """
+    import ipaddress
+    import os
+    import socket
+    import urllib.parse
+
+    parsed = urllib.parse.urlparse(link)
+    host = parsed.hostname or ""
+    if parsed.scheme not in ("http", "https") or not host:
+        raise LinkError(f"cannot open a {parsed.scheme or 'plain'} link")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if f"{host}:{port}" in [h.strip() for h in os.environ.get("ATLAS_LOCAL_LINKS", "").split(",")]:
+        return
+    try:
+        found = {info[4][0] for info in socket.getaddrinfo(host, port)}
+    except OSError:
+        raise LinkError(f"could not find {host}") from None
+    for address in found:
+        ip = ipaddress.ip_address(address.split("%")[0])
+        if not ip.is_global:
+            raise LinkError(f"{host} is on this computer or the local network; only public links are opened")
+
+
 def open_link(link: str, magic: bytes, kind: str) -> tuple[str, Path | None, bytes | None]:
     """A document link, checked: (file name, local path or None, downloaded bytes or None).
 
@@ -178,9 +209,19 @@ def open_link(link: str, magic: bytes, kind: str) -> tuple[str, Path | None, byt
     if parsed.scheme not in ("http", "https"):
         raise LinkError(f"cannot open a {parsed.scheme or 'plain'} link")
 
+    _public(link)
+
+    class Checked(urllib.request.HTTPRedirectHandler):
+        """Each redirect is checked like the link itself: a public address can
+        answer "go to http://127.0.0.1:8000/..."."""
+
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            _public(newurl)
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
     request = urllib.request.Request(link, headers={"User-Agent": "Mozilla/5.0 (Atlas)", "Accept": "*/*"})
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.build_opener(Checked).open(request, timeout=60) as response:
             data = response.read(MAX_DOWNLOAD_BYTES + 1)
             final = response.geturl()
             disposition = response.headers.get("Content-Disposition", "")
