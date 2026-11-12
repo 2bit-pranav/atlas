@@ -97,6 +97,8 @@ export interface ChangedFile {
   name: string
   size: number
   change: "created" | "modified"
+  /** Why the document does not open (a .xlsx holding CSV text): not offered as done. */
+  broken?: string
 }
 
 export interface WorkspaceFile {

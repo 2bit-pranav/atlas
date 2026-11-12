@@ -23,6 +23,7 @@ from agent.model.server import effective as effective_caps
 from agent.platform.windows_shell import WindowsLocalEnvironment, default_environment
 from agent.platform.winpaths import shown_in
 from agent.prompt.system import _compose_instructions, _tool_sources
+from agent.recovery.done_check import DoneCheck
 from agent.recovery.model_retry import LocalModelRetry
 from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
@@ -96,6 +97,7 @@ def build_agent(
     sandbox: Any = None,
     uploads: Iterable[Path | str] = (),
     writes: Iterable[str] = (),
+    request: str = "",
 ) -> Any:
     """Build one Strands `Agent` for one turn.
 
@@ -115,6 +117,7 @@ def build_agent(
         on_taint: called when a tool brings outside content in (`TaintTracker`).
         uploads: the files the user attached to this chat: changing or deleting one asks.
         writes: skills whose writing tools the turn starts with (`skill_tools.for_message`).
+        request: the user's message, for the done check (what it asked to be made).
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -182,6 +185,8 @@ def build_agent(
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           mode=settings.access.mode, chat_grants=chat_grants),
                ToolFailureRecovery(settings.resilience, notify=observer),
+               # After it: a turn it already sent back is not sent back twice.
+               DoneCheck(workspace_dir, request, notify=observer, place=scope.place),
                skill_tools,
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )

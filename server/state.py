@@ -270,6 +270,7 @@ class Atlas:
                 on_taint=lambda: self.taint(run),
                 uploads=[f["path"] for row in self.store.path(run.chat_id)
                          for f in json.loads(row["files_json"] or "[]") if isinstance(f, dict) and f.get("path")],
+                request=turn["user_text"],
                 writes=for_message(turn["user_text"], [str(f.get("name") or f.get("path") or "") for f in
                                                       json.loads(turn["files_json"] or "[]") if isinstance(f, dict)]),
             )
@@ -314,7 +315,7 @@ class Atlas:
         stats = {**run.transcript.final_stats(), "run_id": run.id}
         try:
             stats["files"] = _changed(run.workspace_before,
-                                      _scan(self.chat_dir(run.chat_id)))
+                                      _scan(self.chat_dir(run.chat_id)), self.chat_dir(run.chat_id))
         except OSError:
             logger.warning("could not scan the workspace of chat %s", run.chat_id, exc_info=True)
         try:

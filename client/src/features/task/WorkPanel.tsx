@@ -179,7 +179,11 @@ export function WorkPanel({ chatId, turns }: { chatId: string; turns: PanelTurn[
                 <FileBadge name={f.name} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium" title={f.name}>{f.name}</span>
-                  <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Made in this task" : "Changed"} · {formatBytes(f.size)}</span>
+                  {f.broken ? (
+                    <span className="block text-xs text-destructive" title={f.broken}>Does not open: made wrong</span>
+                  ) : (
+                    <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Made in this task" : "Changed"} · {formatBytes(f.size)}</span>
+                  )}
                 </span>
                 <Tag tone="new">{f.change === "created" ? "new" : "changed"}</Tag>
                 <FileLink chatId={chatId} name={f.name} download title="Download"
