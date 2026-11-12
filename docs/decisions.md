@@ -540,6 +540,12 @@ recognises safe commands, and every construct it does not know is a hole.
 > `skills/<skill>/scripts/`. The probe shows no silent row for these; `ls ..` from a
 > workspace is refused now (it lists the other chats). Still open from this entry:
 > Work mode's `curl` upload, the per-program grant, and the items read in code.
+>
+> Update 2026-11-12 (plan items 0.1 and 0.10): an image in an answer is never
+> loaded; its address is shown as a link (`Markdown.tsx`). A page's title and
+> address go inside the marked page block, one capped line each, and `</page>` in
+> any page text is neutralised (`prompt/page.py`). The request schema is not
+> capped: a too-long title would fail the whole message, so it is cut in the note.
 
 **The web UI is a task view, calm by default** (2026-11-06). A mockup was
 reviewed first (two rounds: the first showed every stat and read as noise to
