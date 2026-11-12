@@ -294,3 +294,13 @@ def test_only_one_skill_script_alone_is_exempt_from_asking(home, command) -> Non
     policy, asked = _policy(home, answer="denied")
     assert _call(policy, "shell", {"command": command}), command
     assert asked.calls, command
+
+
+def test_allowing_a_command_allows_that_command_only(home) -> None:
+    """The grant was the program: allowing `python report.py` covered `python -c ...` (2026-11-12)."""
+    policy, asked = _policy(home)
+    assert _call(policy, "shell", {"command": "python report.py"}) is False
+    assert _call(policy, "shell", {"command": "python  report.py"}) is False      # the same command again: no new card
+    assert len(asked.calls) == 1
+    assert _call(policy, "shell", {"command": 'python -c "print(1)"'}) is False
+    assert len(asked.calls) == 2                                                     # another command asks again

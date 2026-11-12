@@ -94,7 +94,7 @@ class ToolPolicy(HookProvider):
         self.sensitive = sensitive or (lambda name: False)
         #: What the user allowed this turn: (folder or file, the action up to which
         #: it is allowed). A read grant is not a change grant; for running a
-        #: command, "run:<program>" instead of a folder.
+        #: command, "run:<the command>" instead of a folder.
         self._granted: list[tuple[Path | str, int]] = []
         #: The same, allowed for the whole chat ("Allow for this chat"): the chat's
         #: list, kept by the server across turns. Not used once outside content is in.
@@ -263,7 +263,7 @@ class ToolPolicy(HookProvider):
         detail: dict[str, Any] = {"tool": name, "command": "\n".join(dict.fromkeys(lines)),
                                   "action": first.action, "zone": where,
                                   # Never for the whole chat after outside content, for a delete,
-                                  # or for a command ("run:python" for a chat is any code at all).
+                                  # or for a command (a program allowed for a chat is any code at all).
                                   "chat": not tainted and all(e.action not in ("delete", "run") for e, _w in asks)}
         if first.path is not None:
             target = _absolute(first.path)
@@ -304,8 +304,9 @@ class ToolPolicy(HookProvider):
 
     def _grant(self, effect: Effect) -> tuple[Path | str, int]:
         if effect.path is None:
-            program = (effect.what.strip().split() or ["?"])[0]
-            return f"run:{program}", 0
+            # The command the user saw on the card, whole. It was the program alone, so
+            # allowing `python report.py` covered `python -c "<anything>"` (2026-11-12).
+            return f"run:{' '.join(effect.what.split())}", 0
         return _grant_scope(_absolute(effect.path)), ACTIONS.index(effect.action)
 
     def _refusal(self, effect: Effect, where: str) -> str:
