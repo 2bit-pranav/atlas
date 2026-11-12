@@ -150,7 +150,11 @@ def page_tools(call: Call, workspace: Path, shown: Callable[[Path], str],
         result = await call("show", {"ref": ref.strip()})
         if result.get("error") or not result.get("ok"):
             return _error(str(result.get("error") or "that element is not on the page now"))
-        return _ok(f'Shown to the user: {result.get("name") or ref}.')
+        # The element's name is the page's own words: marked, one capped line, and the
+        # chat counts as having read the page, as with every other page tool.
+        on_read()
+        name = " ".join(str(result.get("name") or ref).split())[:120]
+        return _ok(f"{UNTRUSTED}Shown to the user: {name}.")
 
     @tool(name="page_screenshot")
     async def page_screenshot() -> Any:

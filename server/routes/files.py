@@ -7,15 +7,19 @@ import json
 import mimetypes
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 
 from agent.config import paths
 from agent.ingest.store import PENDING, store_for
+from agent.safety.protected import Protected
 from server.schemas import (
     ImportFile,
 )
+from server.security import EXTENSION_SCHEMES
 from server.services.workspace import _scan, safe_name, unique_path
 from skills._shared import LinkError, save_link  # the one document-link resolver
 
@@ -57,6 +61,10 @@ def register(api: Any, state: Any) -> None:
         if not await asyncio.to_thread(_save):
             raise HTTPException(413, f"the file is larger than {MAX_UPLOAD_BYTES >> 20} MB")
         await asyncio.to_thread(store_for(paths.data_dir(state.settings)).submit, target, chat_id)
+        # From the side panel it is a screenshot of a page or a file the browser fetched:
+        # outside content, whichever route it took. A file the user picked in the web UI is theirs.
+        if request.headers.get("origin", "").startswith(EXTENSION_SCHEMES):
+            state.store.mark_tainted(chat_id)
         return {"name": name, "path": str(target), "size": target.stat().st_size,
                 "type": mimetypes.guess_type(name)[0] or "application/octet-stream"}
 
@@ -71,11 +79,22 @@ def register(api: Any, state: Any) -> None:
         not fetch it itself.
         """
         state.require_chat(chat_id)
+        local = urlparse(body.url).scheme == "file"
+        if local:
+            # Any PDF on this computer the user has open in a tab, but never Atlas's own
+            # data or another chat's files: the same floor every tool has.
+            source = Path(url2pathname(urlparse(body.url).netloc + urlparse(body.url).path))
+            floor = Protected(root=paths.ROOT, data=paths.data_dir(state.settings),
+                              mcp_config=paths.mcp_config(state.settings), workspace=state.chat_dir(chat_id))
+            if floor.refuses(source, write=False):
+                raise HTTPException(422, "that file is Atlas's own data and is not attached")
         try:
             target, _ = await asyncio.to_thread(save_link, body.url, ".pdf", b"%PDF", "PDF",
                                                 state.chat_dir(chat_id), copy_local=True)
         except LinkError as exc:
             raise HTTPException(422, str(exc)) from exc
+        if not local:
+            state.store.mark_tainted(chat_id)   # downloaded from the web: outside content
         await asyncio.to_thread(store_for(paths.data_dir(state.settings)).submit, target, chat_id)
         return {"name": target.name, "path": str(target), "size": target.stat().st_size,
                 "type": "application/pdf"}
