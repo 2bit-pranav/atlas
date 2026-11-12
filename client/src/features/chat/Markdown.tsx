@@ -92,6 +92,17 @@ const components: Components = {
       {children}
     </a>
   ),
+  // An image in an answer is never loaded. Loading it is a request to whatever address the
+  // model wrote, and a page it read can have it write one that carries the chat's text
+  // (2026-11-12). The address is shown as a link the user may choose to open.
+  img: ({ src, alt }) => (
+    <span className="text-muted-foreground">
+      [image{alt ? `: ${alt}` : ""}, not loaded
+      {typeof src === "string" && /^https?:\/\//.test(src) && (
+        <>{" · "}<a href={src} target="_blank" rel="noreferrer" className="underline underline-offset-2">{src}</a></>
+      )}]
+    </span>
+  ),
   table: ({ children }) => (
     <div className="my-3 overflow-x-auto rounded-lg border">
       <table className="w-full border-collapse text-sm">{children}</table>
