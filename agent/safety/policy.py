@@ -48,6 +48,7 @@ from agent.safety.grid import (
     _place_shell,
     effects,
     placed_or_elsewhere,
+    shell_reads,
     verdict,
 )
 from agent.safety.placement import locate
@@ -200,6 +201,10 @@ class ToolPolicy(HookProvider):
                 continue  # cannot be placed: the grid asks
             # Protected refuses Atlas's files and every chat's folder but this one.
             if reason := protected.refuses(_absolute(placed), write=True):
+                return reason
+        # What it reads, the same way: `cat ../../pairing-token` is Atlas's data too.
+        for placed in shell_reads(command, self.scope):
+            if placed is not None and (reason := protected.refuses(_absolute(placed), write=False)):
                 return reason
         return None
 

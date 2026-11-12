@@ -531,6 +531,16 @@ taint, and Fill collects fields hidden by opacity or position. The plan
 skills with a typed tool and turns `shell` off by default: the classifier
 recognises safe commands, and every construct it does not know is a hole.
 
+> Update 2026-11-12 (plan items 0.2 and 0.3): every path a shell command names is
+> now placed from where the command runs (`grid.shell_reads`): operands, `--x=path`
+> values and `< file`, with `~`, `$HOME` and `$ATLAS_SKILLS` expanded and a `cd`
+> followed (after one, a relative path is checked from both places). Atlas's data
+> and other chats are refused, outside the folders asks, and what cannot be placed
+> asks. The skill-script exemption needs one simple command whose script is inside
+> `skills/<skill>/scripts/`. The probe shows no silent row for these; `ls ..` from a
+> workspace is refused now (it lists the other chats). Still open from this entry:
+> Work mode's `curl` upload, the per-program grant, and the items read in code.
+
 **The web UI is a task view, calm by default** (2026-11-06). A mockup was
 reviewed first (two rounds: the first showed every stat and read as noise to
 a casual user). The web app shows a chat as a task: a home page asking what

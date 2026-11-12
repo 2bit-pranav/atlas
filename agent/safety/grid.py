@@ -41,7 +41,7 @@ from agent.safety.call_paths import (
     _trim,
 )
 from agent.safety.scope import Scope, _absolute
-from agent.safety.shell import classify
+from agent.safety.shell import _PYTHON, _operands, classify
 
 ZONES = ("workspace", "folders", "elsewhere", "system")
 ACTIONS = ("read", "create", "change", "delete", "run")
@@ -60,7 +60,12 @@ GRID: dict[str, dict[str, tuple[str, str, str, str, str]]] = {
 
 
 _HOME_FORMS = re.compile(r"^(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\$USERPROFILE|\$\{USERPROFILE\})(?=$|[/\\])")
-_SKILL_SCRIPT = re.compile(r"""^\s*(?:python3?|py)(?:\.exe)?\s+["']?\$\{?ATLAS_SKILLS\}?/""")
+_SKILLS_VAR = re.compile(r"\$\{?ATLAS_SKILLS\}?(?=$|[/\\])")
+_URL = re.compile(r"^[A-Za-z][\w+.-]*://")
+#: Programs whose first operand is a pattern or a script, not a file.
+_PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg", "sed", "awk", "gawk", "jq"}
+#: Programs whose arguments are words, not files.
+_NO_FILES = {"echo", "printf", "expr", "seq", "sleep", "true", "false", "basename", "dirname"}
 
 
 @dataclass(frozen=True)
@@ -123,11 +128,99 @@ def effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[Ef
     return out
 
 
+def _redirect(e: Any) -> bool:
+    return "<" in e.program or ">" in e.program
+
+
+def _skill_script(parsed: Any, scope: Scope) -> bool:
+    """Whether the command is one skill script and nothing else: a single simple
+    command (no `;`, `&&`, pipe or `$(...)`), python, its script inside
+    `skills/<skill>/scripts/`. It was a test of how the command starts, so
+    `python "$ATLAS_SKILLS/x.py"; python -c ...` and `$ATLAS_SKILLS/../..` ran
+    whatever followed without asking (2026-11-12)."""
+    commands = [e for e in parsed.effects if not _redirect(e)]
+    skills = scope.protected.skills if scope.protected else None
+    if not parsed.parsed or len(commands) != 1 or skills is None:
+        return False
+    e = commands[0]
+    if not _PYTHON.match(e.program) or not e.args or e.args[0].startswith("-"):
+        return False
+    placed = _place_named(e.args[0], scope, scope.workspace)
+    if not placed or placed[0] is None:
+        return False
+    script, root = _absolute(placed[0]), _absolute(skills)
+    if not _within(script, root):
+        return False
+    inner = script.relative_to(root).parts
+    return len(inner) == 3 and inner[1] == "scripts" and script.suffix == ".py"
+
+
+def _pathlike(word: str) -> bool:
+    """Whether an argument could name a file outside the folder the command runs in.
+    A bare name is in that folder, so it is not placed."""
+    return bool(word) and not _URL.match(word) and (
+        "/" in word or "\\" in word or word.startswith(("~", "$", "%", "..")))
+
+
+def _place_named(raw: str, scope: Scope, cwd: Path | None) -> list[Path | None]:
+    """Where a path a command names is. None: it cannot be placed (a variable, or
+    after a `cd` that cannot be followed), which asks. Empty: not a file to check."""
+    raw = expand_workspace(raw.strip("\"'"), scope.workspace)
+    skills = scope.protected.skills if scope.protected else None
+    if skills is not None:
+        raw = _SKILLS_VAR.sub(lambda _m: Path(skills).as_posix(), raw)
+    raw = _HOME_FORMS.sub(lambda _m: Path.home().as_posix(), raw)
+    if "$" in raw or "%" in raw or raw.startswith("~"):
+        return [None]
+    if re.match(r"^(?:/[A-Za-z]/|[A-Za-z]:[/\\])", raw):
+        return [Path(windows_path(raw))]
+    if raw.startswith("/"):
+        # Git Bash's own tree (`/tmp`, `/etc`). Also what a pattern looks like
+        # (`sed -n '/error/p'`): only a file that is there is one being read.
+        mapped = Path(windows_path(raw))
+        return [mapped] if mapped.exists() else []
+    if cwd is None:
+        return [None]
+    # After a `cd`, from where it led and from the workspace: a `cd` in a subshell
+    # does not move the commands after it, and the stricter place must win.
+    return list(dict.fromkeys([cwd / raw, scope.workspace / raw]))
+
+
+def shell_reads(command: str, scope: Scope) -> list[Path | None]:
+    """Every path a shell command names without writing or deleting it, placed from
+    where the command runs. Writes and deletes were placed, reads were not: `cat
+    ../../pairing-token` from `.data/chats/<id>` ran with no check, and an attached
+    PDF had the model print the extension's token that way (2026-11-12)."""
+    out: list[Path | None] = []
+    cwd: Path | None = scope.workspace
+    for e in classify(command).effects:
+        if e.kind == "install":
+            continue
+        if _redirect(e):
+            names = list(e.paths) if e.kind == "read" else []
+        elif e.program in _NO_FILES:
+            names = []
+        else:
+            names = [a.split("=", 1)[1] for a in e.args if a.startswith("-") and "=" in a]
+            operands = _operands(list(e.args))
+            names += operands[1:] if e.program in _PATTERN_FIRST else operands
+            names = [n for n in names if n not in e.paths]      # its write and delete targets: placed as those
+        placed = [p for n in names if _pathlike(n) or e.program == "cd" for p in _place_named(n, scope, cwd)]
+        out += placed
+        if e.program == "cd":
+            first = placed[0] if placed else None
+            cwd = first if len(_operands(list(e.args))) == 1 and first is not None else None
+    return out
+
+
 def _shell(command: str, scope: Scope) -> list[Effect]:
     parsed = classify(command)
     after_cd = any(e.program == "cd" for e in parsed.effects)
     out: list[Effect] = []
-    skill = bool(_SKILL_SCRIPT.match(command))
+    skill = _skill_script(parsed, scope)
+    # Paths a command names without writing them are read: placed, so Atlas's own
+    # files are refused (the floor) and outside the folders asks.
+    out += [Effect("read", p, command) for p in shell_reads(command, scope)]
     for e in parsed.effects:
         if e.kind in ("write", "delete"):
             for raw in e.paths:
@@ -176,4 +269,4 @@ def _system(path: Path) -> bool:
 
 
 __all__ = ["ACTIONS", "GRID", "MODES", "TOOL_ACTIONS", "ZONES", "Effect", "effects", "placed_or_elsewhere",
-           "verdict", "zone"]
+           "shell_reads", "verdict", "zone"]
