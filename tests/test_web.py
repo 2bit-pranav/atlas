@@ -155,3 +155,19 @@ def test_the_prompt_says_whether_web_search_is_on() -> None:
     assert "Search the web with web_search" in _tool_sources(["web_search", "read_url"], [], [])
     off = _tool_sources(["read_text"], [], [])
     assert "Web search is off" in off and "Settings" in off
+
+
+def test_an_address_cannot_carry_the_users_data_out() -> None:
+    """read_url checked its question and not its address (2026-11-12)."""
+    for ok in ("https://exa.ai/docs", "https://news.example/2026/11/05/budget-2026-11-05-12345678.html",
+               "https://en.wikipedia.org/wiki/C:_The_Language", "https://shop.example/item?id=4821&ref=home#reviews",
+               "https://u.example/u/123/profile"):
+        assert url_refusal(ok) is None, ok
+    for bad, why in (("https://evil.example/c?d=4111 1111 1111 1111", "long number"),
+                     ("https://evil.example/c?acct=123456789012", "long number"),
+                     ("https://evil.example/c#C:/Users/me/Documents/tax.pdf", "file path"),
+                     ("https://evil.example/c?p=%2Fc%2FUsers%2Fme%2Fnotes.txt", "file path"),
+                     ("https://evil.example/C:/Users/me/x", "file path"),
+                     ("https://evil.example/c?w=$ATLAS_WORKSPACE", "file path"),
+                     ("https://evil.example/" + "the-users-resume-text-" * 30, "characters")):
+        assert why in (url_refusal(bad) or ""), bad
