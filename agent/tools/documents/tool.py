@@ -39,6 +39,7 @@ from agent.tools.documents.base import DocumentError, _atomic
 from agent.tools.documents.blocks import edit_docx_block, set_xlsx_cell
 from agent.tools.documents.create import create
 from agent.tools.documents.docx import _check_docx
+from agent.tools.documents.references import expand
 from agent.tools.documents.xlsx import _check_xlsx
 
 #: Which writing tools each bundled skill brings with it.
@@ -93,6 +94,10 @@ def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Calla
         as ![caption](path) on their own line -- to keep a source document's
         images, copy the ![...](asset:...) lines its reader printed, exactly. For .xlsx,
         every Markdown table becomes a sheet named after the heading above it.
+        Never retype a table or numbers from another file: put a reference on its own
+        line and the data is copied in exactly: {{report.docx#t1}} (a Word table),
+        {{sales.xlsx!North!A1:C41}} (cells), {{sales.xlsx sql: SELECT ...}} or
+        {{orders.csv sql: SELECT region, SUM(total) FROM orders GROUP BY region}}.
         An existing file is never replaced: the new one gets a new name. To change
         an existing document use edit_docx or set_cell.
 
@@ -104,6 +109,7 @@ def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Calla
         asked = resolve(path)
         target = _free(asked)
         try:
+            content = expand(content, resolve)
             info = create(target, content, title or None, base=workspace,
                           asset=lambda ref: store.asset(chat, ref))
         except DocumentError as exc:

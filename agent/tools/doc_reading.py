@@ -344,8 +344,13 @@ def _grid(path: Path, sheet: str, spec: str) -> str:
     return out
 
 
-def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
-    """One SELECT over the workbook's sheets, each loaded as a table (first row = column names).
+class QueryError(ValueError):
+    """A query that cannot run; the message is for the model."""
+
+
+def xlsx_rows(path: Path, sql: str, sheet: str = "", limit: int = 200) -> tuple[list[str], list[tuple], int]:
+    """(header, rows, coerced): one SELECT over the workbook's sheets, each loaded as a
+    table (first row = column names). `coerced` counts text cells in number columns.
 
     A bare expression with a sheet (`SUM("revenue")`, sheet Mar) is completed to
     `SELECT ... FROM "Mar"`: the model wrote the expression and stopped there.
@@ -357,7 +362,7 @@ def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
         sql = f'SELECT {sql} FROM "' + sheet.replace('"', '""') + '"'
 
     if FORBIDDEN.search(sql) or ";" in sql.strip().rstrip(";"):
-        return _failed("only one SELECT query is allowed.")
+        raise QueryError("only one SELECT query is allowed.")
     con = duckdb.connect(":memory:")
     coerced = 0
     columns: dict[str, list[str]] = {}
@@ -387,24 +392,36 @@ def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
         _seal(con)
         cur = con.execute(sql)
         header = [d[0] for d in cur.description or []]
-        result = cur.fetchmany(200)
+        result = cur.fetchmany(limit)
     except duckdb.Error as exc:
         msg = str(exc).split("\n")[0]
         hint = (" Text values go in single quotes ('North'); double quotes name a column or sheet."
                 if "column" in msg.lower() and '"' in sql else "")
         tables = "; ".join(f'"{t}" columns: ' + ", ".join(f'"{c}"' for c in cs) for t, cs in columns.items())
-        return _failed(f"the query failed: {msg}.{hint} Tables (sheets) and their columns: {tables}. "
-                       'Columns are named by the header row, not by letter.')
+        raise QueryError(f"the query failed: {msg}.{hint} Tables (sheets) and their columns: {tables}. "
+                         'Columns are named by the header row, not by letter.') from None
     finally:
         book.close()
         con.close()
-    lines = [" | ".join(header)] + [" | ".join(cell_str(v) for v in r) for r in result]
-    shown, cut = _fit(lines)
+    return header, result, coerced
+
+
+def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
+    try:
+        header, result, coerced = xlsx_rows(path, sql, sheet)
+    except QueryError as exc:
+        return _failed(str(exc))
     # A total that silently skipped "n/a" cells is a confidently wrong number: say so.
     note = (f"\nNote: {coerced} cell{'s' * (coerced != 1)} in number columns held text (like \"n/a\") "
             "and counted as empty." if coerced else "")
+    return _rows_text(header, result) + note
+
+
+def _rows_text(header: list[str], result: list[tuple]) -> str:
+    lines = [" | ".join(header)] + [" | ".join(cell_str(v) for v in r) for r in result]
+    shown, cut = _fit(lines)
     return (f"{len(result)} row{'s' * (len(result) != 1)}" + (f", showing {len(shown) - 1}" if cut else "")
-            + ":\n" + "\n".join(shown) + note)
+            + ":\n" + "\n".join(shown))
 
 
 def _seal(con: Any) -> None:
@@ -415,16 +432,16 @@ def _seal(con: Any) -> None:
     con.execute("SET lock_configuration = true")
 
 
-def query_csv(path: Path, sql: str) -> Any:
-    """One SELECT over a CSV file, as a table named after the file (`orders` for
-    orders.csv; also `data`). The model pasted rows into `python -c` instead, and
-    the quoting broke (2026-11-12)."""
+def csv_rows(path: Path, sql: str, limit: int = 200) -> tuple[list[str], list[tuple]]:
+    """(header, rows): one SELECT over a CSV file, as a table named after the file
+    (`orders` for orders.csv; also `data`)."""
     import duckdb
 
     if FORBIDDEN.search(sql) or ";" in sql.strip().rstrip(";"):
-        return _failed("only one SELECT query is allowed.")
+        raise QueryError("only one SELECT query is allowed.")
     name = re.sub(r"\W+", "_", path.stem).strip("_") or "data"
     con = duckdb.connect(":memory:")
+    columns: list[str] = []
     try:
         con.execute("CREATE TABLE data AS SELECT * FROM read_csv_auto(?, header = true)", [str(path)])
         if name != "data":
@@ -432,19 +449,22 @@ def query_csv(path: Path, sql: str) -> Any:
         columns = [r[0] for r in con.execute("DESCRIBE data").fetchall()]
         _seal(con)
         cur = con.execute(sql)
-        header = [d[0] for d in cur.description or []]
-        result = cur.fetchmany(200)
+        return [d[0] for d in cur.description or []], cur.fetchmany(limit)
     except duckdb.Error as exc:
         msg = str(exc).split("\n")[0]
-        return _failed(f'the query failed: {msg}. The table is "{name}" (or data), columns: '
-                       + ", ".join(f'"{c}"' for c in locals().get("columns", []))
-                       + ". Text values go in single quotes.")
+        raise QueryError(f'the query failed: {msg}. The table is "{name}" (or data), columns: '
+                         + ", ".join(f'"{c}"' for c in columns) + ". Text values go in single quotes.") from None
     finally:
         con.close()
-    lines = [" | ".join(header)] + [" | ".join(cell_str(v) for v in r) for r in result]
-    shown, cut = _fit(lines)
-    return (f"{len(result)} row{'s' * (len(result) != 1)}" + (f", showing {len(shown) - 1}" if cut else "")
-            + ":\n" + "\n".join(shown))
+
+
+def query_csv(path: Path, sql: str) -> Any:
+    """A CSV queried for the model. It pasted rows into `python -c` instead, and the
+    quoting broke (2026-11-12)."""
+    try:
+        return _rows_text(*csv_rows(path, sql))
+    except QueryError as exc:
+        return _failed(str(exc))
 
 
 def _numeric(values: list[Any]) -> bool:

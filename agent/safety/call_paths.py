@@ -11,6 +11,7 @@ from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
 from agent.platform.winpaths import drive_path, windows_path
 from agent.safety.scope import Scope
+from agent.tools.documents.references import referenced
 
 #: What each of Atlas's file tools does to its `path`, for the floor and the grid. The
 #: harness `write` is not here: it creates or changes, by whether the file exists.
@@ -85,6 +86,7 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     if name in DESTINATION_TOOLS and isinstance(args.get("destination"), str) and args["destination"]:
         out.append((scope.place(args["destination"]), True))
     if name == "create_document":
+        out += [(scope.place(f), False) for f in referenced(str(args.get("content", "")))]
         # Images in the Markdown are files it reads and embeds: checked like any read,
         # or a document could carry any picture on the disk (or Atlas's own files).
         for src in _IMAGE.findall(str(args.get("content", ""))):
