@@ -384,6 +384,7 @@ def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
             data = [tuple(_value(r[i], numeric[i]) for i in range(len(cols))) for r in body]
             if data:
                 con.executemany(f"INSERT INTO {q} VALUES ({', '.join('?' * len(cols))})", data)
+        _seal(con)
         cur = con.execute(sql)
         header = [d[0] for d in cur.description or []]
         result = cur.fetchmany(200)
@@ -404,6 +405,46 @@ def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
             "and counted as empty." if coerced else "")
     return (f"{len(result)} row{'s' * (len(result) != 1)}" + (f", showing {len(shown) - 1}" if cut else "")
             + ":\n" + "\n".join(shown) + note)
+
+
+def _seal(con: Any) -> None:
+    """No more files once the tables are loaded: a SELECT can call DuckDB's own
+    readers (`read_text('C:/...')`, `read_csv`, `glob`) and read any file on the
+    disk, past every path check; it did (2026-11-12). Locked, so no query undoes it."""
+    con.execute("SET enable_external_access = false")
+    con.execute("SET lock_configuration = true")
+
+
+def query_csv(path: Path, sql: str) -> Any:
+    """One SELECT over a CSV file, as a table named after the file (`orders` for
+    orders.csv; also `data`). The model pasted rows into `python -c` instead, and
+    the quoting broke (2026-11-12)."""
+    import duckdb
+
+    if FORBIDDEN.search(sql) or ";" in sql.strip().rstrip(";"):
+        return _failed("only one SELECT query is allowed.")
+    name = re.sub(r"\W+", "_", path.stem).strip("_") or "data"
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute("CREATE TABLE data AS SELECT * FROM read_csv_auto(?, header = true)", [str(path)])
+        if name != "data":
+            con.execute(f'CREATE VIEW "{name}" AS SELECT * FROM data')
+        columns = [r[0] for r in con.execute("DESCRIBE data").fetchall()]
+        _seal(con)
+        cur = con.execute(sql)
+        header = [d[0] for d in cur.description or []]
+        result = cur.fetchmany(200)
+    except duckdb.Error as exc:
+        msg = str(exc).split("\n")[0]
+        return _failed(f'the query failed: {msg}. The table is "{name}" (or data), columns: '
+                       + ", ".join(f'"{c}"' for c in locals().get("columns", []))
+                       + ". Text values go in single quotes.")
+    finally:
+        con.close()
+    lines = [" | ".join(header)] + [" | ".join(cell_str(v) for v in r) for r in result]
+    shown, cut = _fit(lines)
+    return (f"{len(result)} row{'s' * (len(result) != 1)}" + (f", showing {len(shown) - 1}" if cut else "")
+            + ":\n" + "\n".join(shown))
 
 
 def _numeric(values: list[Any]) -> bool:
