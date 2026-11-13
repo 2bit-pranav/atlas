@@ -105,6 +105,15 @@ llama key is never on disk. The UI part of 1.7 is a line under Details naming th
 
 Exit: `suite.py --tags hard --repeats 2` at 15/20 or better (today 6/19).
 
+**Status, 2026-11-13:** 2.1 to 2.7 done, each with tests, none run on the model
+yet. Found on the way: the workbook SQL could read any file on the disk through
+DuckDB's own readers; it is sealed now (2.3). The done check (2.4) sends a turn
+back once, and only for what code can see: a document that does not open, a file
+the request asked to be made (a name after a word like "make" or "save as", not
+after "of" or "from") that does not exist, a last line that only announces a step,
+or a summary written without reading every page of a PDF of 40 pages or fewer. The five hard tasks' graders were checked offline against answers made
+with the new references (all pass) and against the evaluation's failures (all fail).
+
 ## Phase 3: the workflow lane and the typed-tool runtime
 
 | # | Change | Where |

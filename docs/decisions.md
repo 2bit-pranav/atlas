@@ -197,6 +197,28 @@ would show the model a second shell and file tool beside the Strands ones.
 
 ## What a 2B model can do (measured)
 
+**Documents from documents: code copies the data, checks the file, and says when it is done**
+(2026-11-13, plan phase 2, not yet run on the model). What the evaluation of
+2026-11-12 saw fail, each answered in code:
+- the reader's marks copied into a new document as text: `create_document` takes
+  them out and turns `r1:` rows back into a table (`markdown.without_reader_marks`;
+  tested on the model's own output from that run);
+- totals typed and wrong: references in `create_document` copy a Word table, a
+  range or a query result in (`{{report.docx#t1}}`, `{{sales.xlsx!North!A1:C41}}`,
+  `{{orders.csv sql: SELECT ...}}`), each file checked like a read;
+- rows pasted into `python -c`: `read_text(path, sql=...)` queries a CSV. Building
+  it found that `read_xlsx`'s SQL could read any file on the disk through DuckDB's
+  own `read_text`/`read_csv`; the connection is now closed to files and locked
+  once the data is loaded;
+- `write` on a .docx before `create_document` existed: a message or attachment
+  naming a document type starts the turn with its writing tools, and a refused
+  `write` brings them;
+- stopping early: a done check sends the turn back once if a changed document
+  does not open, the file asked for does not exist, the last line only announces a
+  step, or a summary was written from part of a PDF of 40 pages or fewer;
+- CSV text saved as .xlsx: such a file's download chip says it does not open.
+The five harder tasks are in the suite (`--tags hard`), graded by opening the file.
+
 **Creating documents from documents: 6 correct files in 19 runs, and a code-driven
 pipeline gets the same inputs right** (2026-11-12, measured,
 `benchmarks/2026-11-12-harder-documents`). The suite's writing tasks pass 10/10

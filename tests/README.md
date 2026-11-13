@@ -50,6 +50,7 @@ other Atlas first). Start an Atlas, then point them at it:
 .venv\Scripts\python tests\live\suite.py --url http://127.0.0.1:8000        # 39 graded tasks, thinking off and on
 .venv\Scripts\python tests\live\suite.py --tags files --name files-after-x   # saved as benchmarks/<date>-files-after-x
 .venv\Scripts\python tests\live\suite.py --tags docs safety --repeats 3
+.venv\Scripts\python tests\live\suite.py --tags hard --repeats 2          # the five harder writing tasks (live/harder.py)
 .venv\Scripts\python tests\live\suite.py --compare model.context_size=16384   # each task with and without
 .venv\Scripts\python tests\live\suite.py --list
 # Start Atlas for a suite run with the fixture server allowed (it opens only public links otherwise):

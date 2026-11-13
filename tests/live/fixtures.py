@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import harder
+
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / ".data" / "bench" / "fixtures"
 WEB = FIXTURES / "web"
@@ -147,6 +149,7 @@ def build() -> None:
         if not (WEB / name).exists():
             _simple_pdf(WEB / name, title, paras, f"Published by {site}")
     _supply_versions()
+    harder.build(FIXTURES)
     if not (FIXTURES / "notes.txt").exists():
         (FIXTURES / "notes.txt").write_text(NOTES, encoding="utf-8")
     if not (WEB / "brief.pdf").exists():
