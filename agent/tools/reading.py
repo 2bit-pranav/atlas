@@ -75,7 +75,8 @@ def copy_hint(name: str, example: str) -> str:
     table = Path(name).stem
     return (f"To put these rows or a total in a document, never retype them: put a reference on its own line "
             f"in create_document, and the rows are copied in exactly: "
-            f"{{{{{name} sql: {example.format(table=table)}}}}}.")
+            f"{{{{{name} sql: {example.format(table=table)}}}}}. A total the same way, on its own line: "
+            f"{{{{{name} sql: SELECT ROUND(SUM(<number column>), 2) AS total FROM {table if name.endswith('.csv') else '<sheet>'} ...}}}}.")
 
 
 def _search(name: str, lines: list[str], query: str) -> str:

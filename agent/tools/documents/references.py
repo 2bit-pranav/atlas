@@ -35,6 +35,12 @@ def referenced(content: str) -> list[str]:
 def expand(content: str, resolve: Callable[[str], Path]) -> str:
     """`content` with each reference replaced by its data as a Markdown table."""
     def one(m: re.Match[str]) -> str:
+        line_start = content.rfind("\n", 0, m.start()) + 1
+        line_end = content.find("\n", m.end())
+        if content[line_start:m.start()].strip() or content[m.end():None if line_end < 0 else line_end].strip():
+            # In a table cell it became a table inside the cell (2026-11-14).
+            raise DocumentError(f"{m.group(0)} must be on a line of its own: it becomes a whole table there. "
+                                "One reference can give every row and column you need (GROUP BY ...).")
         name = m.group("file").strip()
         path = resolve(name)
         if not path.is_file():
@@ -49,7 +55,13 @@ def expand(content: str, resolve: Callable[[str], Path]) -> str:
             raise
         except Exception as exc:  # noqa: BLE001 - the model needs to know which reference failed
             raise DocumentError(f"{m.group(0)} could not be read: {type(exc).__name__}: {exc}") from exc
-    return REFERENCE.sub(one, content)
+    out = REFERENCE.sub(one, content)
+    if left := re.search(r"\{\{[^\n]{0,80}", out):
+        # Not closed, or not a form this reads: it would have gone into the document as text.
+        raise DocumentError(f"{left.group(0)} is not a reference that can be read. Write it whole on a line of "
+                            'its own, two braces each side: {{file.xlsx sql: SELECT ... FROM "Sheet" ...}}, '
+                            "{{file.csv sql: SELECT ... FROM file ...}}, {{file.docx#t1}} or {{file.xlsx!Sheet!A1:C9}}.")
+    return out
 
 
 def _markdown(rows: list[list[str]]) -> str:

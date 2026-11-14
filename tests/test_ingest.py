@@ -208,7 +208,7 @@ def test_read_docx_sections_and_ids(store, ws) -> None:
     _, read_docx, _ = _tools(store, ws)
     whole = read_docx(path="r.docx")
     assert "[t1: table, 2 rows x 2 cols. A cell is t1.rROW.cCOL" in whole and "r2: Brightline | 23 days" in whole
-    assert "## 2.1 Prices" in whole
+    assert "## Prices [b" in whole and ", section 2.1]" in whole   # the number in the mark, not the title
     part = read_docx(path="r.docx", section="2")
     assert "Prices" in part and "We reviewed" not in part
     assert "Sections: 1, 2, 2.1" in text_of(read_docx(path="r.docx", section="9"))
@@ -258,8 +258,9 @@ def test_sql_expression_alone_is_completed_and_errors_name_the_columns(store, ws
     _xlsx(ws / "sales.xlsx")
     _, _, read_xlsx = _tools(store, ws)
     assert "7950.75" in read_xlsx(path="sales.xlsx", sheet="Mar", sql='SUM("revenue")')
-    bad = text_of(read_xlsx(path="sales.xlsx", sheet="Mar", sql="SUM(B)"))
-    assert '"Mar" columns: "region", "revenue"' in bad and "not by letter" in bad
+    assert "7950.75" in read_xlsx(path="sales.xlsx", sheet="Mar", sql="SUM(B)")      # a letter: its header name
+    bad = text_of(read_xlsx(path="sales.xlsx", sheet="Mar", sql="SUM(revenu)"))
+    assert "\"Mar\" columns: \"region\", \"revenue\"" in bad and "not by letter" in bad
 
 
 def test_find_text_names_the_documents_holding_the_words(store, ws) -> None:

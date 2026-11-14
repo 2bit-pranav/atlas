@@ -65,7 +65,7 @@ def _inline(token: Any) -> list[Run]:
     return runs
 
 
-_BLOCK_ID = re.compile(r"^\[b\d+\]\s*|\s*\[b\d+\]\s*$", re.M)
+_BLOCK_ID = re.compile(r"^\[b\d+\]\s*|\s*\[b\d+(?:, section [\d.]+)?\]\s*$", re.M)
 _TABLE_HEAD = re.compile(r"^\[t\d+:[^\n]*$")
 _TABLE_ROW = re.compile(r"^r\d+:\s?(.*)$")
 #: read_docx's heading: `# 2.1 Title [b5]`. The outline number is the reader's, not the title's:

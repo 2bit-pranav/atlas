@@ -286,8 +286,10 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
 
 def _docx_block(b: dict[str, Any]) -> str:
     if b["kind"] == "heading":
-        number = f"{b['section']} " if b["section"] else ""
-        return f"{'#' * min(6, b.get('level') or 1)} {number}{b['text']} [{b['id']}]"
+        # The section number goes in the mark, not before the title: copied into a new document,
+        # "# 3 Expenses" kept its old number after the sections were reordered (2026-11-14).
+        number = f", section {b['section']}" if b["section"] else ""
+        return f"{'#' * min(6, b.get('level') or 1)} {b['text']} [{b['id']}{number}]"
     if b["kind"] == "table":
         # Rows numbered as edit_docx counts them, so a cell's id is read off, not worked out:
         # shown as a pipe row, the model passed the whole row to the edit tool (2026-11-03).
@@ -391,7 +393,13 @@ def xlsx_rows(path: Path, sql: str, sheet: str = "", limit: int = 200) -> tuple[
             if data:
                 con.executemany(f"INSERT INTO {q} VALUES ({', '.join('?' * len(cols))})", data)
         _seal(con)
-        cur = con.execute(sql)
+        try:
+            cur = con.execute(sql)
+        except duckdb.BinderException:
+            lettered = by_letter(sql, columns)
+            if lettered == sql:
+                raise
+            cur = con.execute(lettered)   # columns named by letter, as read_xlsx's grid shows them
         header = [d[0] for d in cur.description or []]
         result = cur.fetchmany(limit)
     except duckdb.Error as exc:
@@ -405,6 +413,27 @@ def xlsx_rows(path: Path, sql: str, sheet: str = "", limit: int = 200) -> tuple[
         book.close()
         con.close()
     return header, result, coerced
+
+
+_QUOTED_SQL = re.compile(r"""('(?:[^']|'')*'|"(?:[^"]|"")*")""")
+_FROM = re.compile(r"""\bFROM\s+(?:"((?:[^"]|"")+)"|(\w+))""", re.I)
+
+
+def by_letter(sql: str, columns: dict[str, list[str]]) -> str:
+    """`SELECT A, SUM(C) FROM "Jan" GROUP BY A` with the letters as the sheet's column names.
+
+    read_xlsx shows a sheet as a grid with letters, and the model then wrote its SQL
+    with them, twice, gave up and typed the totals instead (2026-11-14). Only bare
+    capital letters outside quotes, only for columns the sheet in FROM has."""
+    m = _FROM.search(sql)
+    name = (m.group(1) or m.group(2)).replace('""', '"') if m else next(iter(columns), "")
+    cols = columns.get(name) or next((c for t, c in columns.items() if t.lower() == name.lower()), [])
+    letters = {chr(65 + i): c for i, c in enumerate(cols[:26])}
+    parts = _QUOTED_SQL.split(sql)
+    for i in range(0, len(parts), 2):   # even parts are outside quotes
+        parts[i] = re.sub(r"\b([A-Z])\b", lambda x: '"' + letters[x[1]].replace('"', '""') + '"'
+                          if x[1] in letters else x[1], parts[i])
+    return "".join(parts)
 
 
 def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:

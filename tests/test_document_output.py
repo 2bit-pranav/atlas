@@ -140,3 +140,38 @@ def test_a_reference_is_checked_like_a_read(tmp_path) -> None:
 
     assert "Atlas's own data" in str(call("{{../../pairing-token.csv sql: SELECT 1}}"))
     assert call(f"{{{{{outside.as_posix()}/bank.csv sql: SELECT 1}}}}") and asked.calls   # outside the folders asks
+
+
+def test_sheet_columns_named_by_letter_are_read_as_their_header_names(tmp_path) -> None:
+    """read_xlsx shows a grid with letters; the model wrote `SELECT A, SUM(C)`, failed twice and typed
+    totals instead (2026-11-14). A query that fails on letters is run again with the header names."""
+    from openpyxl import Workbook
+
+    from agent.tools.doc_reading import by_letter, xlsx_rows
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Jan"
+    for row in (["region", "rep", "revenue"], ["North", "r1", 10.5], ["North", "r2", 4.5], ["South", "r3", 7]):
+        ws.append(row)
+    wb.save(tmp_path / "s.xlsx")
+    _, rows, _ = xlsx_rows(tmp_path / "s.xlsx", 'SELECT A, SUM(C) FROM "Jan" GROUP BY A ORDER BY A')
+    assert rows == [("North", 15.0), ("South", 7.0)]
+    assert by_letter("SELECT A FROM Jan WHERE A = 'B'", {"Jan": ["region", "rep"]}) == \
+        "SELECT \"region\" FROM Jan WHERE \"region\" = 'B'"            # a quoted 'B' is a value, kept
+
+
+def test_a_reference_that_cannot_be_read_is_an_error_not_text(tmp_path) -> None:
+    """In table cells and with one closing brace, references went into the document as text (2026-11-14)."""
+    import pytest
+
+    from agent.tools.documents.base import DocumentError
+    from agent.tools.documents.references import expand
+
+    (tmp_path / "o.csv").write_text("id,amount\n1,2.5\n2,4\n")
+    place = lambda n: tmp_path / n  # noqa: E731
+    with pytest.raises(DocumentError, match="not a reference"):
+        expand("| North | {{o.csv sql: SUM(amount)} |", place)
+    with pytest.raises(DocumentError, match="line of its own"):
+        expand("| North | {{o.csv sql: SELECT SUM(amount) FROM o}} |", place)
+    assert "6.5" in expand("Total:\n{{o.csv sql: SELECT SUM(amount) AS total FROM o}}\n", place)
