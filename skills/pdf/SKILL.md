@@ -32,6 +32,13 @@ Make an editable Word document (`--pages 1-3` for part of it):
 python "$ATLAS_SKILLS/pdf/scripts/pdf_to_docx.py" "<file>"
 ```
 
+## Summarise or compare
+
+- A summary of a long document, as a file: **`write_summary`**(file, path). It
+  reads every page, section by section, and checks each figure.
+- What changed between two versions: **`compare_documents`**(old, new, path).
+  Code finds every change; give `path` to write them to a document too.
+
 ## Create a PDF
 
 Do not use `shell` or `write` for this. Call the **`create_document`** tool

@@ -96,6 +96,11 @@ class Run:
                     body["call"] = self.transcript.stats["model_calls"]
                 self.trace.write(kind, **body)
             return
+        if kind == "call_timings":
+            # A workflow call (agent/runtime/model_call.py): its own numbers only. Its small
+            # prompt is not the chat's context, so the context meter is left as it is.
+            self.transcript.call_timings(event)
+            return
         if kind == "timings":
             self.transcript.call_timings(event)
             stats = {"type": "stats", **stats_from_timings(event)}

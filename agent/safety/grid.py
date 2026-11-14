@@ -39,6 +39,7 @@ from agent.safety.call_paths import (
     _shell_paths,
     _strings,
     _trim,
+    pipeline_inputs,
 )
 from agent.safety.scope import Scope, _absolute
 from agent.safety.shell import _PYTHON, _operands, classify
@@ -131,6 +132,7 @@ def _effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[E
     elif name == "write" and isinstance(raw, str) and raw:
         target = scope.place(raw)
         out.append(Effect("change" if target.exists() else "create", target))
+    out += [Effect("read", scope.place(f)) for f in pipeline_inputs(name, args)]
     if name == "create_document":
         # A file a reference copies from is read (documents/references.py).
         out += [Effect("read", scope.place(f)) for f in referenced(str(args.get("content", "")))]

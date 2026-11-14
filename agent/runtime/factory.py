@@ -27,6 +27,7 @@ from agent.recovery.done_check import DoneCheck
 from agent.recovery.model_retry import LocalModelRetry
 from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
+from agent.runtime.model_call import ModelCall
 from agent.runtime.restore import _restore
 from agent.runtime.skill_tools import SkillTools
 from agent.safety.approvals import Approver
@@ -41,6 +42,7 @@ from agent.tools.files import file_tools
 from agent.tools.finding import finding_tools
 from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
+from agent.tools.pipelines import pipeline_tools
 from agent.tools.reading import read_tools
 from agent.tools.web import read_key, web_tools
 
@@ -148,8 +150,14 @@ def build_agent(
                                *maths_tools())
                    if t.tool_name in enabled]
     # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
-    skill_tools = SkillTools(preload=set(writes), tools={name: t for name, t in document_tools(
-        workspace_dir, shown, resolve, store, chat_id).items() if name in enabled})
+    # The pipelines ask the model through ModelCall: the run's limits, Stop and trace hold.
+    limits = RunLimits(settings.limits, notify=observer)
+    built: dict[str, Any] = {}
+    ask = ModelCall(settings, observer=observer, limits=limits,
+                    cancelled=lambda: "agent" in built and built["agent"].cancel_signal.is_set())
+    skill_tools = SkillTools(preload=set(writes), tools={name: t for name, t in {
+        **document_tools(workspace_dir, shown, resolve, store, chat_id),
+        **pipeline_tools(store, chat_id, workspace_dir, resolve, shown, ask)}.items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
@@ -180,7 +188,7 @@ def build_agent(
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
         # Before a tool runs: the run's limits, then one ordered policy
         # (policy.py), so a refused repeat never shows a card. After: recovery.
-        hooks=[RunLimits(settings.limits, notify=observer),
+        hooks=[limits,
                ToolPolicy(scope, approver=approver, observer=observer,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           mode=settings.access.mode, chat_grants=chat_grants),
@@ -191,6 +199,7 @@ def build_agent(
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )
 
+    built["agent"] = agent
     if isinstance(agent.sandbox, WindowsLocalEnvironment):
         agent.sandbox.cancel_signal = agent.cancel_signal  # Stop ends a running command too
     if restore_snapshot_id:

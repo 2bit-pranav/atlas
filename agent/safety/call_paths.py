@@ -20,7 +20,19 @@ TOOL_ACTIONS = {
                                  "find_files", "list_folder", "copy_file")},
     "create_document": "create", "edit_docx": "change", "set_cell": "change", "edit": "change",
     "move_file": "change", "delete_file": "delete",
+    # The pipelines (tools/pipelines.py) create `path`; their inputs are in PIPELINE_INPUTS.
+    "extract_table": "create", "write_summary": "create", "compare_documents": "create",
 }
+#: The pipelines' input arguments: every file they name is read.
+PIPELINE_INPUTS = {"extract_table": ("files",), "write_summary": ("file",), "compare_documents": ("old", "new")}
+
+
+def pipeline_inputs(name: str, args: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    for key in PIPELINE_INPUTS.get(name, ()):
+        value = args.get(key)
+        out += [str(v) for v in (value if isinstance(value, list) else [value]) if isinstance(v, str) and v]
+    return out
 #: Tools that also create their `destination` (copy_file reads its `path`, move_file changes it).
 DESTINATION_TOOLS = {"copy_file", "move_file"}
 
@@ -85,6 +97,7 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
         out.append((scope.place(args["path"]), TOOL_ACTIONS.get(name) != "read"))
     if name in DESTINATION_TOOLS and isinstance(args.get("destination"), str) and args["destination"]:
         out.append((scope.place(args["destination"]), True))
+    out += [(scope.place(f), False) for f in pipeline_inputs(name, args)]
     if name == "create_document":
         out += [(scope.place(f), False) for f in referenced(str(args.get("content", "")))]
         # Images in the Markdown are files it reads and embeds: checked like any read,

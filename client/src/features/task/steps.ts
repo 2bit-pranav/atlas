@@ -74,6 +74,12 @@ function label(name: string, calls: ToolPart[]): string {
     case "write":
       return failed ? `Could not save ${base(arg(first, "path"))}`
         : n === 1 ? `Saved ${base(arg(first, "path"))}` : `Saved ${n} files`
+    case "extract_table":
+      return failed ? `Could not make ${base(arg(first, "path"))}` : `Made ${base(arg(first, "path"))}`
+    case "write_summary":
+      return failed ? `Could not summarise ${base(arg(first, "file"))}` : `Summarised ${base(arg(first, "file"))}`
+    case "compare_documents":
+      return failed ? "Could not compare the documents" : `Compared ${base(arg(first, "old"))} and ${base(arg(first, "new"))}`
     case "edit_docx":
     case "set_cell":
     case "edit":

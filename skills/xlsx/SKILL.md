@@ -32,6 +32,19 @@ Export every sheet as CSV, one file each (add `--sheet Mar` for just one):
 python "$ATLAS_SKILLS/xlsx/scripts/xlsx_to_csv.py" "<file>"
 ```
 
+## A table from many files
+
+Invoices, receipts, CVs: the same facts in many files, one row each. Do not read
+them one by one. Call **`extract_table`** once; it reads every file, checks each
+value against its file and adds the total itself:
+
+```
+extract_table(files=["inv-1.pdf", "inv-2.pdf"], columns=["vendor", "date", "amount due"],
+              path="invoices.xlsx", total="amount due")
+```
+
+`files` can also be a folder. Give the user the total it reports, exactly.
+
 ## Create or change a spreadsheet
 
 Do not use `shell` or `write` for this. Call the **`create_document`** tool

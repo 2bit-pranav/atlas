@@ -25,12 +25,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from agent.config import paths
 from agent.config.settings import Settings
 from agent.extension.basket import Basket, candidates, card, shown
-from agent.model import server as llama
+from agent.runtime.model_call import ModelCall
 
 #: Cards per upload field: the model's picks, then the search's best other matches.
 OFFERED_PER_FIELD = 3
@@ -108,23 +106,8 @@ def suggest(settings: Settings, fields: list[dict[str, Any]], title: str = "",
     prompt = (f"My details:\n{profile[:6000] or '(none given)'}\n\nThe form{f' on “{title}”' if title else ''} has these fields:\n"
               + "\n".join(_describe(f) for f in asked)
               + "\n\nGive the value for each field id.")
-    body = {
-        "model": settings.model.name,
-        "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "max_tokens": 1500,
-        "chat_template_kwargs": {"enable_thinking": False},
-        "response_format": {"type": "json_schema", "json_schema": {"name": "form", "schema": _schema(asked)}},
-    }
-    try:
-        response = httpx.post(f"http://127.0.0.1:{settings.ports.llama}/v1/chat/completions", json=body,
-                              headers=llama.auth_headers(), timeout=180)
-        response.raise_for_status()
-        import json
-
-        answer = json.loads(response.json()["choices"][0]["message"]["content"] or "{}")
-    except (httpx.HTTPError, KeyError, ValueError) as exc:
-        raise ValueError(f"the model could not answer: {exc}") from exc
+    answer = ModelCall(settings).ask(prompt, _schema(asked), system=SYSTEM, name="form", max_tokens=1500,
+                                     temperature=0.1)
 
     values = checked(asked, answer)
     # Files become basket cards; an upload field is never given a typed value. The model's picks

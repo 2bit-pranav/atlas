@@ -18,14 +18,11 @@ content): the chat is marked as having read it (`server/routes/extension.py`).
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
-import httpx
-
 from agent.config.settings import Settings
-from agent.model import server as llama
+from agent.runtime.model_call import ModelCall
 
 STAMP = r"(\d{1,2}(?::\d{2}){1,2})"
 _CHAPTER = re.compile(rf"^\s*{STAMP}\s*[-–—:|]?\s*(.+?)\s*$")
@@ -96,21 +93,7 @@ def pick(settings: Settings, title: str, rows: list[tuple[str, str]]) -> list[tu
         "required": ["moments"],
     }
     prompt = f"The video: {title or 'untitled'}\n\nTranscript:\n" + "\n".join(f"[{t}] {x}" for t, x in rows)
-    body = {
-        "model": settings.model.name,
-        "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-        "temperature": 0.2,
-        "max_tokens": 800,
-        "chat_template_kwargs": {"enable_thinking": False},
-        "response_format": {"type": "json_schema", "json_schema": {"name": "moments", "schema": schema}},
-    }
-    try:
-        response = httpx.post(f"http://127.0.0.1:{settings.ports.llama}/v1/chat/completions", json=body,
-                              headers=llama.auth_headers(), timeout=180)
-        response.raise_for_status()
-        answer = json.loads(response.json()["choices"][0]["message"]["content"] or "{}")
-    except (httpx.HTTPError, KeyError, ValueError) as exc:
-        raise ValueError(f"the model could not answer: {exc}") from exc
+    answer = ModelCall(settings).ask(prompt, schema, system=SYSTEM, name="moments", max_tokens=800)
     return checked(answer, stamps)
 
 

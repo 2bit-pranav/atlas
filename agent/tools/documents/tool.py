@@ -44,9 +44,9 @@ from agent.tools.documents.xlsx import _check_xlsx
 
 #: Which writing tools each bundled skill brings with it.
 SKILL_TOOLS: dict[str, tuple[str, ...]] = {
-    "pdf": ("create_document",),
-    "docx": ("create_document", "edit_docx"),
-    "xlsx": ("create_document", "set_cell"),
+    "pdf": ("create_document", "write_summary", "compare_documents"),
+    "docx": ("create_document", "edit_docx", "write_summary", "compare_documents"),
+    "xlsx": ("create_document", "set_cell", "extract_table"),
 }
 
 

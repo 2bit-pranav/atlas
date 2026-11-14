@@ -51,6 +51,14 @@ class RunLimits(HookProvider):
         if reason:
             event.cancel = self._stop(reason)
 
+    def charge(self) -> str | None:
+        """A model call asked by code (agent/runtime/model_call.py): counted like the agent's. Why it may not start, or None."""
+        self._start()
+        self._model_calls += 1
+        reason = self._past_time() or (
+            f"{self.settings.max_model_calls} model calls" if self._model_calls > self.settings.max_model_calls else None)
+        return self._stop(reason) if reason else None
+
     def before_tool_call(self, event: Any) -> None:
         self._start()
         if reason := self._past_time():

@@ -107,6 +107,9 @@ class AtlasToolSettings(StrictModel):
     create_document: bool = True  # agent/tools/documents/
     edit_docx: bool = True  # with the docx skill
     set_cell: bool = True  # with the xlsx skill
+    extract_table: bool = True  # agent/tools/pipelines.py, with the xlsx skill
+    write_summary: bool = True  # with the docx and pdf skills
+    compare_documents: bool = True  # with the docx and pdf skills
     calculate: bool = True  # agent/tools/maths/
     dates: bool = True
 
@@ -335,6 +338,9 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.create_document": Tier.LIVE,
     "tools.atlas.edit_docx": Tier.LIVE,
     "tools.atlas.set_cell": Tier.LIVE,
+    "tools.atlas.extract_table": Tier.LIVE,
+    "tools.atlas.write_summary": Tier.LIVE,
+    "tools.atlas.compare_documents": Tier.LIVE,
     "tools.atlas.calculate": Tier.LIVE,
     "tools.atlas.dates": Tier.LIVE,
     "tools.interventions": Tier.LIVE,
