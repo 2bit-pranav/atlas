@@ -242,22 +242,30 @@ class SessionSettings(StrictModel):
 
 
 class ContextSettings(StrictModel):
-    """Context trimming, through a Strands conversation manager.
+    """Context trimming (agent/runtime/context.py).
 
     The harness's own `context_manager` is disabled because its `agentic` mode
     adds a `retrieve_context` tool and offloads tool results to a stash, the
-    same family of cross-branch leak as memory. With the default "null"
-    manager history is kept intact, and a long chat will eventually hit the
-    window. `prune_target_ratio` and `generation_reserve` are not read yet.
+    same family of cross-branch leak as memory. "trim" shortens earlier turns'
+    tool results to a stub past `prune_trigger_ratio` of the window, down to
+    `prune_target_ratio`; "null" keeps everything, and a long chat will hit the window.
     """
 
-    conversation_manager: str = Field(
-        default="null", pattern="^(null|sliding|summarizing)$"
-    )
+    conversation_manager: str = Field(default="trim", pattern="^(null|trim)$")
     window: int = Field(default=32768, gt=0)
     prune_trigger_ratio: float = Field(default=0.75, gt=0.0, lt=1.0)
     prune_target_ratio: float = Field(default=0.50, gt=0.0, lt=1.0)
-    generation_reserve: int = Field(default=8000, gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _older_files(cls, data: Any) -> Any:
+        """Settings files from before plan 3.9: Strands' sliding and summarizing managers
+        (summarizing asked the model to rewrite history) are "trim"; generation_reserve was never read."""
+        if isinstance(data, dict):
+            data = {k: v for k, v in data.items() if k != "generation_reserve"}
+            if data.get("conversation_manager") in ("sliding", "summarizing"):
+                data["conversation_manager"] = "trim"
+        return data
 
     @model_validator(mode="after")
     def _ordered(self) -> ContextSettings:
@@ -378,7 +386,6 @@ TIERS: dict[str, Tier] = {
     "context.window": Tier.RESTART,
     "context.prune_trigger_ratio": Tier.LIVE,
     "context.prune_target_ratio": Tier.LIVE,
-    "context.generation_reserve": Tier.LIVE,
     "paths.data_dir": Tier.RESTART,
     "system_prompt": Tier.LIVE,
 }

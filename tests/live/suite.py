@@ -89,6 +89,7 @@ class Task:
     uploads: tuple[str, ...] = ()
     allow: bool = True              # how approval cards are answered
     home: bool = False              # works in fx.HOME, rebuilt fresh before it runs
+    before: tuple[str, ...] = ()    # earlier messages in the same chat, each run to the end first
 
 
 def result(facts: dict[str, bool], errors: list[str] | None = None, **notes: Any) -> Grade:
@@ -546,6 +547,23 @@ TASKS += [Task(name, tags, prompt, (lambda g: lambda run: result(g(run)))(grade)
           for name, tags, prompt, grade, uploads in harder.TASKS]
 
 
+def g_long_chat(run: Run) -> Grade:
+    """Plan 3.9: two full reads of a 16-page PDF pass the trim point (75% of 32k), so the earlier
+    results are stubs by the last message. Its answer needs a figure from the first answer, and a
+    fact the stubbed result held (read again, or remembered from an answer)."""
+    return result({"the last message completed": run.turn.get("status") == "completed",
+                   "the budget from the first answer (48,900)": _has(run, "48900"),
+                   "nitrate from the review (4.2)": _has(run, "4.2")})
+
+
+# A long chat: earlier turns' tool results are shortened near the window (agent/runtime/context.py).
+TASKS += [Task("long-chat", ("context", "long"), "What budget figure did you give me at the start, and what was "
+               "the nitrate level in the review?", g_long_chat, uploads=("review.pdf", "sales_q1.xlsx"),
+               before=("Read all 16 pages of review.pdf and tell me the Budget section's spending figure.",
+                       "Now read all 16 pages of review.pdf again and list every section heading with its page.",
+                       "In sales_q1.xlsx, what is the total revenue of the North region in Jan?"))]
+
+
 # --------------------------------------------------------------- runner --
 
 def run_task(client: httpx.Client, task: Task, thinking: bool, data_dir: Path, web: str) -> tuple[Run, dict[str, Any]]:
@@ -555,23 +573,26 @@ def run_task(client: httpx.Client, task: Task, thinking: bool, data_dir: Path, w
     prompt = (task.prompt.replace("{web}", web).replace("{data}", data_dir.as_posix())
               .replace("{outside}", fx.OUTSIDE.as_posix()).replace("{root}", fx.ROOT.as_posix()))
     started = time.time()
-    sent = client.post(f"/chats/{cid}/messages", json={"text": prompt, "files": files, "thinking": thinking})
-    sent.raise_for_status()
-    run_id = sent.json()["run"]["id"]
     approvals: list[dict[str, Any]] = []
     timeline: list[tuple[float, str, str]] = []
-    with client.stream("GET", f"/runs/{run_id}/events") as r:
-        for line in r.iter_lines():
-            if not line.startswith("data: "):
-                continue
-            e = json.loads(line[6:])
-            if e["type"] in ("call_start", "tool_start", "tool_end", "model_retry", "resumed", "approval_request", "done", "error"):
-                timeline.append((round(time.time() - started, 1), e["type"], str(e.get("name", e.get("message") or ""))))
-            if e["type"] == "approval_request":
-                approvals.append({"kind": e.get("kind"), "command": e.get("command"), "allow": task.allow})
-                client.post(f"/runs/{run_id}/approvals/{e['id']}", json={"allow": task.allow})
-            if e["type"] in ("done", "error"):
-                break
+    # The earlier messages first (the files go with the first), then the graded one.
+    for i, text in enumerate([*task.before, prompt]):
+        sent = client.post(f"/chats/{cid}/messages", json={"text": text, "files": files if i == 0 else [],
+                                                            "thinking": thinking})
+        sent.raise_for_status()
+        run_id = sent.json()["run"]["id"]
+        with client.stream("GET", f"/runs/{run_id}/events") as r:
+            for line in r.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                e = json.loads(line[6:])
+                if e["type"] in ("call_start", "tool_start", "tool_end", "model_retry", "resumed", "approval_request", "done", "error"):
+                    timeline.append((round(time.time() - started, 1), e["type"], str(e.get("name", e.get("message") or ""))))
+                if e["type"] == "approval_request":
+                    approvals.append({"kind": e.get("kind"), "command": e.get("command"), "allow": task.allow})
+                    client.post(f"/runs/{run_id}/approvals/{e['id']}", json={"allow": task.allow})
+                if e["type"] in ("done", "error"):
+                    break
     turn = client.get(f"/chats/{cid}").json()["turns"][-1]
     run = Run(task.name, thinking, cid, turn, data_dir / "chats" / cid, approvals, data_dir)
     grade = task.grade(run)

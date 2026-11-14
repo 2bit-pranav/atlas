@@ -47,38 +47,17 @@ from agent.tools.reading import read_tools
 from agent.tools.skills_run import skill_run_tools
 from agent.tools.web import read_key, web_tools
 
-CONVERSATION_MANAGERS = {
-    "null": "NullConversationManager",
-    "sliding": "SlidingWindowConversationManager",
-    "summarizing": "SummarizingConversationManager",
-}
-
 
 def build_conversation_manager(settings: Settings) -> Any:
-    """The SDK conversation manager named in settings, or Null.
+    """Earlier tool results shortened near the window ("trim", runtime/context.py), or nothing trimmed ("null")."""
+    from strands.agent.conversation_manager import NullConversationManager
 
-    `NullConversationManager` is the default: the harness's `context_manager`
-    is disabled (see `MemoryManager`), and until a trimming rule is measured,
-    keeping the full history is better than trimming with an untested one.
-    """
-    from strands.agent import conversation_manager as cm
+    from agent.runtime.context import TrimToolResults
 
-    name = settings.context.conversation_manager
-    cls_name = CONVERSATION_MANAGERS.get(name, "NullConversationManager")
-    cls = getattr(cm, cls_name, None)
-    if cls is None:
-        raise ValueError(
-            f"context.conversation_manager={name!r} maps to {cls_name}, "
-            "which this Strands build does not provide"
-        )
-    if cls_name == "NullConversationManager":
-        return cls()
-    kwargs: dict[str, Any] = {
-        "proactive_compression": {
-            "compression_threshold": settings.context.prune_trigger_ratio
-        }
-    }
-    return cls(**kwargs)
+    c = settings.context
+    if c.conversation_manager == "null":
+        return NullConversationManager()
+    return TrimToolResults(c.window or settings.model.context_size, c.prune_trigger_ratio, c.prune_target_ratio)
 
 
 def build_agent(
@@ -235,4 +214,4 @@ def _scope(settings: Settings, workspace: Path, uploads: Iterable[Path | str] = 
     )
 
 
-__all__ = ["CONVERSATION_MANAGERS", "build_agent", "build_conversation_manager"]
+__all__ = ["build_agent", "build_conversation_manager"]
