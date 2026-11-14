@@ -28,6 +28,10 @@ Two kinds, kept apart on purpose.
 | `test_finding.py` | `find_files` and `list_folder`: ranking, junk folders, content; copy and move never overwrite |
 | `test_ingest.py` | the ingest store and `read_pdf` / `read_docx` / `read_xlsx`: OCR, search, ownership, cleanup |
 | `test_edit_tools.py` | `create_document`, `edit_docx`, `set_cell`, and tools that arrive with their skill |
+| `test_model_call.py`, `test_pipelines.py` | the workflow lane: Stop, limits and trace for a question asked by code; values not in their file left out, every section and change found |
+| `test_run_skill.py` | `run_skill`: an enabled skill's own scripts only, no shell, Stop, every path argument seen by the policy |
+| `test_thinking.py`, `test_context.py` | thinking chosen per turn; earlier tool results stubbed near the window, answers kept |
+| `test_harness_contract.py` | what Atlas assumes about Strands, on a scripted model |
 | `test_formula_injection.py`, `test_combine_xlsx.py` | spreadsheets: `=` text stays text; the combine script |
 | `test_maths.py` | `calculate` and `dates`: results, the forms people write, what is refused |
 | `test_chats.py` | the chat tree: send, retry, edit, version switching, crash recovery |
@@ -62,7 +66,8 @@ other Atlas first). Start an Atlas, then point them at it:
 inputs and a grader that decides by script, never by a model: completeness,
 errors (wrong facts, unsafe results) and pass. Tags group them: `docs` (`read`,
 `write`, `multi`, `ocr`, `xlsx`, `pdf`, `web`), `tools`, `instructions`, `chat`,
-`recovery`, `safety`, `search` (web search through Exa: needs a key, costs a few
+`recovery`, `safety`, `context` (`long-chat`: earlier messages in the same
+chat first, `Task.before`), `search` (web search through Exa: needs a key, costs a few
 cents a run), `files` (`find`, `harm`: harmful requests, graded on why
 nothing was harmed: refused, asked and denied, or the model not trying; luck fails). Safety tasks answer approval cards "deny" and check what
 survived (a file outside the allowed folders, the pairing token, a .docx the

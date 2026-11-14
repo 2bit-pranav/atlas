@@ -15,6 +15,9 @@ agent/
                 notes.py         notes for the model only: the clock, a retry's hint
                 page.py          the note on a message sent from the extension
   runtime/      factory.py       build_agent(): the one place that calls create_harness
+                model_call.py    ModelCall: one schema-constrained question asked by code (limits, Stop, trace)
+                thinking.py      whether a turn thinks first, chosen by code (the composer overrides)
+                context.py       TrimToolResults: earlier turns' tool results stubbed near the window
                 restore.py       restoring from a Strands snapshot, then re-setting the prompt
                 memory.py        long-term memory: off, and why
   safety/       policy.py        ToolPolicy: every check before a tool runs, in one order; TaintTracker
@@ -40,6 +43,8 @@ agent/
                 files.py         delete_file (to the Recycle Bin, the agent's only way to delete),
                                  copy_file, move_file (never over an existing file)
                 finding.py       find_files (words in name, folder or contents), list_folder (a tree)
+                pipelines.py     extract_table, write_summary, compare_documents: code loops, checks, assembles
+                skills_run.py    run_skill: a skill's script as an argv list, no shell
                 web.py           web_search / read_url through Exa: shaped, labelled, cited results
                 page.py          page_read / page_find for the browser extension, via client calls
   ingest/       store.py         the ingest store: parse at upload, one worker, SQLite + FTS5, per-chat ownership
@@ -49,7 +54,8 @@ agent/
                 snapshots.py     where Strands writes snapshots; deleting them on edit
   integrations/ mcp/             pool.py (connections, per-tool switches), registry.py (search)
                 skills/          catalog.py (which exist), installer.py, requirements.py
-  extension/    form_fill.py     fill suggestions from the user's details (one model call)
+  extension/    form_fill.py     fill suggestions from the user's details (one ModelCall)
+                moments.py       a video's key moments: its chapters, else one ModelCall over the transcript
                 basket.py        files found for upload fields, handed out by short-lived id
                 table_export.py  a web page's table as xlsx or csv, no model
   common/       ids.py           sortable ids
@@ -164,6 +170,20 @@ The stock `LlamaCppModel` needed five things:
 - `document` blocks (a pdf/docx/xlsx some tools return)
   become a text note pointing at the skill; llama-server answers them with a 400.
 
+## The workflow lane (`runtime/model_call.py`, `tools/pipelines.py`)
+
+Code loops over the units of a task and asks the model one schema-constrained
+question per unit (`ModelCall`: the run's limits, Stop and trace apply; no tools
+offered). Each answer is checked against its source before it is used.
+
+- **`extract_table`:** one row per file, each value found in that file, the
+  total added with `Decimal`.
+- **`write_summary`:** one sentence and figure per section, every number found
+  in its section, asked once more, else left out.
+- **`compare_documents`:** difflib finds the changes; the model only words them.
+
+They come with the document skills. Fill and Key moments ask the same way.
+
 ## Documents (`tools/documents/`)
 
 The model writes **Markdown**; `create_document` turns it into docx
@@ -253,7 +273,7 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
 
    | | read | create | change | delete | run |
    |---|---|---|---|---|---|
-   | workspace | run | run | run | run | ask (skill scripts run) |
+   | workspace | run | run | run | run | ask |
    | folders | run | run | ask | ask | ask |
    | elsewhere | ask | ask | ask | ask | ask |
    | system | ask | refused | refused | refused | refused |
@@ -274,8 +294,10 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    Two more places: a file the user attached is the **upload** zone (changing or
    deleting it asks in every mode, except through `edit_docx` and `set_cell`),
    and a command that talks to the network (`curl`, `wget`, `scp` ...) asks in
-   every mode. A skill script runs unasked only as one simple command whose
-   script is inside `skills/<skill>/scripts/`.
+   every mode. The shell is off by default (`tools.builtin.shell`); when on,
+   every command asks with its full text. Skill scripts run through `run_skill`,
+   whose path arguments are checked like any tool's: an existing file as a read
+   (and a create beside it), a new name as a create.
    **Outside content in the chat** (the extension's page tools, a PDF
    `read_pdf` downloads, an MCP tool from an untrusted server) makes every
    run, change and delete, every create outside the workspace and every
@@ -373,9 +395,9 @@ Without a key the tools are not offered.
   set per turn; the model is never shown the workspace's own path, whose chat id
   it copied wrong into another chat's folder, now refused), `$ATLAS_SKILLS`
   points at the skills folder and `$ATLAS_FOLDERS` lists the allowed folders. An attached file is named by its name alone
-  (`"exp4.pdf"`), and the bundled `SKILL.md` commands are
-  `python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" ...`. The attachment
-  list gives each file's exact read call.
+  (`"exp4.pdf"`). The bundled skills run their scripts with
+  `run_skill(skill="pdf", script="merge_pdf.py", args=[...])`, not the shell,
+  which is off by default. The attachment list gives each file's exact read call.
 - **Stop ends a running command.** Strands stops a turn only at its safe
   points, and a running shell command is not one. The environment watches the
   agent's cancel signal (set on it in `build_agent`) and, on Stop or timeout,

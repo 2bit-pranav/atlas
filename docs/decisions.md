@@ -10,6 +10,27 @@ it through and say what replaced it, rather than deleting it. Ids like B28 and
 
 ## Strands and the harness
 
+**Near the window, earlier turns' tool results become a stub; what Atlas assumes
+about Strands is tested** (2026-11-14, plan 3.9 and 3.10, not yet run on the
+model). The default was to keep everything, and a long chat would hit the window.
+`context.conversation_manager` is now "trim" (`runtime/context.py`). Past
+`prune_trigger_ratio` of the window, earlier turns' tool results are replaced by
+a one-line stub ("call the tool again if you need it"), oldest first, down to
+`prune_target_ratio`. Answers and the current turn are never touched, and nothing
+is summarised by the model. The history changes only when the trigger is crossed,
+so llama.cpp's cached prefix survives ordinary turns. Strands' sliding and
+summarizing managers are gone (summarizing had the model rewrite history), and
+older settings files that name them load as "trim". `generation_reserve` was
+never read and is removed. A `long-chat` suite task (two full reads of the
+16-page review, then a question about both) has to pass before this is trusted.
+`tests/test_harness_contract.py` pins, on a scripted model:
+- the four memory switches;
+- the hook event fields Atlas sets;
+- reasoning arriving once in the saved message;
+- the cancel signal;
+- no "latest" snapshot;
+- the prompt set again after a restore.
+
 **A trace per run, on disk as it happens** (2026-11-12, plan phase 1). Nothing of
 a run was kept but its folded transcript, written when it ended: what the model
 was actually sent was not recoverable, a refusal's reason only showed if the model
@@ -107,6 +128,15 @@ Atlas only configures it. Everything Atlas adds is listed in the README.
 
 ## llama.cpp, the model and the prompt
 
+**Thinking is chosen by code per turn** (2026-11-14, plan 3.8, not yet measured).
+86% of model time is generation, and thinking roughly doubles it. It helps where
+there is a plan to make, not for a question or a single read. With
+`sampling.thinking_auto` on (the default), a turn thinks first when it has two
+or more files, or asks for a document to be made: a word like make, write or
+merge, then a document type or file name in the same sentence
+(`runtime/thinking.py`). The composer's switch is Auto, On or Off, and On or Off
+overrides. The trace records whether code or the user chose.
+
 **What a model can do is read from its files** (2026-11-07). "Model can think" and
 "Model can see images" were toggles the user had to know to set; set wrong, they
 sent images or a thinking switch to a model that cannot take them. The GGUF
@@ -196,6 +226,30 @@ would show the model a second shell and file tool beside the Strands ones.
 ---
 
 ## What a 2B model can do (measured)
+
+**The workflow lane: code loops, the model answers one question per unit**
+(2026-11-14, plan 3.1 to 3.5, not yet run on the model). `ModelCall`
+(`runtime/model_call.py`) asks one schema-constrained question. It counts
+against the run's limits, stops on Stop, and writes its request and response to
+the trace. Its timings go to the turn's per-call stats, not the context meter.
+Fill and Key moments use it. Three tools come with the document skills
+(`tools/pipelines.py`):
+- **`extract_table(files, columns, path, total)`:** one question per file, each
+  value checked against that file's text, the total added by code (`Decimal`),
+  one row per file in a workbook.
+- **`write_summary(file, path)`:** cuts the document into sections and asks one
+  question per section (one sentence, one figure).
+  - Sections come from Word headings, else title lines in a PDF's text (all 8 of
+    the 16-page review found), else runs of pages.
+  - Every number in a sentence must be in its section. If not, it is asked once
+    more, then left out.
+- **`compare_documents(old, new, path)`:** code lines up paragraphs and table
+  rows (difflib) and finds every change; the model only words each one. A
+  description with a number in neither version is replaced by code's own
+  "changed from ... to ...".
+
+A value that fails its check is left out and named in the result, never kept.
+The policy checks every input as a read and the document as a create.
 
 **Documents from documents: code copies the data, checks the file, and says when it is done**
 (2026-11-13, plan phase 2, not yet run on the model). What the evaluation of
@@ -548,6 +602,28 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 ---
 
 ## Safety
+
+**Skill scripts run through `run_skill`; the shell is off by default and asks for
+every command when on** (2026-11-14, plan 3.6 and 3.7). Every hole Phase 0
+closed was a shell form the classifier did not know, and a language cannot be
+enumerated. `run_skill(skill, script, args)` (`tools/skills_run.py`) runs one
+script of an enabled skill:
+- an argv list, no shell, so `;` and `$(...)` are just characters;
+- the venv's Python, with the workspace as its folder;
+- the environment without secrets;
+- Stop and a 300 s timeout end the whole process tree.
+
+The policy sees every path argument, placed as the tool places it:
+- an existing file is a read, plus a possible create in its folder;
+- a new name is a create;
+- the folder after `--out...` is written to.
+
+A script's output never replaces a file (`_shared.output_path` picks a free
+name), which is what makes "existing means read" exact. `tools.builtin.shell`
+defaults to off. When it is on, every command asks with its full text, and an
+allowed command is covered for the rest of the turn (never for the chat). The
+prompt's shell lines appear only when the shell is on. A settings file that sets
+`"shell": true` keeps it on.
 
 **Shell reads by relative path pass every check; an attached PDF used it to
 print the pairing token** (2026-11-12, measured, not yet fixed,

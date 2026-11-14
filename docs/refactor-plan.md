@@ -132,6 +132,17 @@ with the new references (all pass) and against the evaluation's failures (all fa
 Exit: the `hard` tasks at 18/20 or better with median time under 20 s; the
 files and harm tags unchanged with `shell` off.
 
+**Status, 2026-11-14:** 3.1 to 3.10 done, each with tests, none run on the model
+yet.
+- **Pipelines:** found on the way, a PDF's sections need no outline. Title lines
+  in its text found all 8 sections of the review, including the first one, right
+  after the document's title.
+- **3.6:** script outputs now get a free name instead of replacing a file. That
+  is what lets the policy treat an existing path argument as a read.
+- **3.7:** the shell defaults to off, but a settings file with `"shell": true`
+  keeps it on.
+- **3.9:** "trim" replaced Strands' managers. Older settings files load as "trim".
+
 ## Phase 4: guardrails
 
 | # | Change | Where |
