@@ -112,7 +112,8 @@ def instruction_in(text: str) -> str | None:
     m = INSTRUCTION.search(text)
     if m is None:
         return None
-    return " ".join(text[max(0, m.start() - 40):m.end() + 80].split())
+    start = text.rfind(" ", 0, max(0, m.start() - 40)) + 1   # from a word's start, not mid-word
+    return " ".join(text[start:m.end() + 80].split())
 
 
 class InputFence:

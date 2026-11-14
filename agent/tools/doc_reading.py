@@ -220,7 +220,7 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
             hits = store.search(sha, search)
             if not hits:
                 return f"No paragraph or table in {name} holds any of: {search}."
-            parts, cut = _fit([_docx_block(b) for b in hits])
+            parts, cut = _fit([_docx_block(b, name) for b in hits])
             return (f"{name}: {len(hits)} blocks match \"{search}\", best first"
                     + (f", showing {len(parts)}" if cut else "") + ".\n\n" + "\n\n".join(parts))
         if section.strip():
@@ -232,11 +232,11 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
             head = f"{name}: section {s}"
         else:
             chosen, head = blocks, f"{name}"
-        parts, cut = _fit([_docx_block(b) for b in chosen])
+        parts, cut = _fit([_docx_block(b, name) for b in chosen])
         if cut and not section.strip() and outline:
             first = outline[0]["section"].split(".")[0]
             body = [b for b in blocks if (b["section"] or "") in ("", first) or (b["section"] or "").startswith(first + ".")]
-            parts, _ = _fit([_docx_block(b) for b in body])
+            parts, _ = _fit([_docx_block(b, name) for b in body])
             toc = "\n".join(f"{'  ' * o['section'].count('.')}{o['section']} {o['title']}" for o in outline[:60])
             return (f"{name}: {len(blocks)} blocks, too long to show at once; outline, then section {first}. "
                     f"Read a section with read_docx(path=\"{name}\", section=\"2\"), or find something with "
@@ -284,7 +284,7 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
     return [read_pdf, read_docx, read_xlsx]
 
 
-def _docx_block(b: dict[str, Any]) -> str:
+def _docx_block(b: dict[str, Any], name: str = "the document.docx") -> str:
     if b["kind"] == "heading":
         # The section number goes in the mark, not before the title: copied into a new document,
         # "# 3 Expenses" kept its old number after the sections were reordered (2026-11-14).
@@ -295,8 +295,12 @@ def _docx_block(b: dict[str, Any]) -> str:
         # shown as a pipe row, the model passed the whole row to the edit tool (2026-11-03).
         lines = [ln for i, ln in enumerate(b["text"].splitlines()) if i != 1]   # drop |---|
         rows = "\n".join(f"r{n}: {ln.strip().strip('|').strip()}" for n, ln in enumerate(lines, 1))
+        # To keep the table in a new document, the reference copies it exactly: retyped from these
+        # lines it lost rows, or came out as one line of text (2026-11-14).
         return (f"[{b['id']}: table, {b.get('rows')} rows x {b.get('cols')} cols. A cell is "
-                f"{b['id']}.rROW.cCOL, columns counted from the left: c1, c2, ...]\n{rows}")
+                f"{b['id']}.rROW.cCOL, columns counted from the left: c1, c2, ...]\n{rows}\n"
+                f"[To keep this table in a new document, put {{{{{name}#{b['id']}}}}} on its own line in "
+                "create_document; never retype it.]")
     if b["kind"] == "image":
         return b["text"]
     return f"[{b['id']}] {b['text']}"

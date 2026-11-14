@@ -184,3 +184,13 @@ def test_a_table_mark_joined_to_its_first_row_keeps_the_row() -> None:
     out = without_reader_marks("[t1: table, 3 rows x 2 cols. A cell is t1.rROW.cCOL, columns counted from the left: "
                                "c1, c2, ... r1: Name | City\nr2: Asha | Pune\nr3: Liam | Leeds")
     assert out.splitlines() == ["| Name | City |", "|---|---|", "| Asha | Pune |", "| Liam | Leeds |"]
+
+
+def test_a_table_copied_onto_one_line_is_a_table_again() -> None:
+    """The whole table as one line, `r1: ... r2: ... r3: ...` (2026-11-14)."""
+    from agent.tools.documents.markdown import without_reader_marks
+
+    want = ["| Name | City |", "|---|---|", "| Asha | Pune |", "| Liam | Leeds |"]
+    assert without_reader_marks("[t1: table, 3 rows x 2 cols. A cell ... c1, c2, ... r1: Name | City r2: Asha | Pune "
+                                "r3: Liam | Leeds").splitlines() == want
+    assert without_reader_marks("r1: Name | City r2: Asha | Pune r3: Liam | Leeds").splitlines() == want

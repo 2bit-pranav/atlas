@@ -68,6 +68,7 @@ def _inline(token: Any) -> list[Run]:
 _BLOCK_ID = re.compile(r"^\[b\d+\]\s*|\s*\[b\d+(?:, section [\d.]+)?\]\s*$", re.M)
 _TABLE_HEAD = re.compile(r"^\[t\d+:[^\n]*$")
 _TABLE_ROW = re.compile(r"^r\d+:\s?(.*)$")
+_RUN_ROWS = re.compile(r"(?:^|\s)r\d+:\s?")
 #: read_docx's heading: `# 2.1 Title [b5]`. The outline number is the reader's, not the title's:
 #: copied, "3 Expenses" kept its old number after the sections were reordered (2026-11-14).
 #: shortcut: a Title of the form "10 Steps [b1]" loses its "10"; the reader would need to mark its numbers.
@@ -96,9 +97,13 @@ def without_reader_marks(text: str) -> str:
     for line in text.split("\n"):
         if _TABLE_HEAD.match(line):
             flush()
-            # The model has joined the mark and the first row into one line, `]` dropped (2026-11-14).
+            # The model has joined the mark and its rows into one line, `]` dropped (2026-11-14):
+            # `[t1: ... r1: Name | City r2: Asha | Pune`.
             if merged := re.search(r"\br1:\s?(.*)$", line):
-                rows.append(merged.group(1).strip())
+                rows.extend(r.strip() for r in _RUN_ROWS.split("r1: " + merged.group(1))[1:])
+            continue
+        if _TABLE_ROW.match(line) and len(_RUN_ROWS.findall(line)) > 1:   # several rows on one line
+            rows.extend(r.strip() for r in _RUN_ROWS.split(line)[1:])
             continue
         if (row := _TABLE_ROW.match(line)) and (rows or "|" in line):
             rows.append(row.group(1).strip())
