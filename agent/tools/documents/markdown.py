@@ -96,6 +96,9 @@ def without_reader_marks(text: str) -> str:
     for line in text.split("\n"):
         if _TABLE_HEAD.match(line):
             flush()
+            # The model has joined the mark and the first row into one line, `]` dropped (2026-11-14).
+            if merged := re.search(r"\br1:\s?(.*)$", line):
+                rows.append(merged.group(1).strip())
             continue
         if (row := _TABLE_ROW.match(line)) and (rows or "|" in line):
             rows.append(row.group(1).strip())

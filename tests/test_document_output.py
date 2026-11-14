@@ -175,3 +175,12 @@ def test_a_reference_that_cannot_be_read_is_an_error_not_text(tmp_path) -> None:
     with pytest.raises(DocumentError, match="line of its own"):
         expand("| North | {{o.csv sql: SELECT SUM(amount) FROM o}} |", place)
     assert "6.5" in expand("Total:\n{{o.csv sql: SELECT SUM(amount) AS total FROM o}}\n", place)
+
+
+def test_a_table_mark_joined_to_its_first_row_keeps_the_row() -> None:
+    """The model dropped the mark's `]` and the line break: the header row went with the mark (2026-11-14)."""
+    from agent.tools.documents.markdown import without_reader_marks
+
+    out = without_reader_marks("[t1: table, 3 rows x 2 cols. A cell is t1.rROW.cCOL, columns counted from the left: "
+                               "c1, c2, ... r1: Name | City\nr2: Asha | Pune\nr3: Liam | Leeds")
+    assert out.splitlines() == ["| Name | City |", "|---|---|", "| Asha | Pune |", "| Liam | Leeds |"]

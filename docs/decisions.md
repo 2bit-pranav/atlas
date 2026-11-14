@@ -227,6 +227,41 @@ would show the model a second shell and file tool beside the Strands ones.
 
 ## What a 2B model can do (measured)
 
+**The hard document tasks: 18/20, median 18.5 s, after three runs and fixes
+between them** (2026-11-14, measured, shell off, thinking off and on, 2
+repeats). The evaluation's baseline was 6 correct files in 19 runs, the right
+ones taking 84 to 112 s.
+
+| run | passed | facts complete | median | thinking off / on |
+|---|---|---|---|---|
+| phase 3 as built (`2026-11-14-phase3-hard`) | 6/20 | 70% | 24.0 s | 2/10, 4/10 |
+| after fixes 1 (`...-phase3-hard-fixes`) | 14/20 | 86% | 26.1 s | 7/10, 7/10 |
+| after fixes 2 (`...-phase3-hard-round3`) | 18/20 | 94% | 18.5 s | 9/10, 9/10 |
+
+Each fix came from a trace:
+- **A draft the turn made could not be made again.** After the done check sent
+  it back, `write_summary` wrote the right summary as `summary-2.docx`.
+- **Outline numbers stayed in copied headings** ("3 Expenses" after reordering).
+  The reader now puts them in the mark.
+- **Rows and totals were retyped**, and wrong. Every CSV or sheet read now ends
+  with how to copy them in by reference.
+- **SQL was written with the grid's column letters.** It is retried with the
+  header names.
+- **References in table cells, or not closed, went in as text.** They are
+  errors now.
+- **A table mark was joined to its first row.** The row was lost with the mark.
+
+Two other things the traces showed:
+- With the shell off, the model wrote a pandas script and tried to run it as a
+  "python" skill. `run_skill` refused it.
+- A merge named an existing invoice as its output and got a free name; the
+  invoice was untouched.
+
+`extract_table` passed every time it was called (one call, about 22 s for 12
+invoices). Left: thinking-off hard-sales (a reference for one month only) and
+a total typed instead of copied. Under Auto both tasks think, because they ask
+for a document.
+
 **The workflow lane: code loops, the model answers one question per unit**
 (2026-11-14, plan 3.1 to 3.5, not yet run on the model). `ModelCall`
 (`runtime/model_call.py`) asks one schema-constrained question. It counts

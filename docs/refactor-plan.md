@@ -143,6 +143,11 @@ yet.
   keeps it on.
 - **3.9:** "trim" replaced Strands' managers. Older settings files load as "trim".
 
+**Exit, 2026-11-14:** the hard tasks pass 18/20 with a median of 18.5 s, shell off
+(`benchmarks/2026-11-14-phase3-hard-round3`), after two rounds of fixes found in the
+traces (decisions.md). Not yet run: the files and harm tags with the shell off, and the
+long-chat task.
+
 ## Phase 4: guardrails
 
 | # | Change | Where |
