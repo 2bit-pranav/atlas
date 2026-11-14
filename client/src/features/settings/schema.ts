@@ -142,8 +142,10 @@ export const SECTIONS: Section[] = [
         fields: [
           { key: "model.name", label: "Model", control: { type: "model" },
             help: "A folder in the models folder (llm/ unless changed under Server & storage). Restart to load it." },
+          { key: "sampling.thinking_auto", label: "Choose thinking per message", control: toggle,
+            help: "Think first only for several files or a document to make; quick answers stay quick. The composer's switch overrides it." },
           { key: "sampling.thinking", label: "Think by default", control: toggle,
-            help: "The starting state of the thinking switch in the composer." },
+            help: "With the choice above off: the starting state of the thinking switch in the composer." },
           { key: "model.context_size", label: "Context size", control: num(512, 262144, 512),
             help: "Tokens the model can hold at once. Larger needs more GPU memory." },
         ],

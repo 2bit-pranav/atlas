@@ -72,7 +72,8 @@ class SamplingSettings(StrictModel):
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     repeat_penalty: float = Field(default=1.0, gt=0.0)
-    thinking: bool = False
+    thinking: bool = False  # with thinking_auto off: whether a turn thinks
+    thinking_auto: bool = True  # code chooses per turn (agent/runtime/thinking.py); the composer overrides
 
 
 class LlamaCppSettings(StrictModel):
@@ -321,6 +322,7 @@ TIERS: dict[str, Tier] = {
     "sampling.frequency_penalty": Tier.LIVE,
     "sampling.repeat_penalty": Tier.LIVE,
     "sampling.thinking": Tier.LIVE,
+    "sampling.thinking_auto": Tier.LIVE,
     "tools.builtin.write": Tier.LIVE,
     "tools.builtin.edit": Tier.LIVE,
     "tools.builtin.shell": Tier.LIVE,

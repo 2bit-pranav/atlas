@@ -137,14 +137,14 @@ export interface PageRef {
   kind?: string
 }
 
-export const send = (chatId: string, body: { text: string; files: ChatFile[]; thinking: boolean; page?: PageRef | null }) =>
+export const send = (chatId: string, body: { text: string; files: ChatFile[]; thinking: boolean | null; page?: PageRef | null }) =>
   request<StartedRun>(`/chats/${chatId}/messages`, json("POST", body))
 /** A video's key moments as a finished turn, made without an agent run (the side panel's Key moments). */
 export const keyMoments = (chatId: string, page: PageRef) =>
   request<{ chat: ChatView }>(`/chats/${chatId}/moments`, json("POST", { page }))
-export const retry = (turnId: string, thinking: boolean, page?: PageRef | null) =>
+export const retry = (turnId: string, thinking: boolean | null, page?: PageRef | null) =>
   request<StartedRun>(`/turns/${turnId}/retry`, json("POST", { thinking, page }))
-export const edit = (turnId: string, body: { text: string; files?: ChatFile[]; thinking: boolean; page?: PageRef | null }) =>
+export const edit = (turnId: string, body: { text: string; files?: ChatFile[]; thinking: boolean | null; page?: PageRef | null }) =>
   request<StartedRun>(`/turns/${turnId}/edit`, json("POST", body))
 /** The client's result for a `client_call` event (a page operation). */
 export const answerCall = (runId: string, callId: string, result: Record<string, unknown>) =>
