@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from agent.config import paths
 from agent.config.settings import Settings
 from agent.platform.winpaths import model_path
 
@@ -44,7 +43,6 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
     Generated here rather than written into settings.json so it cannot drift
     from the interpreter that is actually running.
     """
-    import sys
 
     today = datetime.now().astimezone()
     return (
@@ -54,24 +52,28 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
         "For facts from the web, prefer the original source (the organisation's "
         "own site, official docs, PyPI or GitHub releases) over sites that "
         "repeat it, and give the link you used.\n\n"
-        "Running things on this machine:\n"
-        f"- Python: `{sys.executable}`, and a bare `python` resolves to the "
-        f"same interpreter. Either works.\n"
-        "- Your workspace for this chat is `$ATLAS_WORKSPACE`, and every shell "
-        "command starts there, so a file in it is named by its name alone "
-        "(\"exp4.pdf\"), or as `$ATLAS_WORKSPACE/exp4.pdf` when a folder of the same name "
-        "exists elsewhere. Uploaded files are there, and files you create go "
-        "there unless the user names another place.\n"
-        + _folders_line(settings)
-        + f"- Skill scripts are under `$ATLAS_SKILLS` ({model_path(paths.skills_dir(settings))}), "
-        "as `$ATLAS_SKILLS/<skill>/scripts/<script>.py`.\n"
-        "- Write paths with forward slashes, exactly as given. Backslashes break "
-        "in this shell.\n"
-        "- You may install what a task needs (`python -m pip install ...` for "
-        "Python packages, so they go into Atlas's own environment; `npm install "
-        "-g ...` for Node tools). The user is asked to approve every install "
-        "first; if they decline, do not try another way."
+        + _machine_lines(settings)
     )
+
+
+def _machine_lines(settings: Settings) -> str:
+    """Where files go, and how skills run. The shell lines only when the shell is on (plan 3.7)."""
+    import sys
+
+    workspace = ("- Your workspace for this chat is `$ATLAS_WORKSPACE`: a file in it is named by its name "
+                 "alone (\"exp4.pdf\"). Uploaded files are there, and files you create go there unless the "
+                 "user names another place.\n")
+    skills = "- Run a skill's scripts with run_skill(skill, script, args), as its SKILL.md shows.\n"
+    if not settings.tools.builtin.shell:
+        return "Files on this machine:\n" + workspace + _folders_line(settings) + skills
+    return ("Running things on this machine:\n"
+            f"- Python: `{sys.executable}`, and a bare `python` resolves to the same interpreter.\n"
+            + workspace + _folders_line(settings) + skills
+            + "- Every shell command asks the user first, and starts in the workspace. Write paths with "
+            "forward slashes, exactly as given. Backslashes break in this shell.\n"
+            "- You may install what a task needs (`python -m pip install ...` for Python packages, so they "
+            "go into Atlas's own environment). The user is asked to approve every install first; if they "
+            "decline, do not try another way.")
 
 
 def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> str:
@@ -93,7 +95,8 @@ def _tool_sources(builtin: list[str], skills: list[str], extra: list[Any]) -> st
         # Reading needs no skill: loading one cost a call and 1-1.5k tokens per document task.
         lines.append("- Read files with read_pdf, read_docx, read_xlsx, read_text or read_image; no skill "
                      "is needed to read. To create or change a .docx, .xlsx or .pdf, load its skill "
-                     "(docx, xlsx or pdf): that adds create_document, edit_docx and set_cell.")
+                     "(docx, xlsx or pdf): that adds create_document, edit_docx and set_cell, and extract_table "
+                     "(one row per file), write_summary and compare_documents.")
     if "find_files" in builtin:
         lines.append("- Find files with find_files (by words) and list_folder (a folder's tree), not with shell "
                      "commands. Copy, move or rename with copy_file and move_file, delete with delete_file.")

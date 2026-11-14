@@ -2,7 +2,9 @@
 
 A skill is a folder with a `SKILL.md`. The model sees every enabled skill's
 `name` and `description` in its prompt, calls the `skills` tool to load the
-body when one applies, and then runs the skill's scripts through `shell`.
+body when one applies, and then runs the skill's scripts with `run_skill(skill, script, args)`
+(agent/tools/skills_run.py): no shell, an argument list, the workspace as the folder.
+An output never replaces a file (`_shared.output_path` picks a free name).
 
 ```
 skills/
@@ -18,13 +20,14 @@ Documents are *read* with Atlas's own tools (`read_pdf`, `read_docx`,
 `read_xlsx`), from what was parsed at upload; no skill is loaded to read.
 The bundled skills are for what reading is not: merging, splitting,
 converting and writing. Loading one adds its writing tools: `create_document`
-(Markdown in), `edit_docx` (a paragraph or cell by id) and `set_cell`. What a skill needs is listed on
+(Markdown in), `edit_docx` (a paragraph or cell by id), `set_cell`, and the pipelines
+`extract_table`, `write_summary` and `compare_documents` (agent/tools/pipelines.py). What a skill needs is listed on
 the Skills page with an install button.
 
 ## Writing one for a 2B model
 
-- **Ship a script; never ask the model to write library code.** "Run
-  `python skills/pdf/scripts/merge_pdf.py out.pdf "a.pdf" "b.pdf"`" works.
+- **Ship a script; never ask the model to write library code.**
+  `run_skill(skill="pdf", script="merge_pdf.py", args=["out.pdf", "a.pdf", "b.pdf"])` works.
   "Use pypdf to extract page 3" does not.
 - **Keep `SKILL.md` short.** Its whole body is loaded into a 32k window. The
   Skills page warns above about 2,500 tokens.

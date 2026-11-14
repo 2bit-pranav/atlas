@@ -255,10 +255,13 @@ class ToolPolicy(HookProvider):
                 return Decision(refuse=self._refusal(effect, where))
             if v == "ask" and not self._covered(effect):
                 asks.append((effect, where))
-        if tainted and name == "shell" and not asks:
+        if name == "shell" and not asks:
             command = str(args.get("command", ""))
-            if not is_install(command):   # any command after outside content, reads too
-                asks.append((Effect("run", None, command), "workspace"))
+            # Every command asks with its full text (plan 3.7): a command is a language, and the
+            # classifier only knows the forms it was taught. Installs ask in their own step.
+            run = Effect("run", None, command)
+            if not is_install(command) and (tainted or not self._covered(run)):
+                asks.append((run, "workspace"))
         if not asks:
             return None
         self._note(step="grid", tool=name, verdict="zones",

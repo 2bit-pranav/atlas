@@ -6,7 +6,7 @@ description: Combine Excel workbooks or sheets, export sheets as CSV, create spr
 # Spreadsheets
 
 Reading and totals are the `read_xlsx` tool, not this skill. Run the scripts
-below with `shell`.
+below with `run_skill`.
 
 `python` is already the right interpreter -- do not look for another one, and
 do not run `pip install` to fix a complaint about a missing library. That is
@@ -20,7 +20,7 @@ Several workbooks, chosen sheets (`file.xlsx:Sheet`) or CSVs into one
 workbook, a sheet each:
 
 ```
-python "$ATLAS_SKILLS/xlsx/scripts/combine_xlsx.py" combined.xlsx "jan.xlsx" "feb.xlsx:Sales" "mar.csv"
+run_skill(skill="xlsx", script="combine_xlsx.py", args=["combined.xlsx", "jan.xlsx", "feb.xlsx:Sales", "mar.csv"])
 ```
 
 Add `--stack` to append all rows into one sheet instead (the headers must
@@ -29,7 +29,7 @@ match; a `source` column records where each row came from).
 Export every sheet as CSV, one file each (add `--sheet Mar` for just one):
 
 ```
-python "$ATLAS_SKILLS/xlsx/scripts/xlsx_to_csv.py" "<file>"
+run_skill(skill="xlsx", script="xlsx_to_csv.py", args=["<file>"])
 ```
 
 ## A table from many files
@@ -47,7 +47,7 @@ extract_table(files=["inv-1.pdf", "inv-2.pdf"], columns=["vendor", "date", "amou
 
 ## Create or change a spreadsheet
 
-Do not use `shell` or `write` for this. Call the **`create_document`** tool
+Do not use `run_skill` or `write` for this. Call the **`create_document`** tool
 with the whole workbook as **Markdown**: every Markdown table becomes a
 sheet, named after the heading above it; numbers become real numbers.
 

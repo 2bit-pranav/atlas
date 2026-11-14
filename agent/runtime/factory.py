@@ -44,6 +44,7 @@ from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
 from agent.tools.pipelines import pipeline_tools
 from agent.tools.reading import read_tools
+from agent.tools.skills_run import skill_run_tools
 from agent.tools.web import read_key, web_tools
 
 CONVERSATION_MANAGERS = {
@@ -141,20 +142,26 @@ def build_agent(
     resolve = scope.place
     shown = shown_in(workspace_dir)
     store = store_for(paths.data_dir(settings))
+    # Stop reaches a tool that loops (pipelines, run_skill) through the agent's cancel signal.
+    built: dict[str, Any] = {}
+
+    def cancelled() -> bool:
+        return "agent" in built and built["agent"].cancel_signal.is_set()
+
     atlas_tools = [t for t in (*finding_tools(scope, resolve, shown, store),
                                *read_tools(resolve, shown, bool(effective_caps(settings)["vision"]), workspace_dir),
                                *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
                                *file_tools(resolve, shown),
                                # Not offered without a key: a tool that only fails wastes a turn.
                                *(web_tools(paths.data_dir(settings)) if read_key(paths.data_dir(settings)) else []),
-                               *maths_tools())
+                               *maths_tools(),
+                               *skill_run_tools(paths.skills_dir(settings), lambda: {s["name"] for s in skills},
+                                                workspace_dir, resolve, cancelled))
                    if t.tool_name in enabled]
     # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
     # The pipelines ask the model through ModelCall: the run's limits, Stop and trace hold.
     limits = RunLimits(settings.limits, notify=observer)
-    built: dict[str, Any] = {}
-    ask = ModelCall(settings, observer=observer, limits=limits,
-                    cancelled=lambda: "agent" in built and built["agent"].cancel_signal.is_set())
+    ask =ModelCall(settings, observer=observer, limits=limits, cancelled=cancelled)
     skill_tools = SkillTools(preload=set(writes), tools={name: t for name, t in {
         **document_tools(workspace_dir, shown, resolve, store, chat_id),
         **pipeline_tools(store, chat_id, workspace_dir, resolve, shown, ask)}.items() if name in enabled})

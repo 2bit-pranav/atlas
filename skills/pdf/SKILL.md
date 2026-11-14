@@ -5,7 +5,7 @@ description: Merge, split and convert PDF documents, and create PDFs from Markdo
 
 # PDFs
 
-Reading is the `read_pdf` tool, not this skill. Use `shell` to run the
+Reading is the `read_pdf` tool, not this skill. Use `run_skill` to run the
 scripts below. Do not write PDF code yourself.
 
 ## Merge, split, convert
@@ -16,20 +16,20 @@ Combine files, or chosen pages of them, in the order given (`5-` runs to the
 last page):
 
 ```
-python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" combined.pdf "a.pdf" "b.pdf:2-5" "c.pdf:1,3"
+run_skill(skill="pdf", script="merge_pdf.py", args=["combined.pdf", "a.pdf", "b.pdf:2-5", "c.pdf:1,3"])
 ```
 
 Split into one file per page, or one per range:
 
 ```
-python "$ATLAS_SKILLS/pdf/scripts/split_pdf.py" "<file>"
-python "$ATLAS_SKILLS/pdf/scripts/split_pdf.py" "<file>" 1-3 4-10 11-
+run_skill(skill="pdf", script="split_pdf.py", args=["<file>"])
+run_skill(skill="pdf", script="split_pdf.py", args=["<file>", "1-3", "4-10", "11-"])
 ```
 
 Make an editable Word document (`--pages 1-3` for part of it):
 
 ```
-python "$ATLAS_SKILLS/pdf/scripts/pdf_to_docx.py" "<file>"
+run_skill(skill="pdf", script="pdf_to_docx.py", args=["<file>"])
 ```
 
 ## Summarise or compare
@@ -41,7 +41,7 @@ python "$ATLAS_SKILLS/pdf/scripts/pdf_to_docx.py" "<file>"
 
 ## Create a PDF
 
-Do not use `shell` or `write` for this. Call the **`create_document`** tool
+Do not use `run_skill` or `write` for this. Call the **`create_document`** tool
 with the whole document as **Markdown**:
 
 - `path`: a file name such as `summary.pdf` (it is saved in your workspace)

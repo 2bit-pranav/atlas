@@ -98,6 +98,10 @@ function label(name: string, calls: ToolPart[]): string {
       if (failed) return skill ? `The ${skill} tool did not run` : "A command did not run"
       return skill ? `Ran the ${skill} tool` : n === 1 ? "Ran a command" : `Ran ${n} commands`
     }
+    case "run_skill": {
+      const script = arg(first, "script").replace(/\.py$/, "").replace(/_/g, " ")
+      return failed ? `The ${script || "skill"} tool did not run` : `Ran the ${script || "skill"} tool`
+    }
     case "skills": return `Loaded the ${arg(first, "skill_name") || "a"} skill`
     case "page_read":
       return "Read the page again"

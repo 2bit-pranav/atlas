@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from _shared import created, fail, main_wrapper, output_path, page_list, require, resolve  # noqa: E402
+from _shared import created, fail, free, main_wrapper, page_list, require, resolve, unquote  # noqa: E402
 
 pdfium, = require("pypdfium2")
 
@@ -37,7 +37,8 @@ def main() -> int:
     ranges = args.ranges or [str(n) for n in range(1, total + 1)]
     if len(ranges) > MAX_FILES:
         return fail(f"{total} pages would make {len(ranges)} files", hint="give page ranges instead, e.g. 1-50 51-")
-    folder = output_path(args.out_dir)
+    folder = Path(unquote(args.out_dir))
+    folder = folder if folder.is_absolute() else Path.cwd() / folder
     folder.mkdir(parents=True, exist_ok=True)
     names = []
     for spec in ranges:
@@ -47,7 +48,7 @@ def main() -> int:
             return fail(str(exc))
         part = pdfium.PdfDocument.new()
         part.import_pages(src, pages=pages)
-        out = folder / f"{path.stem}_p{spec.replace(',', '_').rstrip('-') + ('-' + str(total) if spec.endswith('-') else '')}.pdf"
+        out = free(folder / f"{path.stem}_p{spec.replace(',', '_').rstrip('-') + ('-' + str(total) if spec.endswith('-') else '')}.pdf")
         part.save(str(out))
         names.append(f"{out.name} ({len(pages)} page{'s' * (len(pages) != 1)})")
     print(created(", ".join(names), files=len(names)))

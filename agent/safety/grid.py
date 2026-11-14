@@ -133,6 +133,10 @@ def _effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[E
         target = scope.place(raw)
         out.append(Effect("change" if target.exists() else "create", target))
     out += [Effect("read", scope.place(f)) for f in pipeline_inputs(name, args)]
+    if name == "run_skill" and isinstance(args.get("args"), list):
+        from agent.tools.skills_run import skill_effects
+
+        out += [Effect(action, p) for action, p in skill_effects(args["args"], scope.place)]
     if name == "create_document":
         # A file a reference copies from is read (documents/references.py).
         out += [Effect("read", scope.place(f)) for f in referenced(str(args.get("content", "")))]

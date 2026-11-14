@@ -5,7 +5,7 @@ description: Convert Word documents (.docx) to PDF, write new ones from Markdown
 
 # Word documents
 
-Reading is the `read_docx` tool, not this skill. Use `shell` to run the
+Reading is the `read_docx` tool, not this skill. Use `run_skill` to run the
 script below. Do not write `python-docx` code yourself.
 
 ## Convert to PDF
@@ -13,7 +13,7 @@ script below. Do not write `python-docx` code yourself.
 Do not read the document first: the script converts it in one call.
 
 ```
-python "$ATLAS_SKILLS/docx/scripts/docx_to_pdf.py" "<file>"
+run_skill(skill="docx", script="docx_to_pdf.py", args=["<file>"])
 ```
 
 This needs Microsoft Word or LibreOffice. If the script says neither is
@@ -29,7 +29,7 @@ PDF from that Markdown with `create_document`.
 
 ## Create or change a document
 
-Do not use `shell` or `write` for this. Call the **`create_document`** tool
+Do not use `run_skill` or `write` for this. Call the **`create_document`** tool
 with the whole document as **Markdown**:
 
 - `path`: a file name such as `summary.docx` (it is saved in your workspace)

@@ -40,7 +40,7 @@
     "builtin": {
       "write": true,
       "edit": true,
-      "shell": true
+      "shell": false
     }
   },
   "skills": {

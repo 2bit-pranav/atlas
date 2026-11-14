@@ -104,14 +104,12 @@ def test_atlas_itself_is_the_floor_in_every_mode(home) -> None:
         assert asked.calls == []
 
 
-def test_commands_ask_but_skill_scripts_run(home) -> None:
+def test_every_shell_command_asks_with_its_full_text(home) -> None:
+    """Plan 3.7: skills run through run_skill; a command, any command, asks."""
     policy, asked = _policy(home, answer="denied")
-    assert _call(policy, "shell", {"command": "python -c \"print(1)\""})
-    assert asked.calls[-1][0] == "tool"
-    n = len(asked.calls)
-    assert _call(policy, "shell", {"command": 'python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" out.pdf a.pdf b.pdf'}) is False
-    assert _call(policy, "shell", {"command": "ls -la"}) is False
-    assert len(asked.calls) == n
+    for command in ('python -c "print(1)"', 'python "$ATLAS_SKILLS/pdf/scripts/merge_pdf.py" out.pdf a.pdf', "ls -la"):
+        assert _call(policy, "shell", {"command": command}), command
+        assert asked.calls[-1][0] == "tool" and asked.calls[-1][1]["command"] == command
 
 
 def test_a_target_that_cannot_be_placed_asks(home) -> None:
@@ -273,14 +271,15 @@ def test_a_shell_read_outside_the_folders_asks(home, command) -> None:
     "cat notes.txt", "ls", "grep -n total sub/report.txt", "cd sub && ls && cat a.txt", "cat ~/Docs/notes.txt",
     "sed -n '/error/p' log.txt", "grep \"a/b\" log.txt", "echo see ../../README for more", "ls ..  | head -0 || true",
 ])
-def test_ordinary_reads_still_run_without_asking(home, command) -> None:
+def test_ordinary_reads_ask_once_as_a_command(home, command) -> None:
+    """Reads in the workspace and folders need no access card: one card, for the command."""
     (home / ".data" / "chats" / "c1" / "sub").mkdir()
     policy, asked = _policy(home, answer="denied")
-    if command.startswith("ls .."):      # the folder above the workspace is Atlas's data: refused, not run
-        assert _call(policy, "shell", {"command": command})
+    if command.startswith("ls .."):      # the folder above the workspace is Atlas's data: refused, not asked
+        assert _call(policy, "shell", {"command": command}) and asked.calls == []
         return
-    assert _call(policy, "shell", {"command": command}) is False, command
-    assert asked.calls == []
+    assert _call(policy, "shell", {"command": command}), command
+    assert [kind for kind, _ in asked.calls] == ["tool"], command
 
 
 @pytest.mark.parametrize("command", [
@@ -333,8 +332,7 @@ def test_changing_or_deleting_a_file_the_user_attached_asks(home, mode, name, ar
 
 def test_the_rest_of_the_workspace_and_the_edit_tools_do_not_ask(home) -> None:
     policy, asked, _ = _with_upload(home)
-    for name, args in (("shell", {"command": "cat orders.csv"}), ("shell", {"command": "cp orders.csv copy.csv"}),
-                       ("write", {"path": "made.csv", "content": "x"}), ("delete_file", {"path": "made.csv"}),
+    for name, args in (("write", {"path": "made.csv", "content": "x"}), ("delete_file", {"path": "made.csv"}),
                        ("set_cell", {"path": "orders.csv", "cell": "A1", "value": "1"}),
                        ("edit_docx", {"path": "orders.csv", "id": "b1", "text": "x"})):
         assert _call(policy, name, args) is False, (name, args)
@@ -347,6 +345,5 @@ def test_the_rest_of_the_workspace_and_the_edit_tools_do_not_ask(home) -> None:
 def test_a_command_that_talks_to_the_network_asks_in_work_mode_too(home, command) -> None:
     """Work mode runs commands unasked; `curl -F f=@<file> <url>` ran silently there (2026-11-12)."""
     policy, asked = _policy(home, mode="work", answer="denied")
-    assert _call(policy, "shell", {"command": "python tidy.py"}) is False and asked.calls == []   # an ordinary command runs
     assert _call(policy, "shell", {"command": command})
     assert len(asked.calls) == 1

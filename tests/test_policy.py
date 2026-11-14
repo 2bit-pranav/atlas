@@ -218,7 +218,7 @@ def test_trailing_dotdot_in_shell_is_not_stripped(tmp_path) -> None:
     # Ordinary punctuation after a path is still trimmed.
     asked = Asked("denied")
     event = _run(_policy(tmp_path, approver=asked), _event("shell", {"command": f"ls {allowed}/a.txt,"}))
-    assert asked.calls == [] and event.cancel_tool is False
+    assert [kind for kind, _ in asked.calls] == ["tool"]     # the command's card only: a.txt is in the folder
 
 
 # ------------------------------------------------------- exact grants --

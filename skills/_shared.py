@@ -331,11 +331,23 @@ def page_list(spec: str, total: int) -> list[int]:
 
 
 def output_path(name: str) -> Path:
-    """Where a script writes: a bare name lands in the chat workspace (cwd)."""
+    """Where a script writes: a bare name lands in the chat workspace (cwd).
+
+    Never an existing file: `name-2.ext` and so on instead, as create_document
+    does. The tool policy checks an existing path as read (run_skill), so a
+    script must not be able to replace it."""
     path = Path(unquote(name))
     path = path if path.is_absolute() else Path.cwd() / path
     path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    return free(path)
+
+
+def free(target: Path) -> Path:
+    """`target`, or the first `name-2.ext`, `name-3.ext` ... that does not exist."""
+    n, out = 2, target
+    while out.exists():
+        out, n = target.with_name(f"{target.stem}-{n}{target.suffix}"), n + 1
+    return out
 
 
 def default_output(src: Path, suffix: str) -> Path:
@@ -345,9 +357,9 @@ def default_output(src: Path, suffix: str) -> Path:
     target = src.with_suffix(suffix)
     try:
         target.resolve().relative_to(Path.cwd().resolve())
-        return target
+        return free(target)
     except ValueError:
-        return Path.cwd() / target.name
+        return free(Path.cwd() / target.name)
 
 
 def shown(path: Path) -> str:

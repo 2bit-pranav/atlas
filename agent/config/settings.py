@@ -86,7 +86,7 @@ class BuiltinToolSettings(StrictModel):
 
     write: bool = True
     edit: bool = True
-    shell: bool = True
+    shell: bool = False  # off: skills run through run_skill; when on, every command asks (plan 3.7)
 
 
 class AtlasToolSettings(StrictModel):
@@ -110,6 +110,7 @@ class AtlasToolSettings(StrictModel):
     extract_table: bool = True  # agent/tools/pipelines.py, with the xlsx skill
     write_summary: bool = True  # with the docx and pdf skills
     compare_documents: bool = True  # with the docx and pdf skills
+    run_skill: bool = True  # agent/tools/skills_run.py: a skill's script, no shell
     calculate: bool = True  # agent/tools/maths/
     dates: bool = True
 
@@ -341,6 +342,7 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.extract_table": Tier.LIVE,
     "tools.atlas.write_summary": Tier.LIVE,
     "tools.atlas.compare_documents": Tier.LIVE,
+    "tools.atlas.run_skill": Tier.LIVE,
     "tools.atlas.calculate": Tier.LIVE,
     "tools.atlas.dates": Tier.LIVE,
     "tools.interventions": Tier.LIVE,

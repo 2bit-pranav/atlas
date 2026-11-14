@@ -98,6 +98,10 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     if name in DESTINATION_TOOLS and isinstance(args.get("destination"), str) and args["destination"]:
         out.append((scope.place(args["destination"]), True))
     out += [(scope.place(f), False) for f in pipeline_inputs(name, args)]
+    if name == "run_skill" and isinstance(args.get("args"), list):
+        from agent.tools.skills_run import skill_effects
+
+        out += [(p, action != "read") for action, p in skill_effects(args["args"], scope.place)]
     if name == "create_document":
         out += [(scope.place(f), False) for f in referenced(str(args.get("content", "")))]
         # Images in the Markdown are files it reads and embeds: checked like any read,
