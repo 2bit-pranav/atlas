@@ -294,7 +294,7 @@ def describe(ask: ModelCall, found: list[dict[str, str]]) -> list[str]:
 
 
 def pipeline_tools(store: Store, chat: str, workspace: Path, resolve: Callable[[str], Path],
-                   shown: Callable[[Path], str], ask: ModelCall) -> dict[str, Any]:
+                   shown: Callable[[Path], str], ask: ModelCall, drafts: set[Path] | None = None) -> dict[str, Any]:
 
     def _inputs(names: list[str]) -> list[Path]:
         out: list[Path] = []
@@ -309,8 +309,10 @@ def pipeline_tools(store: Store, chat: str, workspace: Path, resolve: Callable[[
 
     def _write(path: str, markdown: str) -> tuple[Path, str]:
         asked = resolve(path)
-        target = _free(asked)
+        target = _free(asked, drafts)
         create(target, markdown, base=workspace)
+        if drafts is not None:
+            drafts.add(target)
         renamed = f" ({asked.name} already exists, so this is {target.name})" if target != asked else ""
         return target, renamed
 

@@ -22,7 +22,7 @@ from typing import Any
 from strands import tool
 
 from agent.ingest.store import PENDING, Store, kind_of
-from agent.tools.reading import MAX_CHARS
+from agent.tools.reading import MAX_CHARS, copy_hint
 
 #: A document this short is shown whole when no pages/section is asked for.
 SHORT_PAGES = 5
@@ -278,7 +278,8 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
             # The exact retry: after a bare "no sheet" the model dropped the path too (2026-11-05).
             return _failed(f"no sheet {sheet!r} in {name}. {listing}. Next: read_xlsx(path=\"{path or name}\", "
                            f"sheet=\"{names[0] if names else ''}\")")
-        return f"{name}: {listing}.\n\n" + _grid(target, target_sheet, range)
+        return (f"{name}: {listing}.\n\n" + _grid(target, target_sheet, range) + "\n\n"
+                + copy_hint(name, f'SELECT <column>, SUM(<number column>) FROM "{target_sheet}" GROUP BY <column>'))
 
     return [read_pdf, read_docx, read_xlsx]
 

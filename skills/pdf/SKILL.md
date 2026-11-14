@@ -8,6 +8,10 @@ description: Merge, split and convert PDF documents, and create PDFs from Markdo
 Reading is the `read_pdf` tool, not this skill. Use `run_skill` to run the
 scripts below. Do not write PDF code yourself.
 
+Facts from many PDFs into a spreadsheet (invoices, receipts): `extract_table`
+on the PDFs as they are. A summary of a long PDF: `write_summary`. Never merge
+or split for those.
+
 ## Merge, split, convert
 
 **For these, do not read the file first and do not rebuild it with `create_document`.** The scripts copy pages exactly, images included, in one call.

@@ -135,7 +135,8 @@ class DoneCheck(HookProvider):
                 if total <= SUMMARY_PAGES and len(seen) < total:
                     rest = sorted(set(range(1, total + 1)) - seen)
                     return (f"you were asked for a summary and read {len(seen)} of {total} pages of {name}. "
-                            f"Read the rest (read_pdf(path=\"{name}\", pages=\"{rest[0]}-{rest[-1]}\")), "
+                            f"Use write_summary(file=\"{name}\", path=...) if you have it: it reads every page. "
+                            f"Otherwise read the rest (read_pdf(path=\"{name}\", pages=\"{rest[0]}-{rest[-1]}\")), "
                             "then write the summary from all of it.")
         return None
 

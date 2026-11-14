@@ -200,3 +200,17 @@ def test_a_refused_write_on_a_document_brings_the_tool_it_names(env) -> None:
     assert list(a.tool_registry.registry) == ["read_text", "create_document", "edit_docx"]
     hook._after_tool(SimpleNamespace(tool_use={"name": "write", "input": {"path": "notes.txt"}}, agent=a, result={}))
     assert list(a.tool_registry.registry) == ["read_text", "create_document", "edit_docx"]
+
+
+def test_a_draft_made_this_turn_may_be_made_again_but_never_a_file_from_before(tmp_path) -> None:
+    """Sent back by the done check, the model's full summary went to summary-2.docx beside its own
+    one-bullet summary.docx (2026-11-14): the turn's own draft is replaced; an older file never is."""
+    from agent.tools.documents.tool import _free
+
+    old, draft = tmp_path / "old.docx", tmp_path / "summary.docx"
+    old.write_text("x")
+    draft.write_text("x")
+    drafts = {draft}
+    assert _free(draft, drafts) == draft
+    assert _free(old, drafts) == tmp_path / "old-2.docx"
+    assert _free(draft) == tmp_path / "summary-2.docx"          # no drafts known: never replaced

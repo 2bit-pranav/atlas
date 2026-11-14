@@ -60,8 +60,14 @@ def _failed(message: str) -> dict[str, Any]:
     return {"status": "error", "content": [{"text": f"Error: {message}"}]}
 
 
-def _free(target: Path) -> Path:
-    """`target`, or the first `name-2.ext`, `name-3.ext` ... that does not exist."""
+def _free(target: Path, drafts: set[Path] | None = None) -> Path:
+    """`target`, or the first `name-2.ext`, `name-3.ext` ... that does not exist.
+
+    A file this same turn created (`drafts`) is the turn's own draft and may be
+    made again: sent back by the done check, the model wrote its full summary as
+    `summary-2.docx` beside its one-bullet `summary.docx` (2026-11-14)."""
+    if drafts is not None and target in drafts:
+        return target
     n, out = 2, target
     while out.exists():
         out, n = target.with_name(f"{target.stem}-{n}{target.suffix}"), n + 1
@@ -69,7 +75,7 @@ def _free(target: Path) -> Path:
 
 
 def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Callable[[str], Path],
-                   store: Store, chat: str) -> dict[str, Any]:
+                   store: Store, chat: str, drafts: set[Path] | None = None) -> dict[str, Any]:
     """The writing tools for one chat, by name. `resolve` places a path as every
     file tool does (`placement.locate`)."""
 
@@ -94,7 +100,8 @@ def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Calla
         as ![caption](path) on their own line -- to keep a source document's
         images, copy the ![...](asset:...) lines its reader printed, exactly. For .xlsx,
         every Markdown table becomes a sheet named after the heading above it.
-        Never retype a table or numbers from another file: put a reference on its own
+        For a summary of a long document use write_summary; for a table from many files,
+        extract_table. Never retype a table or numbers from another file: put a reference on its own
         line and the data is copied in exactly: {{report.docx#t1}} (a Word table),
         {{sales.xlsx!North!A1:C41}} (cells), {{sales.xlsx sql: SELECT ...}} or
         {{orders.csv sql: SELECT region, SUM(total) FROM orders GROUP BY region}}.
@@ -107,7 +114,7 @@ def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Calla
             title: Optional document title.
         """
         asked = resolve(path)
-        target = _free(asked)
+        target = _free(asked, drafts)
         try:
             content = expand(content, resolve)
             info = create(target, content, title or None, base=workspace,
@@ -116,6 +123,8 @@ def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Calla
             return _failed(str(exc))
         except Exception as exc:  # noqa: BLE001 - the model needs words, not a traceback
             return _failed(f"could not create {target.name}: {type(exc).__name__}: {exc}")
+        if drafts is not None:
+            drafts.add(target)
         missing = info.pop("missing_images", [])
         detail = ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in info.items() if v)
         size = target.stat().st_size

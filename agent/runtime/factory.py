@@ -140,10 +140,12 @@ def build_agent(
     # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
     # The pipelines ask the model through ModelCall: the run's limits, Stop and trace hold.
     limits = RunLimits(settings.limits, notify=observer)
-    ask =ModelCall(settings, observer=observer, limits=limits, cancelled=cancelled)
+    ask = ModelCall(settings, observer=observer, limits=limits, cancelled=cancelled)
+    # Files the writing tools made this turn: the turn may make them again (documents/tool._free).
+    drafts: set[Path] = set()
     skill_tools = SkillTools(preload=set(writes), tools={name: t for name, t in {
-        **document_tools(workspace_dir, shown, resolve, store, chat_id),
-        **pipeline_tools(store, chat_id, workspace_dir, resolve, shown, ask)}.items() if name in enabled})
+        **document_tools(workspace_dir, shown, resolve, store, chat_id, drafts),
+        **pipeline_tools(store, chat_id, workspace_dir, resolve, shown, ask, drafts)}.items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 

@@ -69,6 +69,15 @@ def _window(name: str, lines: list[str], start: int, end: int | None) -> str:
     return head + "\n" + "\n".join(out)
 
 
+def copy_hint(name: str, example: str) -> str:
+    """Said with every table the readers show. Asked to put rows or a total in a document, the
+    model retyped them: an order left out, totals made up (hard-orders, hard-sales, 2026-11-14)."""
+    table = Path(name).stem
+    return (f"To put these rows or a total in a document, never retype them: put a reference on its own line "
+            f"in create_document, and the rows are copied in exactly: "
+            f"{{{{{name} sql: {example.format(table=table)}}}}}.")
+
+
 def _search(name: str, lines: list[str], query: str) -> str:
     """Lines holding the most of the query's words (case ignored), in file order.
 
@@ -146,7 +155,10 @@ def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str], vis
         lines = text.splitlines()
         if search.strip():
             return _search(target.name, lines, search)
-        return _window(target.name, lines, start_line, end_line or None)
+        out = _window(target.name, lines, start_line, end_line or None)
+        if target.suffix.lower() == ".csv":
+            out += "\n\n" + copy_hint(target.name, "SELECT * FROM {table} WHERE ...")
+        return out
 
     @tool(name="read_image")
     def read_image(path: str) -> Any:

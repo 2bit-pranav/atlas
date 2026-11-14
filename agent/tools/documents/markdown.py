@@ -68,6 +68,10 @@ def _inline(token: Any) -> list[Run]:
 _BLOCK_ID = re.compile(r"^\[b\d+\]\s*|\s*\[b\d+\]\s*$", re.M)
 _TABLE_HEAD = re.compile(r"^\[t\d+:[^\n]*$")
 _TABLE_ROW = re.compile(r"^r\d+:\s?(.*)$")
+#: read_docx's heading: `# 2.1 Title [b5]`. The outline number is the reader's, not the title's:
+#: copied, "3 Expenses" kept its old number after the sections were reordered (2026-11-14).
+#: shortcut: a Title of the form "10 Steps [b1]" loses its "10"; the reader would need to mark its numbers.
+_HEADING_NUMBER = re.compile(r"^(#{1,6}\s+)\d{1,2}(?:\.\d{1,2})*\s+(?=.*\[b\d+\]\s*$)")
 
 
 def without_reader_marks(text: str) -> str:
@@ -97,7 +101,7 @@ def without_reader_marks(text: str) -> str:
             rows.append(row.group(1).strip())
             continue
         flush()
-        out.append(_BLOCK_ID.sub("", line))
+        out.append(_BLOCK_ID.sub("", _HEADING_NUMBER.sub(lambda m: m.group(1), line)))
     flush()
     return "\n".join(out)
 
