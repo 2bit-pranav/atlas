@@ -201,3 +201,8 @@ def test_a_turn_the_done_check_sent_back_is_left_to_it(resume) -> None:
     prov = Provenance()
     prov._before(None)
     assert _turn(prov, "| North | 17635.35 |", [], resume=resume).resume == resume
+
+
+def test_csv_fields_count_as_sources() -> None:
+    """Fields right after a comma were not read as sources, so copied rows were flagged (2026-11-14)."""
+    assert unsourced("| O1036 | 110.42 | 1,340 |", source_values(["O1036,North,seal,11,110.42", "trout 1,340"])) == []

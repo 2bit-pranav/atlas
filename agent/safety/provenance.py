@@ -59,12 +59,16 @@ def numbers(text: str) -> list[str]:
     return out
 
 
+#: Sources are read leniently: CSV fields come right after a comma (`O1036,North,11,110.42`).
+_ANY_NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
+
+
 def source_values(texts: list[str]) -> set[Decimal]:
     found: set[Decimal] = set()
     for t in texts:
-        for token in _NUMBER.findall(t):
+        for token in _ANY_NUMBER.findall(t) + re.findall(r"\d+(?:\.\d+)?", t):
             if (v := _value(token)) is not None:
-                found.add(abs(v))
+                found.add(v)
     return found
 
 

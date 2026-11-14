@@ -1,0 +1,5 @@
+all           A  passed 16/20  complete  93%  errors/run 0.00  avg  27.6s
+docs          A  passed 16/20  complete  93%  errors/run 0.00  avg  27.6s
+hard          A  passed 16/20  complete  93%  errors/run 0.00  avg  27.6s
+write         A  passed 16/20  complete  93%  errors/run 0.00  avg  27.6s
+xlsx          A  passed 3/4  complete  79%  errors/run 0.00  avg  45.4s

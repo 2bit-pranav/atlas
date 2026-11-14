@@ -172,8 +172,9 @@ def test_a_reference_that_cannot_be_read_is_an_error_not_text(tmp_path) -> None:
     place = lambda n: tmp_path / n  # noqa: E731
     with pytest.raises(DocumentError, match="not a reference"):
         expand("| North | {{o.csv sql: SUM(amount)} |", place)
-    with pytest.raises(DocumentError, match="line of its own"):
-        expand("| North | {{o.csv sql: SELECT SUM(amount) FROM o}} |", place)
+    assert expand("| Total | {{o.csv sql: SELECT SUM(amount) FROM o.csv}} |", place) == "| Total | 6.5 |"   # one value fits
+    with pytest.raises(DocumentError, match="must give one value"):
+        expand("| North | {{o.csv sql: SELECT * FROM o}} |", place)
     assert "6.5" in expand("Total:\n{{o.csv sql: SELECT SUM(amount) AS total FROM o}}\n", place)
 
 
@@ -194,3 +195,22 @@ def test_a_table_copied_onto_one_line_is_a_table_again() -> None:
     assert without_reader_marks("[t1: table, 3 rows x 2 cols. A cell ... c1, c2, ... r1: Name | City r2: Asha | Pune "
                                 "r3: Liam | Leeds").splitlines() == want
     assert without_reader_marks("r1: Name | City r2: Asha | Pune r3: Liam | Leeds").splitlines() == want
+
+
+def test_a_sheet_name_used_as_a_value_is_refused_with_the_right_form(tmp_path) -> None:
+    """`SELECT "Jan" AS month ... GROUP BY "Jan", region` grouped by whole rows: 40 one-row totals (2026-11-14)."""
+    import pytest
+    from openpyxl import Workbook
+
+    from agent.tools.doc_reading import QueryError, xlsx_rows
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Jan"
+    for row in (["region", "revenue"], ["North", 1.5], ["North", 2]):
+        ws.append(row)
+    wb.save(tmp_path / "s.xlsx")
+    with pytest.raises(QueryError, match="single quotes"):
+        xlsx_rows(tmp_path / "s.xlsx", 'SELECT "Jan" AS month, "region", SUM("revenue") FROM "Jan" GROUP BY "Jan", "region"')
+    assert xlsx_rows(tmp_path / "s.xlsx", "SELECT 'Jan' AS month, \"region\", SUM(\"revenue\") FROM \"Jan\" "
+                                          'GROUP BY "region"')[1] == [("Jan", "North", 3.5)]

@@ -37,14 +37,22 @@ def expand(content: str, resolve: Callable[[str], Path]) -> str:
     def one(m: re.Match[str]) -> str:
         line_start = content.rfind("\n", 0, m.start()) + 1
         line_end = content.find("\n", m.end())
-        if content[line_start:m.start()].strip() or content[m.end():None if line_end < 0 else line_end].strip():
-            # In a table cell it became a table inside the cell (2026-11-14).
-            raise DocumentError(f"{m.group(0)} must be on a line of its own: it becomes a whole table there. "
-                                "One reference can give every row and column you need (GROUP BY ...).")
+        inline = bool(content[line_start:m.start()].strip() or content[m.end():None if line_end < 0 else line_end].strip())
         name = m.group("file").strip()
         path = resolve(name)
         if not path.is_file():
             raise DocumentError(f"{m.group(0)}: there is no file {name}.")
+        if inline:
+            # In a sentence or a table cell: one value fits there (a total), a table does not.
+            # The model put a total's query in the Total row three times over (2026-11-14).
+            if m.group("sql"):
+                header, rows = _query_rows(path, m.group("sql").strip(), m.group(0))
+                if len(rows) == 1 and len(rows[0]) == 1:
+                    from agent.tools.doc_reading import cell_str
+
+                    return cell_str(rows[0][0])
+            raise DocumentError(f"{m.group(0)} is inside a line: there it must give one value, like "
+                                "{{f.csv sql: SELECT ROUND(SUM(amount), 2) FROM f}}. A table goes on a line of its own.")
         try:
             if m.group("table"):
                 return _docx_table(path, int(m.group("table")), m.group(0))
@@ -117,7 +125,14 @@ def _range(path: Path, spec: str, ref: str) -> str:
 
 
 def _query(path: Path, sql: str, ref: str) -> str:
-    from agent.tools.doc_reading import QueryError, cell_str, csv_rows, xlsx_rows
+    from agent.tools.doc_reading import cell_str
+
+    header, rows = _query_rows(path, sql, ref)
+    return _markdown([[str(h) for h in header], *[[cell_str(v) for v in r] for r in rows]])
+
+
+def _query_rows(path: Path, sql: str, ref: str) -> tuple[list[str], list[tuple]]:
+    from agent.tools.doc_reading import QueryError, csv_rows, xlsx_rows
 
     try:
         if path.suffix.lower() == ".csv":
@@ -130,7 +145,7 @@ def _query(path: Path, sql: str, ref: str) -> str:
         raise DocumentError(f"{ref}: {exc}") from None
     if len(rows) > MAX_ROWS:
         raise DocumentError(f"{ref}: the query returned more than {MAX_ROWS} rows; narrow it.")
-    return _markdown([[str(h) for h in header], *[[cell_str(v) for v in r] for r in rows]])
+    return header, rows
 
 
 __all__ = ["MAX_ROWS", "REFERENCE", "expand", "referenced"]

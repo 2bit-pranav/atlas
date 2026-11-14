@@ -406,6 +406,12 @@ def xlsx_rows(path: Path, sql: str, sheet: str = "", limit: int = 200) -> tuple[
             cur = con.execute(lettered)   # columns named by letter, as read_xlsx's grid shows them
         header = [d[0] for d in cur.description or []]
         result = cur.fetchmany(limit)
+        if any(isinstance(v, dict) for r in result for v in r):
+            # `SELECT "Jan" AS month ... GROUP BY "Jan"`: a sheet's name in double quotes is its whole
+            # row, so every row became its own group and its own "total" (2026-11-14).
+            raise QueryError('a sheet\'s name in double quotes is its whole row, not a value. To label rows '
+                             "with it, write it in single quotes: SELECT 'Jan' AS month, \"region\", "
+                             'SUM("revenue") FROM "Jan" GROUP BY "region".')
     except duckdb.Error as exc:
         msg = str(exc).split("\n")[0]
         hint = (" Text values go in single quotes ('North'); double quotes name a column or sheet."
@@ -474,6 +480,8 @@ def csv_rows(path: Path, sql: str, limit: int = 200) -> tuple[list[str], list[tu
     if FORBIDDEN.search(sql) or ";" in sql.strip().rstrip(";"):
         raise QueryError("only one SELECT query is allowed.")
     name = re.sub(r"\W+", "_", path.stem).strip("_") or "data"
+    # `FROM orders.csv`: the file's name for its table, written twice by the model (2026-11-14).
+    sql = re.sub(rf"""(["']?){re.escape(path.name)}\1""", name, sql, flags=re.I)
     con = duckdb.connect(":memory:")
     columns: list[str] = []
     try:
