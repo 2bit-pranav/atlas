@@ -14,6 +14,7 @@ Parts:
         request is what is asked: "install", "access" (a folder outside the
         allowed ones) or "tool" (an MCP tool the user marked "ask")
     {"kind": "superseded", "text"}   an answer replaced after a resume
+    {"kind": "notice", "level", "text"}  a guardrail's note for the user (instructions found, figures unsourced)
 
 Consecutive deltas of one kind merge into one part, otherwise a 400-token
 answer would be 400 parts.
@@ -53,6 +54,9 @@ class Transcript:
             for part in self.parts:
                 if part["kind"] == "text":
                     part["kind"] = "superseded"
+        elif kind == "notice":
+            # Something a guardrail wants the user to see (agent/safety/rails.py, provenance.py).
+            self.parts.append({"kind": "notice", "level": event.get("level", "info"), "text": event.get("text", "")})
         elif kind == "thinking_delta":
             self._append("reasoning", event.get("text", ""))
         elif kind == "text_delta":

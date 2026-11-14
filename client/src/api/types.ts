@@ -48,6 +48,8 @@ export type Part =
   | { kind: "reasoning"; text: string }
   /** An answer the model gave before it was sent back to work after a failure. */
   | { kind: "superseded"; text: string }
+  /** A guardrail's note for the user (instructions found in a source, figures with no source). */
+  | { kind: "notice"; level?: "info" | "warning"; text: string }
   | {
       kind: "tool"
       id: string

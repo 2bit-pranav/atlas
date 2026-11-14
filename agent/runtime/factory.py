@@ -31,9 +31,12 @@ from agent.runtime.model_call import ModelCall
 from agent.runtime.restore import _restore
 from agent.runtime.skill_tools import SkillTools
 from agent.safety.approvals import Approver
+from agent.safety.egress import EgressGuard
 from agent.safety.limits import RunLimits
 from agent.safety.policy import TaintTracker, ToolPolicy
 from agent.safety.protected import Protected
+from agent.safety.provenance import Provenance
+from agent.safety.rails import InputFence
 from agent.safety.scope import Scope, upload_key
 from agent.store.snapshots import SessionManager
 from agent.tools.doc_reading import doc_read_tools
@@ -176,12 +179,19 @@ def build_agent(
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
         # Before a tool runs: the run's limits, then one ordered policy
         # (policy.py), so a refused repeat never shows a card. After: recovery.
-        hooks=[limits,
+        # The input fence first: after-tool callbacks run in reverse, so it wraps results last.
+        hooks=[InputFence(on_taint, observer), limits,
+               # Everything that leaves the machine, before the policy could show a card for it.
+               EgressGuard(store=store, chat=chat_id, request=request, tainted=tainted or (lambda: False),
+                           untrusted=untrusted, observer=observer),
                ToolPolicy(scope, approver=approver, observer=observer,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           mode=settings.access.mode, chat_grants=chat_grants),
                ToolFailureRecovery(settings.resilience, notify=observer),
                # After it: a turn it already sent back is not sent back twice.
+               # End-of-turn callbacks run in reverse: the provenance rail after the done check,
+               # so a turn the done check sent back is not sent back twice.
+               Provenance(notify=observer),
                DoneCheck(workspace_dir, request, notify=observer, place=scope.place),
                skill_tools,
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],

@@ -110,7 +110,7 @@ class Run:
                 self.emit(stats)
             else:
                 self.transcript.fold(stats)
-        elif kind in ("call_start", "model_retry", "resumed"):
+        elif kind in ("call_start", "model_retry", "resumed", "notice"):
             self.emit(event)
         elif kind == "limit":
             # Strands makes the stop message the turn's answer without streaming

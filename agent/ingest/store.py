@@ -153,6 +153,16 @@ class Store:
                 "WHERE fts MATCH ? AND fts.sha=? ORDER BY bm25(fts) LIMIT ?", (match, sha, limit)).fetchall()
         return [_block(r) for r in rows]
 
+    def holds_phrase(self, chat: str, words: list[str]) -> bool:
+        """Whether a document this chat owns has these words in a row (the egress gate)."""
+        clean = [w for w in (re.sub(r"\W", "", x) for x in words) if w]
+        if not clean:
+            return False
+        with self.lock:
+            return self.db.execute(
+                "SELECT 1 FROM fts JOIN owners o ON o.sha=fts.sha WHERE fts MATCH ? AND o.chat=? LIMIT 1",
+                ('"' + " ".join(clean) + '"', chat)).fetchone() is not None
+
     def find_text(self, query: str, limit: int = 200) -> list[tuple[str, str]]:
         """(file path, text) for every ingested document holding any of the words,
         best block first. The caller keeps only paths it may search."""

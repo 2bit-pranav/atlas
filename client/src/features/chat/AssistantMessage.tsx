@@ -13,6 +13,7 @@ import { items } from "@/features/chat/items"
 import { AnswerExtras } from "@/state/slots"
 import { Reasoning } from "@/features/chat/Reasoning"
 import { ApprovalCard } from "@/features/chat/ApprovalCard"
+import { Notice } from "@/features/chat/Notice"
 import { Stats } from "@/features/chat/StatsBar"
 import { Action, CopyButton } from "@/features/chat/MessageActions"
 import { PanelLayout, TaskLayout } from "@/features/task/layout"
@@ -70,6 +71,8 @@ export function AssistantMessage({ turn, chatId, parts, stats, running, isLast }
           return <div key={part.id} className={inPanel}><ApprovalCard part={part} live={running} /></div>
         if (part.kind === "superseded")
           return <Superseded key={i} text={part.text} />
+        if (part.kind === "notice")
+          return <div key={i} className={inPanel}><Notice text={part.text} /></div>
         return <Markdown key={i} text={part.text} />
       })}
 
