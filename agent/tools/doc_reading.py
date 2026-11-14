@@ -22,6 +22,7 @@ from typing import Any
 from strands import tool
 
 from agent.ingest.store import PENDING, Store, kind_of
+from agent.tools.documents.references import TABLE_HINT
 from agent.tools.reading import MAX_CHARS, copy_hint
 
 #: A document this short is shown whole when no pages/section is asked for.
@@ -299,7 +300,7 @@ def _docx_block(b: dict[str, Any], name: str = "the document.docx") -> str:
         # lines it lost rows, or came out as one line of text (2026-11-14).
         return (f"[{b['id']}: table, {b.get('rows')} rows x {b.get('cols')} cols. A cell is "
                 f"{b['id']}.rROW.cCOL, columns counted from the left: c1, c2, ...]\n{rows}\n"
-                f"[To keep this table in a new document, put {{{{{name}#{b['id']}}}}} on its own line in "
+                f"{TABLE_HINT}, put {{{{{name}#{b['id']}}}}} on its own line in "
                 "create_document; never retype it.]")
     if b["kind"] == "image":
         return b["text"]
@@ -524,6 +525,9 @@ def _value(v: Any, numeric: bool) -> Any:
 def cell_str(v: Any) -> str:
     if isinstance(v, float) and v.is_integer():
         return str(int(v))
+    if isinstance(v, float):
+        # A sum of cents in binary floats: 19158.239999999998 is 19158.24 (12 significant digits).
+        return f"{v:.12g}"
     return "" if v is None else str(v)
 
 

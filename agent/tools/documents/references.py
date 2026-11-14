@@ -23,6 +23,10 @@ from agent.tools.documents.base import DocumentError
 REFERENCE = re.compile(
     r"\{\{\s*(?P<file>[^{}#!\n]+?\.(?:docx|xlsx|xlsm|csv))\s*"
     r"(?:#t(?P<table>\d+)|!(?P<range>[^{}\n]+?)|sql:\s*(?P<sql>[^{}]+?))\s*\}\}", re.I)
+#: The reader's note under a Word table (doc_reading._docx_block). Copied with the rest, it
+#: put its own reference in the middle of a line (2026-11-14): such lines are dropped.
+TABLE_HINT = "[To keep this table in a new document"
+_HINT_LINE = re.compile(r"^\s*" + re.escape(TABLE_HINT) + r"[^\n]*\n?", re.M)
 #: Rows one reference may put in a document.
 MAX_ROWS = 5000
 
@@ -34,6 +38,7 @@ def referenced(content: str) -> list[str]:
 
 def expand(content: str, resolve: Callable[[str], Path]) -> str:
     """`content` with each reference replaced by its data as a Markdown table."""
+    content = _HINT_LINE.sub("", content)
     def one(m: re.Match[str]) -> str:
         line_start = content.rfind("\n", 0, m.start()) + 1
         line_end = content.find("\n", m.end())
