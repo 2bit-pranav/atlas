@@ -141,7 +141,8 @@ yet.
   is what lets the policy treat an existing path argument as a read.
 - **3.7:** the shell defaults to off, but a settings file with `"shell": true`
   keeps it on.
-- **3.9:** "trim" replaced Strands' managers. Older settings files load as "trim".
+- **3.8:** reverted. Thinking stays the composer toggle's choice (decisions.md).
+- **3.9:** "trim" replaced Strands' managers.
 
 **Exit, 2026-11-14:** the hard tasks pass 18/20 with a median of 18.5 s, shell off
 (`benchmarks/2026-11-14-phase3-hard-round3`), after two rounds of fixes found in the
@@ -162,6 +163,12 @@ No model-judged guardrail on the hot path. Every rail's verdict goes to the trac
 
 Exit: a `rails` suite tag: 0 leaks over the injection and exfiltration tasks, 3
 repeats; no added time to first token (rails are deterministic or run at ingest).
+
+**Status, 2026-11-14:** 4.1 to 4.5 done, with tests (a real Strands turn on a
+scripted model checks the fence lands in the history and the raw result reaches
+the later hooks). One change from the plan: instruction detection runs in the
+input fence on every tool result, not only at ingest, so pages, the web and MCP
+are covered by the same check.
 
 ## Phase 5: speed and local features
 

@@ -53,8 +53,7 @@ export interface AtlasState {
   run: RunRef | null
   live: LiveTurn | null
   settings: SettingsView | null
-  /** The composer's switch: null is Auto (code chooses per turn, agent/runtime/thinking.py). */
-  thinking: boolean | null
+  thinking: boolean
   staged: Staged[]
   /** The chat a staged upload belongs to. Uploads need a chat to live in. */
   stagedChat: string | null
@@ -86,7 +85,7 @@ class Store {
     run: null,
     live: null,
     settings: null,
-    thinking: null,
+    thinking: false,
     staged: [],
     stagedChat: null,
     pending: null,
@@ -173,7 +172,7 @@ class Store {
       const [settings, chats] = await Promise.all([api.getSettings(), api.listChats()])
       this.set({
         settings, chats, chatsLoaded: true, connected: true,
-        thinking: settings.values["sampling.thinking_auto"] === false ? Boolean(settings.values["sampling.thinking"]) : null,
+        thinking: Boolean(settings.values["sampling.thinking"]),
       })
     } catch (error) {
       this.set({ chatsLoaded: true })
@@ -373,7 +372,7 @@ class Store {
       void api.deleteUpload(chatId, file.name).catch(() => undefined)
   }
 
-  setThinking(thinking: boolean | null) {
+  setThinking(thinking: boolean) {
     this.set({ thinking })
   }
 

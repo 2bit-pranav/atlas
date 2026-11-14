@@ -16,7 +16,6 @@ agent/
                 page.py          the note on a message sent from the extension
   runtime/      factory.py       build_agent(): the one place that calls create_harness
                 model_call.py    ModelCall: one schema-constrained question asked by code (limits, Stop, trace)
-                thinking.py      whether a turn thinks first, chosen by code (the composer overrides)
                 context.py       TrimToolResults: earlier turns' tool results stubbed near the window
                 restore.py       restoring from a Strands snapshot, then re-setting the prompt
                 memory.py        long-term memory: off, and why
@@ -30,6 +29,9 @@ agent/
                 installs.py      the install rules, applied by shell.py to each simple command
                 rules.toml       the floor: shell commands refused in every tier (rules.py loads and checks it)
                 limits.py        RunLimits: model calls, minutes and repeated calls per message
+                rails.py         guardrails: Rail/run_rails, untrusted() fence + InputFence, instruction detection
+                egress.py        EgressGuard: one gate for everything that leaves the machine
+                provenance.py    every typed figure needs a source: sends a document back once, else a notice
   recovery/     model_retry.py   LocalModelRetry: model calls that fail or come back empty
                 tool_recovery.py ToolFailureRecovery: crashed tools, non-zero exits, giving up
   platform/     windows_shell.py WindowsLocalEnvironment: the shell, stoppable commands
@@ -315,6 +317,20 @@ steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
    already asked about the call.
 
 Recovery after a tool runs stays in `recovery/`.
+
+### Guardrails around the policy (`rails.py`, `egress.py`, `provenance.py`)
+
+The policy is the action stage. Three more stages, all code:
+
+- **Input:** `InputFence`, the first hook, wraps every result that carries
+  outside text in `<untrusted source=...>` (not Atlas's own results, not errors).
+  Text addressed to the assistant taints the chat and shows a notice.
+- **Egress:** `EgressGuard`, before the policy, checks every outbound string
+  (searches, addresses, links, untrusted MCP arguments): shape, a budget once
+  tainted, and no run of 12 words from a document the chat read.
+- **Output:** `Provenance`, beside the done check, finds figures typed into a
+  document with no source in the history. It sends the turn back once, then
+  shows a notice.
 
 ### Access
 

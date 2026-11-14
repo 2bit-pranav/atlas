@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.config.settings import ContextSettings
 from agent.runtime.context import TrimToolResults, trim
 
 
@@ -49,7 +48,3 @@ def test_an_overflow_with_nothing_left_to_trim_is_raised() -> None:
     with pytest.raises(ValueError):
         TrimToolResults(32768, 0.75, 0.5).reduce_context(agent, ValueError("too long"))
 
-
-def test_older_settings_files_still_load() -> None:
-    c = ContextSettings.model_validate({"conversation_manager": "summarizing", "generation_reserve": 8000})
-    assert c.conversation_manager == "trim"

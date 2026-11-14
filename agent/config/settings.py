@@ -72,8 +72,7 @@ class SamplingSettings(StrictModel):
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     repeat_penalty: float = Field(default=1.0, gt=0.0)
-    thinking: bool = False  # with thinking_auto off: whether a turn thinks
-    thinking_auto: bool = True  # code chooses per turn (agent/runtime/thinking.py); the composer overrides
+    thinking: bool = False
 
 
 class LlamaCppSettings(StrictModel):
@@ -256,17 +255,6 @@ class ContextSettings(StrictModel):
     prune_trigger_ratio: float = Field(default=0.75, gt=0.0, lt=1.0)
     prune_target_ratio: float = Field(default=0.50, gt=0.0, lt=1.0)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _older_files(cls, data: Any) -> Any:
-        """Settings files from before plan 3.9: Strands' sliding and summarizing managers
-        (summarizing asked the model to rewrite history) are "trim"; generation_reserve was never read."""
-        if isinstance(data, dict):
-            data = {k: v for k, v in data.items() if k != "generation_reserve"}
-            if data.get("conversation_manager") in ("sliding", "summarizing"):
-                data["conversation_manager"] = "trim"
-        return data
-
     @model_validator(mode="after")
     def _ordered(self) -> ContextSettings:
         if self.prune_target_ratio >= self.prune_trigger_ratio:
@@ -330,7 +318,6 @@ TIERS: dict[str, Tier] = {
     "sampling.frequency_penalty": Tier.LIVE,
     "sampling.repeat_penalty": Tier.LIVE,
     "sampling.thinking": Tier.LIVE,
-    "sampling.thinking_auto": Tier.LIVE,
     "tools.builtin.write": Tier.LIVE,
     "tools.builtin.edit": Tier.LIVE,
     "tools.builtin.shell": Tier.LIVE,

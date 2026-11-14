@@ -262,26 +262,23 @@ export const Composer = memo(function Composer({ edit, placeholder, look = "chat
     </>
   )
 
-  // Auto -> On -> Off -> Auto. Auto: Atlas thinks first for several files or a document to make.
-  const nextThinking = () => atlas.setThinking(thinking === null ? true : thinking ? false : null)
-  const thinkWord = thinking === null ? "Auto" : thinking ? "On" : "Off"
   const thinkButton = !supportsThinking ? null : task && !panel ? (
-    <Tip label="Auto thinks first for several files or a document to make. Slower, but better at tasks with several steps">
-      <button type="button" onClick={nextThinking} aria-pressed={thinking === true}
+    <Tip label="Slower, but better at tasks with several steps">
+      <button type="button" onClick={() => atlas.setThinking(!thinking)} aria-pressed={thinking}
               className={cn("flex h-8 items-center rounded-lg border bg-card px-2.5 text-xs font-medium transition-colors hover:bg-accent",
                             thinking ? "border-run/60 text-run" : "text-muted-foreground")}>
-        Think first: {thinkWord}
+        Think first: {thinking ? "On" : "Off"}
       </button>
     </Tip>
   ) : (
-    <Tip label={thinking === null ? "Thinking: Auto (on for several files or a document)" : thinking ? "Thinking on" : "Thinking off"}>
-      <button type="button" onClick={nextThinking} aria-pressed={thinking === true}
-              aria-label={`Think first: ${thinkWord}`}
+    <Tip label={thinking ? "Thinking on" : "Thinking off"}>
+      <button type="button" onClick={() => atlas.setThinking(!thinking)} aria-pressed={thinking}
+              aria-label={thinking ? "Think first: on" : "Think first: off"}
               className={cn("flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs hover:bg-muted-foreground/10",
                             panel && "w-8 justify-center rounded-lg px-0",
                             thinking ? (panel ? "text-run" : "text-foreground") : "text-muted-foreground")}>
-        {thinking === false ? <LightbulbOff className="h-4 w-4" /> : <Lightbulb className="h-4 w-4" />}
-        {thinking !== false && !panel && <span className="hidden sm:inline">{thinking ? "Think" : "Auto"}</span>}
+        {thinking ? <Lightbulb className="h-4 w-4" /> : <LightbulbOff className="h-4 w-4" />}
+        {thinking && !panel && <span className="hidden sm:inline">Think</span>}
       </button>
     </Tip>
   )

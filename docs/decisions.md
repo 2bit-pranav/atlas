@@ -20,8 +20,7 @@ a one-line stub ("call the tool again if you need it"), oldest first, down to
 is summarised by the model. The history changes only when the trigger is crossed,
 so llama.cpp's cached prefix survives ordinary turns. Strands' sliding and
 summarizing managers are gone (summarizing had the model rewrite history), and
-older settings files that name them load as "trim". `generation_reserve` was
-never read and is removed. A `long-chat` suite task (two full reads of the
+`generation_reserve`, never read, is removed. A `long-chat` suite task (two full reads of the
 16-page review, then a question about both) has to pass before this is trusted.
 `tests/test_harness_contract.py` pins, on a scripted model:
 - the four memory switches;
@@ -128,14 +127,13 @@ Atlas only configures it. Everything Atlas adds is listed in the README.
 
 ## llama.cpp, the model and the prompt
 
-**Thinking is chosen by code per turn** (2026-11-14, plan 3.8, not yet measured).
-86% of model time is generation, and thinking roughly doubles it. It helps where
-there is a plan to make, not for a question or a single read. With
-`sampling.thinking_auto` on (the default), a turn thinks first when it has two
-or more files, or asks for a document to be made: a word like make, write or
-merge, then a document type or file name in the same sentence
-(`runtime/thinking.py`). The composer's switch is Auto, On or Off, and On or Off
-overrides. The trace records whether code or the user chose.
+**Thinking stays the user's choice: code choosing it per turn was removed**
+(2026-11-14, plan 3.8 built, then reverted the same day). For a short while, code
+picked thinking for each turn: on for two or more files or a document to make,
+off otherwise, with the composer's switch reading Auto, On or Off. Reverted at the
+user's call: a 2B model's answers are worse with thinking off, and a guess about
+which turns need it saves seconds at that cost. The composer's toggle is the only
+control again, starting from `sampling.thinking`.
 
 **What a model can do is read from its files** (2026-11-07). "Model can think" and
 "Model can see images" were toggles the user had to know to set; set wrong, they
@@ -259,8 +257,8 @@ Two other things the traces showed:
 
 `extract_table` passed every time it was called (one call, about 22 s for 12
 invoices). Left: thinking-off hard-sales (a reference for one month only) and
-a total typed instead of copied. Under Auto both tasks think, because they ask
-for a document.
+a total typed instead of copied. With thinking on (the user's
+choice in the composer) both passed.
 
 **The workflow lane: code loops, the model answers one question per unit**
 (2026-11-14, plan 3.1 to 3.5, not yet run on the model). `ModelCall`
@@ -637,6 +635,44 @@ does not help with rich documents on llama.cpp, and a 2B model writing
 ---
 
 ## Safety
+
+**Guardrails at four places: input, action, egress, output** (2026-11-14, plan
+phase 4). Every rail is code, never a model, so none adds time before the first
+token. Every verdict goes to the run's trace (`step` input, egress or output).
+- **Input** (`rails.py`):
+  - Every tool result that carries outside text is wrapped in
+    `<untrusted source="read_pdf: memo.pdf">...</untrusted>`. That covers files,
+    pages, the web, MCP and new tools. Results that are Atlas's own words
+    (`calculate`, "Created x.docx") and errors are not wrapped.
+  - The text cannot close the fence. The system prompt says what the fence means.
+  - The hook is registered first: after-tool callbacks run in reverse, so the
+    done check still reads the raw result. The UI shows results without the fence.
+- **Instructions in a source** (4.5): a phrase list rather than a model, run on
+  every result. "Note to the AI assistant", "ignore previous instructions",
+  "run the following command" and "include ... in your answer" all match;
+  "ignore the earlier forecast" and "our assistant manager must" don't.
+  - A match taints the chat, so an attached file now does too.
+  - The model gets a warning inside the fence.
+  - The user sees a notice once per source.
+
+  Done in the input fence rather than only at ingest, so pages, web results and
+  MCP output are covered by the same check.
+- **Action:** `ToolPolicy`, unchanged.
+- **Egress** (`egress.py`): one hook, before the policy, checks every string that
+  leaves the machine: `web_search` queries, `read_url` addresses and questions,
+  PDF links, `run_skill` links and every argument to an untrusted MCP server.
+  - Shape: the web tools' own rules.
+  - Budget: 600 characters per turn once the chat is tainted.
+  - Overlap: refused if it holds 12 words in a row from a document the chat read,
+    unless the user typed them. 12 rather than 8, so a long title can still be
+    searched.
+- **Output** (`provenance.py`): figures typed into `create_document`,
+  `edit_docx` or `set_cell` must be in a message or a tool result. References are
+  filled by code and not counted; rounding as written counts as a match.
+  - Small whole numbers, years, dates, times and file-name digits are not checked.
+  - A document with unsourced figures sends the turn back once, naming them.
+  - What is still unsourced at the end, and unsourced figures in an answer when
+    the turn used a tool, become a notice.
 
 **Skill scripts run through `run_skill`; the shell is off by default and asks for
 every command when on** (2026-11-14, plan 3.6 and 3.7). Every hole Phase 0

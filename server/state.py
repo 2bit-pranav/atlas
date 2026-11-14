@@ -26,7 +26,6 @@ from agent.prompt.notes import clock_note, retry_hint
 from agent.prompt.page import inline_limit, page_hash, page_note
 from agent.runtime.factory import build_agent
 from agent.runtime.skill_tools import for_message
-from agent.runtime.thinking import wants_thinking
 from agent.store.chats import CANCELLED, COMPLETED, FAILED, INTERRUPTED, ChatStore
 from agent.store.snapshots import SessionManager
 from agent.tools.page import page_file_name, page_tools
@@ -140,11 +139,8 @@ class Atlas:
         except RunConflict as exc:
             raise HTTPException(409, str(exc)) from exc
 
-    def thinking(self, override: bool | None) -> bool | None:
-        """The composer's choice, else the setting; None: chosen by code for the turn (`launch`)."""
-        if override is not None:
-            return override
-        return None if self.settings.sampling.thinking_auto else self.settings.sampling.thinking
+    def thinking(self, override: bool | None) -> bool:
+        return self.settings.sampling.thinking if override is None else override
 
     def view(self, chat_id: str) -> dict[str, Any]:
         """The visible path with everything the UI needs to draw it. No snapshots read."""
@@ -158,13 +154,9 @@ class Atlas:
 
 
     def launch(
-        self, turn: dict[str, Any], *, thinking: bool | None, retry: RetryPlan | None = None,
+        self, turn: dict[str, Any], *, thinking: bool, retry: RetryPlan | None = None,
         page: Page | None = None,
     ) -> Run:
-        chosen = thinking is None
-        if thinking is None:
-            thinking = wants_thinking(turn["user_text"], [str(f.get("name") or f.get("path") or "") for f in
-                                                          json.loads(turn["files_json"] or "[]") if isinstance(f, dict)])
         try:
             run = self.runs.start(turn["chat_id"], turn["id"],
                                   context_size=self.settings.model.context_size)
@@ -174,7 +166,6 @@ class Atlas:
         try:
             run.trace = trace.open_trace(paths.data_dir(self.settings), turn["chat_id"], turn["id"], run.id)
             run.trace.write("run", chat=turn["chat_id"], turn=turn["id"], run=run.id, thinking=thinking,
-                            thinking_by="code" if chosen else "user",
                             model=self.settings.model.name, retry=bool(retry), mode=self.settings.access.mode,
                             page=(run.page or {}).get("url"))
         except OSError:

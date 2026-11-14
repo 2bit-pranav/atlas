@@ -85,9 +85,7 @@ Settings > Agent > Built-in tools before these (and keep it off for 11-17 too).
     Merge these into one pdf, exp1 first.
     right: "Ran the merge pdf tool", combined file made, exp1.pdf and exp2.pdf untouched; no shell card
 
-23. (thinking: Auto) the composer's switch now reads "Think first: Auto"
-    ask "what is 2+2" -> no reasoning shown; ask 13 above -> it thinks first.
-    click the switch to On / Off to force it
+23. (thinking) the composer's switch is On / Off only, as before; it starts from Settings > Think by default
 
 24. (shell off) Run dir in my downloads folder
     right: no command runs (there is no shell tool); it uses list_folder or says it cannot run commands.
