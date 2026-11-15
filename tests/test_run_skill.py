@@ -38,7 +38,7 @@ def test_a_script_runs_and_never_replaces_a_file(run_skill) -> None:
     assert "combined.pdf" in str(tool(skill="pdf", script="merge_pdf.py", args=["combined.pdf", "a.pdf", "b.pdf:1-2"]))
     before = (ws / "a.pdf").read_bytes()
     out = str(tool(skill="pdf", script="merge_pdf.py", args=["a.pdf", "b.pdf"]))
-    assert "a-2.pdf" in out and (ws / "a.pdf").read_bytes() == before      # an existing name gets -2
+    assert "merged.pdf" in out and (ws / "a.pdf").read_bytes() == before   # an existing first name is an input, never replaced
 
 
 def test_only_an_enabled_skills_own_scripts_run(run_skill) -> None:

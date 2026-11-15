@@ -67,6 +67,11 @@ def main() -> int:
     parser.add_argument("--stack", action="store_true", help="append all rows into one sheet")
     args = parser.parse_args()
 
+    # An existing file is never the output (an output never replaces a file): it is the first input.
+    m = _SPEC.match(unquote(args.output))
+    if resolve(m["file"] if m else unquote(args.output)).is_file():
+        args.inputs.insert(0, args.output)
+        args.output = "combined.xlsx"
     out = output_path(args.output)
     if out.suffix.lower() != ".xlsx":
         return fail(f"the output must be a .xlsx, not {out.name}")

@@ -268,10 +268,35 @@ def changes(old: list[dict[str, Any]], new: list[dict[str, Any]]) -> list[dict[s
     for op, i1, i2, j1, j2 in matcher.get_opcodes():
         if op == "equal":
             continue
-        where = (b[j1][0] if j1 < len(b) else a[i1][0] if i1 < len(a) else "") or ""
-        out.append({"where": where, "before": "\n".join(t for _, t in a[i1:i2]),
-                    "after": "\n".join(t for _, t in b[j1:j2])})
+        olds, news = list(range(i1, i2)), list(range(j1, j2))
+        # A run of 3 paragraphs replaced by 1 is one changed paragraph and two removed, not one
+        # change: a removed clause was folded into the warranty's edit (2026-11-15). Pair each new
+        # paragraph with its most similar old one; what is left was added or removed.
+        pairs: list[tuple[int | None, int | None]] = []
+        for j in news:
+            scored = [(difflib.SequenceMatcher(a=a[i][1], b=b[j][1]).ratio(), i) for i in olds]
+            score, best = max(scored) if scored else (0.0, -1)
+            if score >= 0.5:
+                olds.remove(best)
+                pairs.append((best, j))
+            else:
+                pairs.append((None, j))
+        pairs += [(i, None) for i in olds]
+        for i, j in sorted(pairs, key=lambda p: (p[0] if p[0] is not None else i1 + (p[1] or 0) - j1, p[1] or -1)):
+            where = (b[j][0] if j is not None else a[i][0] if i is not None else "") or ""
+            out.append({"where": where, "before": a[i][1] if i is not None else "",
+                        "after": b[j][1] if j is not None else ""})
     return out
+
+
+def _change_text(c: dict[str, str]) -> str:
+    """A change in code's own words, both versions quoted."""
+    before, after = " ".join(c["before"].split())[:200], " ".join(c["after"].split())[:200]
+    if not after:
+        return f'Removed: "{before}"'
+    if not before:
+        return f'Added: "{after}"'
+    return f'"{before}" became "{after}"'
 
 
 def describe(ask: ModelCall, found: list[dict[str, str]]) -> list[str]:
@@ -465,7 +490,11 @@ def pipeline_tools(store: Store, chat: str, workspace: Path, resolve: Callable[[
             more = len(found) - MAX_CHANGES
             found = found[:MAX_CHANGES]
             words = describe(ask, found)
-            lines = [f"{i}. {f'[{c['where']}] ' if c['where'] else ''}{w}" for i, (c, w) in enumerate(zip(found, words, strict=True), 1)]
+            # Code's own before -> after on every line: the model's description alone restated the old
+            # sentence for a changed one (2026-11-15). The description adds the plain-words gist.
+            lines = [f"{i}. {f'[{c['where']}] ' if c['where'] else ''}"
+                     f"{_change_text(c)}{f' ({w})' if w and not w.startswith(('Changed from', 'Added:', 'Removed:')) else ''}"
+                     for i, (c, w) in enumerate(zip(found, words, strict=True), 1)]
             made = ""
             if path:
                 rows = "\n".join(f"| {i} | {_cell(c['where'])} | {_cell(c['before'][:300])} | {_cell(c['after'][:300])} | {_cell(w)} |"

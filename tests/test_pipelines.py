@@ -145,3 +145,13 @@ def test_a_template_is_filled_from_the_details_and_nothing_is_invented(tmp_path)
     assert filled.sections[0].header.paragraphs[0].text == "Ref: [Reference]"      # not in the details: left blank
     assert "Left blank" in out and "Reference" in out
     assert (ws / "offer.docx").read_bytes() == before                                 # the template is untouched
+
+
+def test_a_removed_clause_next_to_an_edit_is_its_own_change() -> None:
+    """Three paragraphs replaced by one were reported as one change; the removal went unseen (2026-11-15)."""
+    old = [{"kind": "heading", "text": "Warranty"}, {"kind": "para", "text": "Each unit carries a 12-month warranty."},
+           {"kind": "para", "text": "Neither party discloses the terms."}]
+    new = [{"kind": "heading", "text": "Warranty"}, {"kind": "para", "text": "Each unit carries a 24-month warranty."}]
+    assert [(c["before"], c["after"]) for c in changes(old, new)] == [
+        ("Each unit carries a 12-month warranty.", "Each unit carries a 24-month warranty."),
+        ("Neither party discloses the terms.", "")]
