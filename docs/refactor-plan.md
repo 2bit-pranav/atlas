@@ -191,6 +191,11 @@ Speed, in order of measured payoff (86% of model time is generation):
 4. Trim the fixed prompt (about 4,800 tokens): shorter docstrings, rarely used file tools on demand.
 5. Save and restore the warmed prompt state per launch (about 3 s off a new chat's first word).
 
+**Status, 2026-11-15:** items 1 and 2 are done, except thinking chosen by code,
+which was reverted. Item 3 was measured and declined (0.2 to 0.35 s a turn for
+0.21 GB of VRAM); items 4 and 5 were skipped for the same reason. Details in
+decisions.md.
+
 Features, first three: Table from a folder (3.3 with `find_files`), Fill a
 template (placeholders in the user's own .docx, mapped by the Fill call), Ask my
 folders (a background indexer and watcher over the allowed folders into the

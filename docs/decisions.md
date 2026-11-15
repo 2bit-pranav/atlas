@@ -127,6 +127,28 @@ Atlas only configures it. Everything Atlas adds is listed in the README.
 
 ## llama.cpp, the model and the prompt
 
+**One llama.cpp slot stays: a second one saved a third of a second** (2026-11-15,
+measured, `benchmarks/2026-11-15-phase5-two-slots`). The idea (plan 5.3) was to pin
+the chat to slot 0 and code's questions (pipelines, Fill) to slot 1, so they would
+not evict the chat's cached prompt. With one slot they hardly do: llama.cpp keeps
+prompts cached across requests, so after an `extract_table` or `write_summary` call
+the chat's next call still found 6,500 to 7,800 of its tokens cached.
+
+| | fresh prompt tokens | prompt read |
+|---|---|---|
+| 1 slot | 377 to 1,459 | 0.28 to 0.89 s |
+| 2 slots | 210 to 785 | 0.18 to 0.54 s |
+
+Two slots cost 0.21 GB of VRAM (2.96 of 4 GB). Not kept.
+
+Two other speed items were left for the same reason, cost against payoff:
+- **Saving the warmed prompt state (5.5):** the system prompt and tool list are
+  the same for every chat, so only the first chat after a launch reads them
+  (about 2 s).
+- **Trimming the fixed prompt (5.4):** about 4.8k tokens, cached after the first
+  chat. Its largest parts are `dates` and `calculate`, whose examples are what
+  the model copies to do arithmetic right.
+
 **Thinking stays the user's choice: code choosing it per turn was removed**
 (2026-11-14, plan 3.8 built, then reverted the same day). For a short while, code
 picked thinking for each turn: on for two or more files or a document to make,
