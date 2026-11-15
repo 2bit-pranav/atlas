@@ -100,6 +100,18 @@ Settings > Agent > Built-in tools before these (and keep it off for 11-17 too).
     (also in the suite: python tests/live/suite.py --tags context)
 
 
+== phase 5 (templates, folder search) ==
+
+26. (template) make a Word file with blanks: "Dear {{Name}}, ... [Company] ... <<date>>", save it in an
+    allowed folder, then: Fill in offer.docx from my details, company is Acme. Save as offer_filled.docx
+    right: offer_filled.docx has your name (from Settings > Your details), Acme and today's date;
+    any blank your details don't answer stays as it is and Atlas says which; offer.docx unchanged
+
+27. (folder search) start Atlas, wait a minute, then ask about a document in your folders by what it says,
+    not its name, e.g. Which of my documents mentions <a phrase from one of them>?
+    right: find_files finds it by content. Settings > Access > Search inside documents turns this off
+
+
 == extension (side panel in Edge) ==
 
 pair the extension first (the Extension page in the main UI). the pairing token was printed during the

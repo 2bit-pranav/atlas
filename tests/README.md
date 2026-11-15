@@ -29,6 +29,7 @@ Two kinds, kept apart on purpose.
 | `test_ingest.py` | the ingest store and `read_pdf` / `read_docx` / `read_xlsx`: OCR, search, ownership, cleanup |
 | `test_edit_tools.py` | `create_document`, `edit_docx`, `set_cell`, and tools that arrive with their skill |
 | `test_model_call.py`, `test_pipelines.py` | the workflow lane: Stop, limits and trace for a question asked by code; values not in their file left out, every section and change found |
+| `test_indexer.py` | the folder index: documents found by what they say, junk and big files skipped, text only |
 | `test_run_skill.py` | `run_skill`: an enabled skill's own scripts only, no shell, Stop, every path argument seen by the policy |
 | `test_context.py` | earlier tool results stubbed near the window, answers kept |
 | `test_harness_contract.py` | what Atlas assumes about Strands, on a scripted model |

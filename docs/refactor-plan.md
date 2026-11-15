@@ -196,6 +196,10 @@ which was reverted. Item 3 was measured and declined (0.2 to 0.35 s a turn for
 0.21 GB of VRAM); items 4 and 5 were skipped for the same reason. Details in
 decisions.md.
 
+Features (2026-11-15): Table from a folder already worked (`extract_table` takes a
+folder). Fill a template is `fill_template`; Ask my folders is the folder index. Both
+have tests and have not been run live yet.
+
 Features, first three: Table from a folder (3.3 with `find_files`), Fill a
 template (placeholders in the user's own .docx, mapped by the Fill call), Ask my
 folders (a background indexer and watcher over the allowed folders into the

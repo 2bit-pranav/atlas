@@ -45,13 +45,14 @@ agent/
                 files.py         delete_file (to the Recycle Bin, the agent's only way to delete),
                                  copy_file, move_file (never over an existing file)
                 finding.py       find_files (words in name, folder or contents), list_folder (a tree)
-                pipelines.py     extract_table, write_summary, compare_documents: code loops, checks, assembles
+                pipelines.py     extract_table, write_summary, compare_documents, fill_template: code loops, checks, assembles
                 skills_run.py    run_skill: a skill's script as an argv list, no shell
                 web.py           web_search / read_url through Exa: shaped, labelled, cited results
                 page.py          page_read / page_find for the browser extension, via client calls
   ingest/       store.py         the ingest store: parse at upload, one worker, SQLite + FTS5, per-chat ownership
                 parse.py         a pdf/docx/xlsx into blocks whose ids the edit tools address
                 ocr.py           OCR of scanned pages and pictures (RapidOCR)
+                indexer.py       the allowed folders' documents kept in the store (text only), for find_files
   store/        chats.py         ChatStore: the chat tree and display transcripts (SQLite)
                 snapshots.py     where Strands writes snapshots; deleting them on edit
   integrations/ mcp/             pool.py (connections, per-tool switches), registry.py (search)

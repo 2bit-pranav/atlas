@@ -84,6 +84,8 @@ class Store:
         self.queue: deque[tuple[str, Path]] = deque()
         self.queued: set[str] = set()
         self.wanted: dict[str, set[int]] = {}
+        #: Files only the folder index asked for: their scanned pages wait for a read (indexer.py).
+        self.text_only: set[str] = set()
         self.worker: threading.Thread | None = None
 
     # lookups
@@ -181,7 +183,7 @@ class Store:
 
     # --------------------------------------------------------------- ingest --
 
-    def submit(self, path: Path, chat: str) -> str | None:
+    def submit(self, path: Path, chat: str, text_only: bool = False) -> str | None:
         """Make sure `path` is (being) ingested; returns its hash, or None for a
         type that is not ingested. Never parses on the caller's thread."""
         if kind_of(path) is None or not path.is_file():
@@ -191,7 +193,12 @@ class Store:
             self.own(chat, sha)
         e = self.entry(sha)
         with self.lock:
-            done = e is not None and e["parser"] == parse.PARSER and e["status"] in ("ready", "failed")
+            if text_only:
+                self.text_only.add(sha)
+            else:
+                self.text_only.discard(sha)   # a chat wants it: every page, OCR too
+            done = e is not None and e["parser"] == parse.PARSER and (
+                e["status"] in ("ready", "failed") or (text_only and e["status"] == "partial"))
             if not done and sha not in self.queued:
                 self.queued.add(sha)
                 self.queue.append((sha, path))
@@ -315,6 +322,8 @@ class Store:
                 with self.lock:
                     pending = [i for i, s in enumerate(status) if s in PENDING]
                     wanted = sorted(i for i in pending if i + 1 in self.wanted.get(sha, ()))
+                    if sha in self.text_only and not wanted:
+                        return   # the folder index's: its scans wait for a chat to read it
                     # A file still waiting for its text pass goes first: a text PDF must
                     # not wait for another file's OCR (it waited 20 s behind a scan).
                     yield_to = any(e is None or e["parser"] != parse.PARSER

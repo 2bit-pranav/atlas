@@ -18,6 +18,8 @@ from agent.config.settings import (
     load_settings,
 )
 from agent.extension.basket import Basket
+from agent.ingest.indexer import FolderIndex
+from agent.ingest.store import store_for
 from agent.integrations.mcp.pool import McpManager
 from agent.model import server as llama
 from agent.model.sampling import RetryPlan
@@ -64,6 +66,11 @@ class Atlas:
         self.chat_grants: dict[str, list] = {}
         #: Files Fill found for upload fields, as cards the extension drags onto a page (in memory).
         self.basket = Basket()
+        #: The allowed folders' documents, kept in the ingest store in the background.
+        self.index = FolderIndex(store_for(paths.data_dir(self.settings)),
+                                 folders=lambda: [Path(f).expanduser() for f in self.settings.access.folders if f.strip()],
+                                 enabled=lambda: self.settings.access.index_folders)
+        self.index.start()
         if left := self.store.mark_interrupted():
             logger.info("%d turn(s) left running by a previous process are now interrupted", len(left))
             for row in left:
@@ -113,6 +120,7 @@ class Atlas:
         return self._modalities
 
     def close(self) -> None:
+        self.index.stop()
         self.mcp.stop_all()
         self.store.close()
 

@@ -224,6 +224,9 @@ class AccessSettings(StrictModel):
 
     folders: list[str] = Field(default_factory=list) # absolute paths from user's home
     ask_outside: bool = True
+    #: Keep the documents in `folders` in the ingest store, text layer only, so find_files
+    #: finds them by what they say (agent/ingest/indexer.py).
+    index_folders: bool = True
     #: The permission grid's mode (agent/safety/grid.py): look reads only; ask asks before
     #: changes, deletes and commands in the folders; work changes them without asking.
     mode: Literal["look", "ask", "work"] = "ask"
@@ -369,6 +372,7 @@ TIERS: dict[str, Tier] = {
     "approvals.timeout": Tier.LIVE,
     "access.folders": Tier.LIVE,
     "access.ask_outside": Tier.LIVE,
+    "access.index_folders": Tier.LIVE,
     "access.mode": Tier.LIVE,
     "session.dir": Tier.RESTART,
     "context.conversation_manager": Tier.LIVE,

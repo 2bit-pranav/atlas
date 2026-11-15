@@ -494,6 +494,25 @@ did not know the year. So `todo_write`, `notebook` and subagents are on hold.
 
 ## Reading and writing documents
 
+**Templates filled from the user's details, and the allowed folders searchable
+by content** (2026-11-15, plan 5 features 2 and 3, not yet run live).
+- **`fill_template(template, path, details)`** (docx skill):
+  - Code finds the blanks (`{{Name}}`, `[Client Name]`, `<<date>>`, `«City»`)
+    in the body, tables, headers and footers.
+  - One question maps them to the saved details (the Fill profile), the
+    message's facts and today's date. A value not found in those is left blank
+    and named, so the model asks.
+  - The template is never changed; the model sees the values, not the profile.
+- **The folder index** (`ingest/indexer.py`, `access.index_folders`, on):
+  - A background thread keeps every PDF, Word and Excel file in the allowed
+    folders in the ingest store, so `find_files` finds them by what they say.
+  - It scans at start, every 10 minutes, and at once when the folders change.
+  - It reads the text layer only. A scanned page waits until a chat reads that
+    file, so indexing never OCRs every scan.
+  - It skips the folders `find_files` skips. At most 3,000 files, none over 50 MB.
+- **Table from a folder (feature 1)** already existed: `extract_table` takes a
+  folder (`folder-write` passes 7/7).
+
 **`read_text` and `read_image` replace the harness `read`** (2026-11-03). The harness `read` is off (it is no longer a setting); Atlas's own
 tools are capped near 1,500 tokens, name what they left out and the next call,
 search by words rather than the phrase, and answer a pdf/docx/xlsx with its
