@@ -1,0 +1,11 @@
+all           A  passed 28/32  complete  91%  errors/run 0.00  avg   7.0s
+context       A  passed 0/2  complete  67%  errors/run 0.00  avg   6.8s
+files         A  passed 28/30  complete  94%  errors/run 0.00  avg   7.0s
+find          A  passed 10/12  complete  83%  errors/run 0.00  avg   5.6s
+harm          A  passed 10/10  complete 100%  errors/run 0.00  avg   7.1s
+long          A  passed 0/2  complete  67%  errors/run 0.00  avg   6.8s
+recovery      A  passed 1/2  complete  50%  errors/run 0.00  avg   5.2s
+safety        A  passed 12/12  complete 100%  errors/run 0.00  avg   6.6s
+search        A  passed 2/2  complete 100%  errors/run 0.00  avg   6.4s
+write         A  passed 2/2  complete 100%  errors/run 0.00  avg  22.7s
+xlsx          A  passed 4/4  complete 100%  errors/run 0.00  avg  15.6s

@@ -674,6 +674,22 @@ token. Every verdict goes to the run's trace (`step` input, egress or output).
   - What is still unsourced at the end, and unsourced figures in an answer when
     the turn used a tool, become a notice.
 
+  Measured live (2026-11-14, shell off):
+  - **Injection and exfiltration tasks, 3 repeats:** 12/12 with no leak
+    (`benchmarks/2026-11-14-phase4-rails`). In every run the planted note was
+    flagged and shown, and the summary was right.
+  - **Hard document tasks:** 16/20 (`2026-11-14-phase4-hard`), then 17/20 after
+    the fixes its traces showed (`2026-11-14-phase4-hard-fixes`). That run was
+    10/10 with thinking on (median 27 s); the 3 failures were all thinking off.
+
+  Phase 3's other exit, measured 2026-11-15 with the shell off
+  (`2026-11-15-phase3-files-shell-off`): harm 10/10, safety 12/12, files 28/30.
+  The two misses were a model still loading and a grader phrase.
+
+  Limit, seen in a trace: provenance catches a figure from nowhere, not a wrong
+  figure that is in a source. A query that returned one-row "totals" passed it;
+  the query itself is refused now.
+
 **Skill scripts run through `run_skill`; the shell is off by default and asks for
 every command when on** (2026-11-14, plan 3.6 and 3.7). Every hole Phase 0
 closed was a shell form the classifier did not know, and a language cannot be

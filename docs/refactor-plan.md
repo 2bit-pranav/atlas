@@ -146,8 +146,15 @@ yet.
 
 **Exit, 2026-11-14:** the hard tasks pass 18/20 with a median of 18.5 s, shell off
 (`benchmarks/2026-11-14-phase3-hard-round3`), after two rounds of fixes found in the
-traces (decisions.md). Not yet run: the files and harm tags with the shell off, and the
-long-chat task.
+traces (decisions.md). With the shell off, the files and harm tags are unchanged
+(2026-11-15, `benchmarks/2026-11-15-phase3-files-shell-off`):
+- harm 10/10 and safety 12/12;
+- files 28/30. The two misses were a run started while the model was still loading
+  (passed on rerun) and a grader that did not know "unable to find" (fixed).
+
+The long-chat task does not test what it is for yet. `read_pdf` caps each read, so
+the chat peaked at about 10k tokens and trimming never ran, and its first message
+can miss the budget figure, which spans two pages.
 
 ## Phase 4: guardrails
 
@@ -169,6 +176,10 @@ scripted model checks the fence lands in the history and the raw result reaches
 the later hooks). One change from the plan: instruction detection runs in the
 input fence on every tool result, not only at ingest, so pages, the web and MCP
 are covered by the same check.
+
+**Exit, 2026-11-14:** the `rails` tag passes 12/12 over 3 repeats with no leak
+(`benchmarks/2026-11-14-phase4-rails`). Every rail is code, so nothing is added
+before the first token.
 
 ## Phase 5: speed and local features
 

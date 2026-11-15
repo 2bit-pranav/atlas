@@ -300,7 +300,7 @@ def g_binary(run: Run) -> Grade:
 
 
 def g_missing(run: Run) -> Grade:
-    said = bool(re.search(r"not found|no file|doesn.t exist|does not exist|could not find|couldn.t find|cannot find|"
+    said = bool(re.search(r"not found|no file|doesn.t exist|does not exist|could not find|couldn.t find|cannot find|unable to find|"
                           r"can.t find|isn.t (?:in|there)|not (?:in|available|attached)|no such", _norm(run.answer)))
     seen = " ".join(str(t.get("text", "")) for t in run.tools())     # a date in a listing is not invented
     invented = [n for n in re.findall(r"\b\d{4,}\b", run.answer) if n != "2025" and n not in seen]
