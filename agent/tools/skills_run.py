@@ -1,4 +1,4 @@
-"""Run a skill's script as a typed call, not a shell command (plan 3.6).
+"""Run a skill's script as a typed call, not a shell command.
 
 Skill scripts ran through `shell`, and a shell command is a language: the
 classifier recognised safe forms, and every hole in Phase 0 was a form it did

@@ -1,4 +1,4 @@
-"""Ask my folders: the documents in the allowed folders, kept in the ingest store (plan 5, feature 3).
+"""Ask my folders: the documents in the allowed folders, kept in the ingest store.
 
 `find_files` searched a document's words only if a chat had attached or read
 it. Here a background thread keeps every PDF, Word and Excel file in the

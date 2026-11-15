@@ -1,4 +1,4 @@
-"""Guardrails (plan phase 4): the input fence, instruction detection, the egress gate, number provenance."""
+"""Guardrails: the input fence, instruction detection, the egress gate, number provenance."""
 
 from __future__ import annotations
 

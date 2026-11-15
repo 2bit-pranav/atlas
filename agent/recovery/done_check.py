@@ -40,8 +40,7 @@ _INTENT = re.compile(r"(?:^|[.!:\n]\s*)(?:ok(?:ay)?[,.!]?\s*|sure[,.!]?\s*|now,?
                      r"summari[sz]e|start|search|fetch|convert|add|update|edit|fill|compile|combine|merge|draft|"
                      r"prepare|go through|look)\b[^.!?\n]*[.!:]?\s*$", re.I)
 _PAGE = re.compile(r"^--- page (\d+) of (\d+)", re.M)
-#: A summary of a PDF longer than this is not expected to read every page.
-#: shortcut: a fixed size, until summaries go through the section pipeline (plan 3.4).
+#: A summary of a PDF longer than this is not expected to read every page; write_summary reads them all.
 SUMMARY_PAGES = 40
 
 

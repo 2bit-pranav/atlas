@@ -1,4 +1,4 @@
-"""The egress gate: one check in front of everything that leaves the machine (plan 4.2).
+"""The egress gate: one check in front of everything that leaves the machine.
 
 Before, each channel had its own rule or none: `web_search` checked its
 query, `read_url` its address (since 2026-11-12), and MCP arguments, a PDF

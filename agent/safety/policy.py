@@ -257,7 +257,7 @@ class ToolPolicy(HookProvider):
                 asks.append((effect, where))
         if name == "shell" and not asks:
             command = str(args.get("command", ""))
-            # Every command asks with its full text (plan 3.7): a command is a language, and the
+            # Every command asks with its full text: a command is a language, and the
             # classifier only knows the forms it was taught. Installs ask in their own step.
             run = Effect("run", None, command)
             if not is_install(command) and (tainted or not self._covered(run)):

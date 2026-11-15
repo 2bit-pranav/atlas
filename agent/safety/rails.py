@@ -1,4 +1,4 @@
-"""Guardrails: the checks at each place text crosses into or out of the run (plan phase 4).
+"""Guardrails: the checks at each place text crosses into or out of the run.
 
 Four stages, each a list of rails run in order; the first refusal wins:
 
@@ -90,7 +90,7 @@ OWN_WORDS = {"calculate", "dates", "create_document", "edit_docx", "set_cell", "
 _SOURCE_ARGS = ("path", "url", "query", "file", "old", "skill")
 
 
-#: Text addressed to the assistant rather than to a reader (plan 4.5). A phrase list, not a model:
+#: Text addressed to the assistant rather than to a reader. A phrase list, not a model:
 #: it runs on every result for free. shortcut: phrases only; a small local classifier if the
 #: suite's injection tasks show it missing too much.
 INSTRUCTION = re.compile(r"""
@@ -117,7 +117,7 @@ def instruction_in(text: str) -> str | None:
 
 
 class InputFence:
-    """Every tool result that carries outside text, fenced before the model reads it (plan 4.4),
+    """Every tool result that carries outside text, fenced before the model reads it,
     and checked for text addressed to the assistant (4.5): such a result taints the chat,
     carries a warning inside its fence, and the user is shown a notice.
 

@@ -1,4 +1,4 @@
-"""One schema-constrained question to the model, asked by code (plan 3.1).
+"""One schema-constrained question to the model, asked by code.
 
 The workflow lane: code loops over the units of a task (one invoice, one
 section, one changed block, one form), asks the model one question about each

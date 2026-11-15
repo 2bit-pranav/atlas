@@ -190,7 +190,6 @@ def build_agent(
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           mode=settings.access.mode, chat_grants=chat_grants),
                ToolFailureRecovery(settings.resilience, notify=observer),
-               # After it: a turn it already sent back is not sent back twice.
                # End-of-turn callbacks run in reverse: the provenance rail after the done check,
                # so a turn the done check sent back is not sent back twice.
                Provenance(notify=observer),

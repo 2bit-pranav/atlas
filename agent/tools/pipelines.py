@@ -1,4 +1,4 @@
-"""Document work done by code, the model asked one small question at a time (plan 3.3-3.5).
+"""Document work done by code, the model asked one small question at a time.
 
 The agent was slow and often wrong at three shapes of task (2026-11-12): a table
 from many files (it retyped values, 84-112 s), a summary of a long document (it

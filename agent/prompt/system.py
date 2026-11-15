@@ -61,7 +61,7 @@ def _runtime_facts(settings: Settings, chat_id: str) -> str:
 
 
 def _machine_lines(settings: Settings) -> str:
-    """Where files go, and how skills run. The shell lines only when the shell is on (plan 3.7)."""
+    """Where files go, and how skills run. The shell lines only when the shell is on."""
     import sys
 
     workspace = ("- Your workspace for this chat is `$ATLAS_WORKSPACE`: a file in it is named by its name "

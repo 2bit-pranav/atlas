@@ -1,4 +1,4 @@
-"""Earlier tool results shortened near the window (agent/runtime/context.py, plan 3.9)."""
+"""Earlier tool results shortened near the window (agent/runtime/context.py)."""
 
 from __future__ import annotations
 

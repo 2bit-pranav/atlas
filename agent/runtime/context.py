@@ -1,4 +1,4 @@
-"""Old tool results shortened to a one-line stub when a chat nears the window (plan 3.9).
+"""Old tool results shortened to a one-line stub when a chat nears the window.
 
 Most of a long chat's context is tool results from earlier turns: a 16-page
 PDF read, a workbook, a search. The answers built from them stay; the raw

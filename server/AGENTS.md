@@ -58,6 +58,10 @@ Server-sent events, each `{"seq": n, "type": ...}`:
 | `run_started` | `chat_id`, `turn_id` | the agent is built |
 | `call_start` | | a model call begins (marks where a retried call is cut back to) |
 | `model_retry` | `reason`, `attempt`, `of` | the last model call is discarded and repeated |
+| `resumed` | `reason` | the done check, the provenance rail or failure recovery sent the turn back once |
+| `tainted` | | outside content entered the chat: from now on risky actions ask |
+| `notice` | `level`, `text` | a guardrail's note for the user (instructions found in a source, figures with no source) |
+| `client_call` | `id`, `op`, `args` | a page operation for the side panel to run in the tab; the run waits for its POST |
 | `thinking_delta` | `text` | reasoning |
 | `text_delta` | `text` | answer text |
 | `tool_start` | `id`, `name`, `args`, `at` (epoch ms) | a tool call |
@@ -99,6 +103,7 @@ one); `events.py` translates only the raw one. Translating both is what put
 | `GET /pairing`, `POST /pairing/reset` | the browser extension's pairing token (not readable by the extension) |
 | `POST /runs/{id}/calls/{call_id}` | the client's result for a `client_call` (a page operation) |
 | `GET /profile`, `PUT /profile` | the user's details for fill suggestions (web UI only; the extension cannot read them) |
+| `POST /chats/{id}/moments` | a YouTube video's key moments, saved as a finished turn: chapters, else one model call; no run |
 | `POST /extension/fill` | `{fields, title}` -> `{values, missing}`: one schema-constrained model call; nothing is filled here |
 | `GET /extension/pdf?url=` | a PDF's bytes for the extension's viewer: a `file://` one, or a web one it could not fetch; PDFs only, 100 MB at most |
 | `POST /extension/table` | `{rows, title, url, format, folder}`: a page's table saved as xlsx/csv, no model |
@@ -154,10 +159,31 @@ The backend serves the built UI (`client/dist`) at `/`, with `index.html`
 for any page route, so `atlas start` needs no Vite. The build is looked up per
 request. `--dev` runs Vite on its own port instead, proxying `/api` here.
 
-## Gotchas
+## Non-Obvious Invariants & Footguns
 
-- `created_at` is epoch **milliseconds**.
-- `?after=` is the first sequence number the client has **not** seen.
-- Never `uvicorn --reload` on Windows: the worker's event loop cannot start
-  subprocesses, so every tool that shells out fails with an empty error. The
-  backend logs an error at startup if it finds itself on that loop.
+- **Check the run slot before changing the tree.** Send, retry and edit call
+  `ensure_run_slot()` before inserting a turn; a refused send that inserted first
+  left a phantom `running` leaf.
+- **Only a completed turn can be continued.** A cancelled or failed turn has no
+  snapshot; sending under it is a 409. Retry or edit it instead.
+- **`render_json` is for people only.** It is never given back to the model:
+  Strands' snapshot is the history. Changing what the UI shows changes nothing
+  the model sees, and the other way round.
+- **A tool result's input fence is the model's, not the person's.**
+  `events._result_text` strips `<untrusted ...>` before a result reaches the UI or
+  the stored render. A new path that shows tool results must strip it too.
+- **The trace never holds a header.** The llama key is only in the backend's
+  environment; `atlas replay` goes through `POST /traces/{run}/replay` for that
+  reason. Do not log request headers anywhere.
+- **The extension's token opens `EXTENSION_ROUTES` only, and only as a header.**
+  A new route the panel needs must be added there deliberately; settings writes,
+  pairing, the profile, MCP and skills stay web-UI-only.
+- **A settings write to `access.*` wakes the folder index**
+  (`state.index.wake()`), so new folders are searchable at once.
+- `created_at` is epoch **milliseconds**; `?after=` is the first sequence number
+  the client has **not** seen.
+- **Never `uvicorn --reload` on Windows.** Its worker's event loop cannot start
+  subprocesses, so every subprocess fails with an empty error. The backend logs
+  an error at startup if it finds itself on that loop.
+- **One SQLite connection, WAL, closed on shutdown.** A surviving backend held
+  `atlas.db` open, and deleting it failed with `EBUSY`.

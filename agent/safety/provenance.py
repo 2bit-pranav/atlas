@@ -1,4 +1,4 @@
-"""The output rail: every figure in what a turn produces must come from somewhere (plan 4.3).
+"""The output rail: every figure in what a turn produces must come from somewhere.
 
 The hard tasks' worst failure was a number the model typed: totals made up
 for a report, a total row added wrong, an order left out (2026-11-14). Every

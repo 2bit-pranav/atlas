@@ -1,4 +1,4 @@
-"""What Atlas assumes about Strands and the harness, pinned (plan 3.10).
+"""What Atlas assumes about Strands and the harness, pinned.
 
 Each of these is a behaviour of the library, not of Atlas, that Atlas's code
 depends on. A Strands update that changes one should fail here, not quietly in
@@ -64,7 +64,7 @@ def _agent(settings, chat: str = "c1", **kw):
 def test_the_four_switches_keep_memory_and_its_tools_out(settings) -> None:
     names = set(_agent(settings).tool_names)
     assert not names & {"retrieve_context", "strands_manage_background_task", "todo_write", "memory"}
-    assert "run_skill" in names and "shell" not in names        # plan 3.7: the shell is off by default
+    assert "run_skill" in names and "shell" not in names        # the shell is off by default
 
 
 def test_the_hook_events_have_the_fields_atlas_sets() -> None:

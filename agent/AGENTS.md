@@ -1,474 +1,167 @@
 # agent/ — the agent library
 
-Everything that decides what the model is given and how a conversation is
-stored. The server imports this; this never imports the server.
+Everything that decides what the model is given, what it may do, and how a
+conversation is stored. The server imports this; this never imports the server.
+How a turn flows through it end to end is in [ARCHITECTURE.md](../ARCHITECTURE.md);
+why, in [docs/decisions.md](../docs/decisions.md).
 
 ```
 agent/
-  config/       settings.py      settings.json schema, LIVE vs RESTART tiers. The only schema.
-                paths.py         every path, anchored to the app root (ATLAS_ROOT)
-  model/        llamacpp.py      AtlasLlamaCppModel: thinking switch, streaming, timings
-                sampling.py      build_model, RetryPlan (sampling for a turn)
-                server.py        llama-server: its API key, the models folder, effective() capabilities
-                gguf.py          what a model can do, from its GGUF headers (capped reads, never loaded)
-  prompt/       system.py        the system prompt: instructions, runtime facts, tool sources
+  config/       settings.py      settings.json schema (strict), LIVE vs RESTART tiers. The only schema
+                paths.py         every path, anchored to the app root; generated state in .data/
+  model/        llamacpp.py      the Strands model adapter: streaming, thinking flag, reasoning, timings
+                sampling.py      build_model: sampling per turn, a retry's widening
+                server.py        llama-server: its per-launch key, the models folder, capabilities
+                gguf.py          what a model can do, from its GGUF headers (capped reads)
+  prompt/       system.py        the system prompt: date, folders, tool sources, the fence's meaning
                 notes.py         notes for the model only: the clock, a retry's hint
-                page.py          the note on a message sent from the extension
+                page.py          the page sent from the extension, fenced
   runtime/      factory.py       build_agent(): the one place that calls create_harness
-                model_call.py    ModelCall: one schema-constrained question asked by code (limits, Stop, trace)
-                context.py       TrimToolResults: earlier turns' tool results stubbed near the window
-                restore.py       restoring from a Strands snapshot, then re-setting the prompt
-                memory.py        long-term memory: off, and why
-  safety/       policy.py        ToolPolicy: every check before a tool runs, in one order; TaintTracker
-                grid.py          the permission grid: (place, action) -> run, ask or refuse, per mode
-                scope.py         Scope: the workspace and allowed folders; where a path argument lands
-                placement.py     locate(): the one rule for relative paths, never outside its folder
-                call_paths.py    which paths a call touches; the path rewrites before the checks
+                restore.py       restore a snapshot, then set the prompt again
+                model_call.py    ModelCall: one schema-constrained question asked by code
+                skill_tools.py   writing tools registered with their skill; preload by message
+                context.py       TrimToolResults: earlier tool results stubbed near the window
+                memory.py        long-term memory: the four switches that keep it off
+  safety/       policy.py        ToolPolicy (normalise, floor, documents, grid, install, sensitive); TaintTracker
+                grid.py          (place, action) -> run / ask / refuse, per mode; shell_reads
+                rails.py         Rail/run_rails; the input fence (untrusted()); instruction detection
+                egress.py        EgressGuard: everything that leaves the machine
+                provenance.py    every typed figure needs a source
+                scope.py         the workspace, folders, uploads; Scope.place (where a path lands)
+                placement.py     locate(): the one rule for relative paths
+                call_paths.py    which paths a call touches (TOOL_ACTIONS, pipeline and run_skill inputs)
+                shell.py         a command parsed with tree-sitter-bash: read, write, delete, install, other
+                installs.py      install rules; rules.toml + rules.py: the floor; protected.py: Atlas's files
+                limits.py        RunLimits: model calls, minutes, repeats (also charged by ModelCall)
                 approvals.py     the Approver type
-                shell.py         a shell command parsed (tree-sitter-bash): read, write, delete, install, other
-                installs.py      the install rules, applied by shell.py to each simple command
-                rules.toml       the floor: shell commands refused in every tier (rules.py loads and checks it)
-                limits.py        RunLimits: model calls, minutes and repeated calls per message
-                rails.py         guardrails: Rail/run_rails, untrusted() fence + InputFence, instruction detection
-                egress.py        EgressGuard: one gate for everything that leaves the machine
-                provenance.py    every typed figure needs a source: sends a document back once, else a notice
-  recovery/     model_retry.py   LocalModelRetry: model calls that fail or come back empty
-                tool_recovery.py ToolFailureRecovery: crashed tools, non-zero exits, giving up
-  platform/     windows_shell.py WindowsLocalEnvironment: the shell, stoppable commands
-                winpaths.py      path forms (/c/... for the model, C:/... for Python), finding Git Bash
-  tools/        manager.py       which built-in and Atlas tools are on
-                documents/       create_document, edit_docx, set_cell: markdown.py parses, docx.py,
-                                 pdf.py and xlsx.py write, base.py writes atomically, tool.py is the tool
-                maths/           calculate / dates: evaluator.py (the safe evaluator), dates.py, tool.py
-                reading.py       read_text / read_image: capped, typed reads (the harness `read` is off)
-                doc_reading.py   read_pdf / read_docx / read_xlsx: fetch from the ingest store
-                files.py         delete_file (to the Recycle Bin, the agent's only way to delete),
-                                 copy_file, move_file (never over an existing file)
-                finding.py       find_files (words in name, folder or contents), list_folder (a tree)
-                pipelines.py     extract_table, write_summary, compare_documents, fill_template: code loops, checks, assembles
+  recovery/     model_retry.py   LocalModelRetry: transport errors, 5xx, empty responses; fixed delay
+                tool_recovery.py ToolFailureRecovery: crashes, non-zero exits, resume after giving up
+                done_check.py    DoneCheck: a broken or missing file, an announced step, a half-read summary
+  tools/        manager.py       which built-in and Atlas tools are on (ATLAS_TOOLS order is fixed)
+                reading.py       read_text, read_image (capped; copy hints for CSV)
+                doc_reading.py   read_pdf, read_docx, read_xlsx from the ingest store; sealed DuckDB SQL
+                documents/       create_document (markdown.py parses, references.py fills {{...}},
+                                 docx/pdf/xlsx write, base.py atomic), edit_docx, set_cell (blocks.py)
+                pipelines.py     extract_table, write_summary, compare_documents, fill_template
                 skills_run.py    run_skill: a skill's script as an argv list, no shell
-                web.py           web_search / read_url through Exa: shaped, labelled, cited results
-                page.py          page_read / page_find for the browser extension, via client calls
-  ingest/       store.py         the ingest store: parse at upload, one worker, SQLite + FTS5, per-chat ownership
-                parse.py         a pdf/docx/xlsx into blocks whose ids the edit tools address
-                ocr.py           OCR of scanned pages and pictures (RapidOCR)
-                indexer.py       the allowed folders' documents kept in the store (text only), for find_files
-  store/        chats.py         ChatStore: the chat tree and display transcripts (SQLite)
-                snapshots.py     where Strands writes snapshots; deleting them on edit
-  integrations/ mcp/             pool.py (connections, per-tool switches), registry.py (search)
-                skills/          catalog.py (which exist), installer.py, requirements.py
-  extension/    form_fill.py     fill suggestions from the user's details (one ModelCall)
-                moments.py       a video's key moments: its chapters, else one ModelCall over the transcript
-                basket.py        files found for upload fields, handed out by short-lived id
-                table_export.py  a web page's table as xlsx or csv, no model
-  common/       ids.py           sortable ids
-                trace.py         a run's trace: every event, model request and response, policy decision
-                redact.py        credentials in free text (install output), hidden before the UI
-agent/cli/
-  main.py            argument parsing and the entry point (`atlas`)
-  commands.py        atlas start | stop | status | logs | settings
-  tracing.py         atlas trace [RUN] [--prompt N] | replay RUN [--call N]
-  launcher/          supervisor.py (Launcher: starts, health-checks, supervises, restarts, stops;
-                     emits events, prints nothing), services.py (each service's command line),
-                     logs.py (per-service parsing; drop / collapse / rewrite rules)
-  procs.py           spawning, log capture to .data/logs, killing process trees, the job object
-  ports.py           who holds a port; stopping only what Atlas started there
-  launched.py        launched.json: what was started, and with which settings
-  views/             screen.py (the start screen, Rich Live) and keys.py, dev.py (--dev),
-                     plain.py (piped, --raw), base.py (shared)
+                files.py         delete_file (Recycle Bin), copy_file, move_file (never over a file)
+                finding.py       find_files (name, folder, content via the store), list_folder
+                web.py           web_search, read_url through Exa
+                page.py          page tools for the extension, through client calls
+                maths/           calculate, dates: an allow-list evaluator, Decimal
+  ingest/       store.py         SQLite + FTS5 blocks, one worker, per-chat ownership, text-only entries
+                parse.py         pdf/docx/xlsx into addressable blocks; ocr.py: RapidOCR
+                indexer.py       FolderIndex: the allowed folders kept in the store, text layer only
+  store/        chats.py         the chat tree and display transcripts; snapshots.py: Strands snapshots
+  integrations/ mcp/             pool (connections, per-tool switches), registry, secrets
+                skills/          catalog, installer, requirements
+  extension/    form_fill.py     Fill: one ModelCall; profile.md; basket.py: files for upload fields
+                moments.py       Key moments: chapters, else one ModelCall; table_export.py: no model
+  platform/     windows_shell.py the shell environment: Git Bash, stoppable commands, no secrets
+                winpaths.py      path forms (/c/... for the model, C:/... for Python)
+  common/       trace.py         a run's trace on disk; ids.py; redact.py (credentials hidden in logs)
+agent/cli/      main.py, commands.py (atlas start|stop|status|logs|settings), tracing.py (trace, replay),
+                launcher/ (supervisor, services, logs), procs.py, ports.py, launched.py, views/
 ```
-
-## One turn, end to end
-
-1. `build_agent()` reads the current settings, asks each manager for its part,
-   and calls `create_harness(...)`. A **new agent every turn**, so a changed
-   LIVE setting applies to the next message with no restart.
-2. If the turn has a restore point, the agent is restored from that Strands
-   snapshot, and the system prompt is set again *after* the restore (a
-   snapshot stores its own prompt, which would otherwise win).
-3. The server streams `agent.stream_async(text)`, then saves an immutable
-   snapshot (`save_snapshot(is_latest=False)`) and records its id on the turn.
 
 ## Settings
 
-`settings.json` is validated by `Settings` (`extra="forbid"`: a typo is an
-error, not a silent no-op). Every key is in `TIERS`:
+`settings.json` is validated by `Settings` with `extra="forbid"`: a typo or a
+removed key is an error naming the key, not a silent no-op. When a key is
+removed, the settings files are edited to match; there is no migration code.
+Every key is in `TIERS`:
 
-- **LIVE** — read when the next turn's agent is built.
-- **RESTART** — baked into the running llama-server or the process (model,
-  ports, paths). The backend saves a change to the file but keeps running on
-  the values it started with; it applies at the next `atlas start`.
-  `changed_restart_keys()` compares the file against `launched.json`'s flat
-  `restart_settings` block to say which saved values are not live yet.
+- **LIVE**: read when the next turn's agent is built (a new agent every turn).
+- **RESTART**: baked into llama-server or the process (model, ports, paths,
+  context size). Saved to the file at once, applied at the next `atlas start`.
 
-A new knob goes into `settings.py` and `TIERS` first, then is read by exactly
-one manager. The UI shows unknown keys under Storage → Other automatically; to
-give one a label and a control, add it to `client/src/features/settings/schema.ts`.
+A new key goes into `settings.py` and `TIERS`, then is read in exactly one
+place. The UI shows unknown keys under Storage → Other; to place one, add it to
+`client/src/features/settings/schema.ts`.
 
 ## The chat tree (`store/chats.py`)
 
-Two tables. `turns` holds a turn's user text, attachments, `before_snap` (the
-parent's `after_snap`: where to restore from) and `after_snap` (Strands
-snapshot ids), its status, and `render_json` — what the UI showed, which is
-**never** given back to the model.
-
 | Action | Rule |
 |---|---|
-| Send | Under the selected leaf, which must be `completed`. A cancelled or failed turn can be retried or edited, never continued, so a half-finished tool call is never built upon. |
-| Retry | **Last turn only.** A sibling with the same parent and restore point. Nothing is deleted. |
-| Edit | **Any turn.** The turn, every version of it and everything below are deleted — rows and snapshot files — and the new text runs from the same restore point. |
-| `<` `>` | Select another version at that position. Every version keeps its own follow-ups. No snapshot is read. |
-| Cancel | The turn keeps its partial transcript and gets no snapshot. |
-| Crash | Turns left `running` become `interrupted` at the next start. |
+| Send | Under the selected leaf, which must be `completed`. |
+| Retry | Last turn only: a sibling from the same restore point, earlier answers quoted, sampling widened. Nothing deleted. |
+| Edit | Any turn: it, its versions and everything below are deleted (rows and snapshots), never the files they made. |
+| `<` `>` | Select another version; each keeps its own follow-ups. No snapshot read. |
+| Cancel | Partial render kept, no snapshot. |
+| Crash | `running` turns become `interrupted` at the next start, shown from their trace. |
 
-Roots are siblings of each other; `chats.selected_root` plays the role a
-parent's `selected_child` plays for every other position.
+## Tools and skills
 
-## What makes a retry different
+Reading needs no skill. Loading the pdf, docx or xlsx skill registers its
+writing tools (`SKILL_TOOLS` in `tools/documents/tool.py`), effective from the
+next model call; a message that names a document type, or attaches one, starts
+the turn with them (`skill_tools.for_message`). The skills plugin keeps loaded
+skills in the agent's state, so later turns are rebuilt with the same tools.
+Atlas's tools are switched one by one in `tools.atlas`; `tools.builtin` has the
+harness's `write`, `edit` and `shell` (off).
 
-A retry restores the same state and asks the same question, so on its own a
-small model gives a near-copy. `retry.*` settings, applied to retries only:
+## Non-Obvious Invariants & Footguns
 
-1. The previous versions' answers are quoted after the question with an
-   instruction to take a different approach (`retry_hint`). The note is
-   removed from the message before the snapshot is saved, so later turns never
-   see it. This is the lever that changes the *approach*.
-2. Temperature is raised by `temperature_boost`, `presence_penalty` is set.
-3. A fresh random `seed`.
+**The model and the harness**
+- **Memory needs all four switches off** (`runtime/memory.py`): `memory`,
+  `context_manager`, `background_tasks`, `builtin_plugins=[]`. Any one left on
+  brings a tool or a cross-branch leak back. `test_harness_contract.py` checks it.
+- **Never write `snapshot_latest`** (`save_latest_on="trigger"`): Strands restores
+  it automatically, so a first message would start with another conversation.
+- **Set the system prompt again after every restore**, with the harness's own
+  builder; the snapshot's stored prompt wins otherwise.
+- **The prompt prefix must stay stable within a day** for llama.cpp's cache: no
+  time of day, chat id or workspace path in the system prompt; tools always
+  registered in the same order (`ATLAS_TOOLS`, `SKILL_TOOLS`).
+- **Pass the current turn's reasoning back** (`reasoning_content`); stripping it
+  made the model lose its plan after every tool call. Read reasoning from the raw
+  stream event only: it arrives twice.
+- **`enable_thinking` must be sent on every request**; llama-server defaults to on.
+- **`callback_handler=None`**: Strands' printer failed runs on a cp1252 console.
 
-On a factual question, expect different framing, not different facts.
+**Hooks**
+- **Order matters, and after-hooks run in reverse.** `InputFence` is registered
+  first so it wraps results last (the done check reads raw results); `EgressGuard`
+  sits before `ToolPolicy` so a refusal never shows a card; `Provenance` sits
+  before `DoneCheck` so it runs after it and never sends a turn back twice.
+- **A tool failure must be an error result** (`{"status": "error", ...}`); text
+  saying "Error" is a success to Strands, and recovery never sees it.
+- **Each send-back is once per turn.** A new reason to resume goes into an
+  existing check, not a second resume.
 
-## Recovery (`recovery/`)
+**Files and documents**
+- **Never replace a file.** `create_document`, the pipelines, `copy_file`,
+  `move_file` and skill outputs take a free name; only a draft the same turn
+  made may be made again (`documents/tool._free`).
+- **Every binary document is written atomically and reopened before it is moved
+  into place** (`documents/base._atomic`); a failure leaves the old file.
+- **DuckDB is sealed** (`_seal`) after loading a sheet or CSV: its own readers
+  could open any file on the disk.
+- **The model never sees the workspace path**; workspace files are named bare and
+  `$ATLAS_WORKSPACE` names the folder. A garbled chat id once landed in another
+  chat's folder.
+- **Paths for the model are `/c/Users/...`**: unquoted backslashes are escapes in
+  bash, and the harness file tools reject paths not starting with `/`.
 
-Hooks, not prompt text: a 2B model does not reliably follow "retry on failure".
+**Safety**
+- **Every path a call touches must reach the policy**: a new tool that reads or
+  writes a file adds itself to `call_paths.TOOL_ACTIONS` (and `PIPELINE_INPUTS`
+  for inputs), or the floor and grid never see it.
+- **A new tool's result is fenced by default** (`rails.OWN_WORDS` lists the
+  exceptions, which must be Atlas's own words, never outside text).
+- **The floor checks its own examples at load**; a rule that stops matching fails
+  the start on purpose.
+- **Atlas's data folder and other chats are refused to every tool**, reads
+  included, whatever the mode or grants.
 
-- `LocalModelRetry` subclasses Strands' `ModelRetryStrategy`: retries a model
-  call on a transport error, a 5xx or an **empty response**, with a fixed short
-  delay instead of exponential backoff (there is no rate limit locally). The
-  run is told, so the UI drops the discarded partial output.
-- `ToolFailureRecovery`:
-  - re-runs a tool that **crashed** (raised), up to `tool_crash_retries`;
-  - treats a shell command with a **non-zero exit code** as failed — the
-    harness reports it as a success, and the model then says it worked;
-  - appends "attempt N of M, read the error, fix the arguments" to a failed
-    result, and past the limit "stop and explain";
-  - if the model stops right after a failure, resumes it once
-    (`AfterInvocationEvent.resume`). The run emits `resumed`, and the answer
-    the model gave up with is shown folded away as an earlier attempt.
-
-## The model adapter (`model/llamacpp.py`)
-
-The stock `LlamaCppModel` needed five things:
-
-- `chat_template_kwargs.enable_thinking` is sent explicitly; the base class
-  drops unknown request keys and llama-server defaults to thinking on.
-- The response is **streamed** (`client.stream`). `client.post` buffered the
-  whole body, so each model call arrived in one burst.
-- `timings` (per token) go to an observer: the context meter and tokens/s.
-- `reasoningContent` blocks are sent as each assistant message's
-  `reasoning_content`, not as content (the base formatter raises on them).
-  Gemma's template keeps the current turn's reasoning and drops older turns'
-  by itself; stripping it all made the model forget its plan after every tool
-  call and repeat its steps.
-- `document` blocks (a pdf/docx/xlsx some tools return)
-  become a text note pointing at the skill; llama-server answers them with a 400.
-
-## The workflow lane (`runtime/model_call.py`, `tools/pipelines.py`)
-
-Code loops over the units of a task and asks the model one schema-constrained
-question per unit (`ModelCall`: the run's limits, Stop and trace apply; no tools
-offered). Each answer is checked against its source before it is used.
-
-- **`extract_table`:** one row per file, each value found in that file, the
-  total added with `Decimal`.
-- **`write_summary`:** one sentence and figure per section, every number found
-  in its section, asked once more, else left out.
-- **`compare_documents`:** difflib finds the changes; the model only words them.
-
-They come with the document skills. Fill and Key moments ask the same way.
-
-## Documents (`tools/documents/`)
-
-The model writes **Markdown**; `create_document` turns it into docx
-(python-docx), pdf (reportlab) or xlsx (openpyxl: every Markdown table becomes
-a sheet named after the heading above it; CSV or TSV lines work too). Every
-file is written to a temp file, reopened by its own library to prove it
-parses, and only then moved into place. A failure returns an *error* tool
-result in words the model can act on, so `ToolFailureRecovery` counts it.
-
-`edit_docx` replaces one paragraph or table cell, by the id `read_docx`
-printed (`b12`, `t1.r3.c3`); `set_cell` sets one cell (`Mar!B2`), a number as
-a number and text starting `=` as text (blocks.py). Both work only on a
-version of the file this chat attached or read, and re-ingest it after. A PDF
-cannot be edited in place. `create_document` never replaces a file: an
-existing name gets `-2`, so a failed edit cannot turn into a regenerated copy
-over the original.
-
-**These tools come with skills** (`runtime/skill_tools.py`): loading the pdf,
-docx or xlsx skill registers its writing tools (`SKILL_TOOLS`), effective from
-the next model call. The skills plugin keeps the loaded skills in the agent's
-state, saved with each snapshot, so later turns are built with the same tools,
-always in `SKILL_TOOLS` order (the list is part of llama.cpp's cached prefix).
-A call to one before its skill is loaded is answered "load the docx skill".
-
-The policy's documents step refuses the plain `write`/`edit` tools on
-.docx/.xlsx/.pdf/.pptx (writing text into one is how corrupt documents
-happened). `read_text` answers a pdf/docx/xlsx with the tool that reads it.
-
-Images: ingest saves a document's images in the store and the readers print
-each as `![caption](asset:<sha12>/<file>)`. `create_document` embeds such
-lines in docx and pdf, so a rewrite keeps its figures; an `asset:` image
-resolves only for a chat that owns the document. Images that cannot be
-found are left out and named in the result.
-
-## Reading documents (`ingest/`, `tools/doc_reading.py`)
-
-**Ingest is not reading.** An upload or import submits the file to the
-store (`store_for(data_dir)`), which returns at once; one worker thread
-parses it into blocks in `<data>/parsed/index.db`, images under
-`<data>/parsed/<sha>/`. A PDF's text layer is published first (`partial`),
-then each scanned page as OCR finishes, pages a read waits for first. The
-read tools only fetch: they wait briefly for pages in progress and never
-parse. Every write is a transaction; an interrupted PDF resumes at the next
-submit.
-
-Entries are shared by content hash but owned per chat (`owners`), written
-when the chat attaches or reads the file, after the policy's access check.
-Deleting a chat drops its ownership and every entry nobody else owns.
-`read_pdf` downloads an https link into the workspace and taints the chat;
-it refuses `file://`, which would slip past the access check.
-
-Block ids are the edit tools' addresses: `p27.3` (pdf), `b12` and `t1`
-(docx body paragraph and table; a cell is `t1.r3.c3`), `Mar!A1:C51` (xlsx).
-
-## Arithmetic and dates (`tools/maths/`)
-
-`calculate("3940 + 824.82 + 1895.5")` and `dates('days_between("2 Oct 2026",
-"15 Nov 2026")')` each take **one string**, so the model never picks an
-operation or counts arguments: it writes the sum it would have written in its
-answer, and code works it out. Parsed with `ast` and evaluated from an
-allow-list (numbers, quoted dates, `+ - * / // **`, a few named functions);
-nothing is executed. Numbers are `Decimal`, so money is exact. The docstrings
-carry examples, which a 2B model copies. Nothing yet forces their use.
-
-Atlas's own tools are switched one by one
-in `tools.atlas` (Settings > Agent > Built-in tools); `ToolManager.atlas_tools()`
-resolves them.
-
-## Tool policy (`safety/policy.py`)
-
-Every check made before a tool runs is one `ToolPolicy` hook with ordered
-steps. The first step that refuses sets `cancel_tool` and the rest are skipped:
-
-1. **normalise**: paths in the form each tool takes. MCP arguments get Windows
-   paths (`/c/Users/x` -> `C:/Users/x`) and relative paths placed by `locate`;
-   `write`/`edit` get `/c/...` for a pasted `C:\...` and a relative path placed
-   like every tool's; unquoted `C:\...` in
-   a shell command becomes `C:/...` (bash eats the backslashes).
-2. **floor**: refused outright, no card: Atlas's own files (protected.py), the
-   floor's shell rules (rules.toml), and anything a shell command names, to
-   read, write or delete, that lands in Atlas's data or another chat (every
-   path placed from where the command runs: `grid.shell_reads`).
-3. **documents**: `write`/`edit` on a binary document is redirected, before
-   the grid, so a call that would be redirected never shows a card.
-4. **grid** (`safety/grid.py`): every call, of any tool, is described as
-   (place, action) pairs and each is looked up in the grid of `access.mode`:
-
-   | | read | create | change | delete | run |
-   |---|---|---|---|---|---|
-   | workspace | run | run | run | run | ask |
-   | folders | run | run | ask | ask | ask |
-   | elsewhere | ask | ask | ask | ask | ask |
-   | system | ask | refused | refused | refused | refused |
-
-   That is the default, **ask**. **Look** refuses everything but reads (and
-   asks to read outside); **work** runs changes and commands in the folders
-   and still asks to delete. Atlas's own files never get here (the floor).
-   How a call is described: Atlas's tools declare their action
-   (`TOOL_ACTIONS`); `write` is create or change by whether the file exists;
-   shell commands are parsed (`shell.py`), their targets placed with `~`,
-   `$HOME` and `%USERPROFILE%` as the home folder and anything else that
-   cannot be placed (another variable, a path after `cd`) as elsewhere; an
-   MCP tool by its server's labels (`read_only_hint`, `destructive_hint`),
-   unlabelled as a change. A shell delete outside the workspace is refused and
-   pointed to `delete_file` (Recycle Bin). One card per call (kind `access`
-   with a path, `tool` for a command); Allow covers that action, or a lesser
-   one, in that folder (that exact command, for a command) for the rest of the turn.
-   Two more places: a file the user attached is the **upload** zone (changing or
-   deleting it asks in every mode, except through `edit_docx` and `set_cell`),
-   and a command that talks to the network (`curl`, `wget`, `scp` ...) asks in
-   every mode. The shell is off by default (`tools.builtin.shell`); when on,
-   every command asks with its full text. Skill scripts run through `run_skill`,
-   whose path arguments are checked like any tool's: an existing file as a read
-   (and a create beside it), a new name as a create.
-   **Outside content in the chat** (the extension's page tools, a PDF
-   `read_pdf` downloads, an MCP tool from an untrusted server) makes every
-   run, change and delete, every create outside the workspace and every
-   shell command ask (kind `page`), in that turn and later ones. Stored on the
-   chat (`chats.tainted`); `TaintTracker` marks it after such a tool returns.
-   An MCP server is trusted when Atlas points it only at the allowed folders
-   (`{atlas:folders}`) or it is marked `"atlas": {"trusted": true}` in mcp.json.
-   A create or change outside the folders whose folder does not exist, but whose
-   end names one that does in the user's folders (`Reports/a.xlsx`), is refused
-   with the real path, no card: the model typed a full path from memory.
-5. **install**: a `shell` command that installs asks (kind `install`).
-6. **sensitive**: a tool set to Ask asks (kind `tool`): every MCP tool unless
-   set On on the MCP page (stored as `atlas.on` in mcp.json), and any tool
-   named in `tools.ask` (by default the web tools). Skipped when the grid
-   already asked about the call.
-
-Recovery after a tool runs stays in `recovery/`.
-
-### Guardrails around the policy (`rails.py`, `egress.py`, `provenance.py`)
-
-The policy is the action stage. Three more stages, all code:
-
-- **Input:** `InputFence`, the first hook, wraps every result that carries
-  outside text in `<untrusted source=...>` (not Atlas's own results, not errors).
-  Text addressed to the assistant taints the chat and shows a notice.
-- **Egress:** `EgressGuard`, before the policy, checks every outbound string
-  (searches, addresses, links, untrusted MCP arguments): shape, a budget once
-  tainted, and no run of 12 words from a document the chat read.
-- **Output:** `Provenance`, beside the done check, finds figures typed into a
-  document with no source in the history. It sends the turn back once, then
-  shows a notice.
-
-### Access
-
-One model for every way the agent reaches a file. The **scope** is the chat
-workspace (always), `access.folders` (Settings > Access, subfolders included),
-and, read-only, the skills folder and Python install so scripts can be read.
-What is checked:
-
-- every tool that takes a `path` (and `destination`, for copy and move): an absolute
-  one as given. A relative path is placed by `safety/placement.locate`: the
-  workspace first, then each allowed folder (an existing file wins; a new
-  one goes where its folder exists). The file tools, the skill scripts
-  (`$ATLAS_FOLDERS`) and MCP arguments follow the same rule, so
-  `Demo/Invoices/x.pdf` means one file to every tool.
-- `shell`: every path the command names: operands, `--x=path` values and
-  `< file`, relative ones placed from the workspace (or from where a `cd` led),
-  with `~`, `$HOME` and `$ATLAS_SKILLS` expanded. One that cannot be placed asks.
-- MCP tools: any string argument that is a drive path.
-
-Outside the scope the user gets an Allow / Deny card naming the folder. Allow
-holds for that folder for the rest of the turn, for what was asked: a read
-grant does not allow writes, and at a drive root or the home folder only the
-exact path is granted (never all of `C:/`). With `access.ask_outside` off
-it is refused, and the model is told the user can add the folder in Settings.
-
-MCP servers get the same folders through their arguments: `{atlas:folders}` in
-a server's `args` expands to the chats folder plus each existing allowed
-folder. Strands' `MCPClient` does not implement the MCP roots protocol, so
-arguments are the only way in. Changing the folders reconnects those servers.
-The shell check is a guard against mistakes, not a sandbox: a script can open
-any path it builds itself.
-
-### Approvals
-
-Steps call `approver(kind, detail)`. The run emits `approval_request`, the UI
-shows Allow / Deny, and no answer within `approvals.timeout` seconds (60)
-counts as Deny, as does cancelling the run. Where the card's `chat` is true it
-also offers **Allow for this chat** (`allowed_chat`): the grant goes into the
-chat's list (`Atlas.chat_grants`, in memory, so a restart asks again) and
-covers later turns too, until outside content enters the chat. Never offered
-after outside content, for a delete, for a command (`run:python` for a whole
-chat would be any code at all) or for an install. The model is then told not to try
-another way. Python packages are installed with `python -m pip`, so they land
-in Atlas's own venv.
-
-### Skill requirements (`integrations/skills/requirements.py`)
-
-Read from `requirements.txt`, `package.json` dependencies, and install commands
-in SKILL.md code fences (`npm install -g x`, `pip install y`), each with its
-installed status. The Skills page lists them and installs the missing ones.
-That click is the approval; the model never has to.
-
-## The web (`tools/web.py`)
-
-`web_search(query, recent)` and `read_url(url, question)`, through Exa's API
-(httpx, no SDK). Code shapes what the model sees: two results per site at
-most, only results whose highlights (Exa's query-relevant sentences) answer
-the query, five kept, each labelled with its site, date and kind (official,
-reference, news, forum, other), with "cite as [1]" and "prefer official
-sources". `read_url` is fetched by Exa, never from this machine; addresses
-that are not public are refused before sending, a PDF goes to `read_pdf`.
-
-Both send the user's words to a third party: they ask (`tools.ask`), and
-"Allow for this chat" covers them for the whole chat, even after their own
-results taint it (otherwise every search after the first would ask). What a
-page could make a query carry out is limited instead: queries over 300
-characters, holding a file path or `$ATLAS_WORKSPACE`, or a long number are
-refused. Their results taint the chat, like an untrusted MCP server's.
-
-The key is in `<data>/secrets/exa.key` (`PUT /api/secrets/exa`, the web UI's
-alone): never in settings.json, never an environment variable (every shell
-command would inherit it), and the agent can never read the data folder.
-Without a key the tools are not offered.
-
-## Windows (`platform/`)
-
-- Every shell command starts in the **chat's workspace** (`$ATLAS_WORKSPACE`,
-  set per turn; the model is never shown the workspace's own path, whose chat id
-  it copied wrong into another chat's folder, now refused), `$ATLAS_SKILLS`
-  points at the skills folder and `$ATLAS_FOLDERS` lists the allowed folders. An attached file is named by its name alone
-  (`"exp4.pdf"`). The bundled skills run their scripts with
-  `run_skill(skill="pdf", script="merge_pdf.py", args=[...])`, not the shell,
-  which is off by default. The attachment list gives each file's exact read call.
-- **Stop ends a running command.** Strands stops a turn only at its safe
-  points, and a running shell command is not one. The environment watches the
-  agent's cancel signal (set on it in `build_agent`) and, on Stop or timeout,
-  kills the command's whole process tree (`taskkill /T`: killing `sh.exe`
-  alone left the Python script it ran going).
-- Commands run through Git Bash when it exists (`cmd.exe` as a fallback); the
-  venv's `Scripts` is first on PATH, so a bare `python` is the project's.
-- The model is shown every path as `/c/Users/...` (`model_path`). That one form
-  works unquoted in bash, as an argument to `python.exe` (MSYS converts it),
-  and in the harness file tools, which reject any path not starting with `/`.
-  `_resolve_path` turns it back into `C:/Users/...` for Python's file calls.
-  Other POSIX paths (`/tmp/...`) are
-  resolved with Git's `cygpath`.
-- Strands' default callback handler printed every token to the console; under
-  a cp1252 console an emoji failed the run. It is off (`callback_handler=None`)
-  and the backend and every skill script run in UTF-8 mode.
-
-## Skills and MCP
-
-- **Skills** (`integrations/skills/catalog.py`): every folder under `skills/` with a
-  `SKILL.md` is on unless listed in `skills.disabled`. The harness gets the
-  list of enabled folders. Front matter is parsed as YAML. Installed skills
-  carry `.atlas-source.json`; folders without one shipped with Atlas and can
-  be switched off but not deleted. See [skills/AGENTS.md](../skills/AGENTS.md).
-- **MCP** (`integrations/mcp/pool.py`): `mcp.json` in the standard format. Each enabled
-  server is connected **once per process** and kept open by a permanent pool
-  consumer; each turn gets the individual tool objects. A per-tool switch is
-  stored as the server's standard `tool_filters.rejected` and applied when the
-  turn's tool list is built, so switching needs no reconnect. Every tool schema
-  costs prompt tokens on every request; the manager estimates them.
-- **MCP lifecycle.** Servers start side by side. A start is bounded by
-  `mcp.startup_timeout` and cancellable (`_start_bounded`): Strands' own
-  timeout cannot stop a server that never answers `initialize` (its `stop()`
-  waits forever and the process lives on), so Atlas cancels the client's
-  background tasks itself, which ends the server's process tree. Refresh, a
-  settings change and shutdown all cancel a start in progress and wait for it
-  before anything new starts: one copy of a server at a time, because two
-  copies fight over the same things (uv's cache lock, a port).
-- **Where tools come from.** Each MCP tool's description starts with
-  `[MCP: <server>]`, and the prompt lists tools grouped by source (built in,
-  skills, each MCP server). Without that, asked to use an MCP tool, the model
-  used the built-in one with the same purpose.
-
-## Memory
-
-Off, enforced by validation. The harness memory store is a flat folder with no
-chat or branch in its key, injected every turn, so a fact from one version of a
-chat leaks into every other. Turning it on needs a design (scope per chat or
-per branch), not a flag. `runtime/memory.py` sets all four switches it takes to
-keep it, and its tools, out of the request.
-
-## Checking it
-
-`python tests/check.py` runs every offline check (ruff, pyright, pytest, and
-the TypeScript checks); CI runs the same on every push. The real-model checks
-(`tests/live/suite.py`) need the GPU and are run by hand before and after a change;
-results are kept in `benchmarks/`. See [tests/README.md](../tests/README.md).
+**Windows**
+- **The venv's `Scripts` goes first on PATH** for every subprocess, or a bare
+  `python` is the system's and the model `pip install`s into user site-packages.
+- **Stop must kill the process tree** (`taskkill /T`): killing `sh.exe` left the
+  Python script it ran going.
+- **`CreateProcess` resolves executables from the calling process's PATH**, so
+  PATH is changed in `os.environ`, not `env=`; `PROGRAMFILES(X86)` is not a valid
+  POSIX name and is filtered; bash needs a `:`-separated PATH.
+- **A busy port reports `WinError 10013`**, which reads like a permissions error.
+- **Port sweeps only touch processes this launch started**, and only ones that
+  look like that service.

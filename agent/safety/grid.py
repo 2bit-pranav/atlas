@@ -45,7 +45,6 @@ from agent.safety.scope import Scope, _absolute
 from agent.safety.shell import _PYTHON, _operands, classify
 from agent.tools.documents.references import referenced
 
-ZONES = ("workspace", "folders", "elsewhere", "system", "upload")
 ACTIONS = ("read", "create", "change", "delete", "run")
 MODES = ("look", "ask", "work")
 
@@ -304,5 +303,5 @@ def _system(path: Path) -> bool:
     return top in ("windows", "program files", "program files (x86)", "programdata")
 
 
-__all__ = ["ACTIONS", "GRID", "MODES", "TOOL_ACTIONS", "ZONES", "Effect", "effects", "placed_or_elsewhere",
+__all__ = ["ACTIONS", "GRID", "MODES", "TOOL_ACTIONS", "Effect", "effects", "placed_or_elsewhere",
            "shell_reads", "verdict", "zone"]

@@ -1,4 +1,4 @@
-"""run_skill (agent/tools/skills_run.py): a skill's script as a typed call, no shell (plan 3.6)."""
+"""run_skill (agent/tools/skills_run.py): a skill's script as a typed call, no shell."""
 
 from __future__ import annotations
 

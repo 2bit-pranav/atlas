@@ -86,7 +86,7 @@ class BuiltinToolSettings(StrictModel):
 
     write: bool = True
     edit: bool = True
-    shell: bool = False  # off: skills run through run_skill; when on, every command asks (plan 3.7)
+    shell: bool = False  # off: skills run through run_skill; when on, every command asks
 
 
 class AtlasToolSettings(StrictModel):
