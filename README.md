@@ -45,7 +45,8 @@ atlas settings check             # validate settings.json
 
 `atlas start` shows a small live panel (o opens the UI, l shows logs, r
 restarts, q stops). The backend serves the built UI, so day-to-day use needs no
-Node; the first start builds it if `client/dist` is missing. `--dev` runs Vite
+Node once it is built; `atlas start` builds it if `client/dist` is missing and
+rebuilds it when its sources have changed. `--dev` runs Vite
 with hot reload (UI at :5173); `--raw` prints every log line; `--no-llama`,
 `--no-backend` and `--no-client` start a subset. Logs are in `.data/logs/`.
 

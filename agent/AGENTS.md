@@ -133,6 +133,9 @@ harness's `write`, `edit` and `shell` (off).
 - **Never replace a file.** `create_document`, the pipelines, `copy_file`,
   `move_file` and skill outputs take a free name; only a draft the same turn
   made may be made again (`documents/tool._free`).
+- **A new file named bare lands in the workspace** (`Scope.place_new`), even when a
+  file of that name exists in an allowed folder; reads still find it there
+  (`Scope.place`). The tools and the policy must use the same one for the same call.
 - **Every binary document is written atomically and reopened before it is moved
   into place** (`documents/base._atomic`); a failure leaves the old file.
 - **DuckDB is sealed** (`_seal`) after loading a sheet or CSV: its own readers
