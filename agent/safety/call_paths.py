@@ -21,10 +21,11 @@ TOOL_ACTIONS = {
     "create_document": "create", "edit_docx": "change", "set_cell": "change", "edit": "change",
     "move_file": "change", "delete_file": "delete",
     # The pipelines (tools/pipelines.py) create `path`; their inputs are in PIPELINE_INPUTS.
-    "extract_table": "create", "write_summary": "create", "compare_documents": "create",
+    "extract_table": "create", "write_summary": "create", "compare_documents": "create", "fill_template": "create",
 }
 #: The pipelines' input arguments: every file they name is read.
-PIPELINE_INPUTS = {"extract_table": ("files",), "write_summary": ("file",), "compare_documents": ("old", "new")}
+PIPELINE_INPUTS = {"extract_table": ("files",), "write_summary": ("file",), "compare_documents": ("old", "new"),
+                   "fill_template": ("template",)}
 
 
 def pipeline_inputs(name: str, args: dict[str, Any]) -> list[str]:

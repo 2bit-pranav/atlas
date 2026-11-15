@@ -290,11 +290,72 @@ def describe(ask: ModelCall, found: list[dict[str, str]]) -> list[str]:
     return out
 
 
+# ---------------------------------------------------------- fill_template --
+
+
+#: A template's blanks: {{Client name}}, [Client Name], <<date>>, «date».
+PLACEHOLDER = re.compile(r"\{\{\s*([^{}\n]{1,60}?)\s*\}\}|\[([A-Z][^\[\]\n]{0,59})\]|<<\s*([^<>\n]{1,60}?)\s*>>|\u00ab\s*([^\u00ab\u00bb\n]{1,60}?)\s*\u00bb")
+TEMPLATE_SYSTEM = ("You fill in a document's blanks from the user's details. For each blank, give the value "
+                   "from the details that answers it, copied as written. If the details do not say, give "
+                   '"". Never invent a value.')
+
+
+def _paragraphs(doc: Any) -> list[Any]:
+    """Every paragraph of a Word document: body, tables (nested too), headers and footers."""
+    out: list[Any] = []
+
+    def walk(container: Any) -> None:
+        out.extend(container.paragraphs)
+        for table in getattr(container, "tables", []):
+            for row in table.rows:
+                for cell in row.cells:
+                    walk(cell)
+
+    walk(doc)
+    for section in doc.sections:
+        for part in (section.header, section.footer):
+            walk(part)
+    return out
+
+
+def blanks(doc: Any) -> list[str]:
+    """The template's blanks by name, once each, in order."""
+    found = (next(g for g in m.groups() if g) for p in _paragraphs(doc) for m in PLACEHOLDER.finditer(p.text))
+    return list(dict.fromkeys(b.strip() for b in found))
+
+
+def fill(doc: Any, values: dict[str, str]) -> int:
+    """Each blank with a value replaced, in place; returns how many were. A paragraph that changes
+    keeps its first run's formatting. shortcut: mixed formatting inside such a paragraph is lost;
+    replace inside runs if templates with styled words around blanks need it."""
+    done = 0
+    for p in _paragraphs(doc):
+        text = p.text
+        if not PLACEHOLDER.search(text):
+            continue
+
+        def put(m: re.Match[str]) -> str:
+            nonlocal done
+            v = values.get(next(g for g in m.groups() if g).strip())
+            if v:
+                done += 1
+                return v
+            return m.group(0)
+
+        new = PLACEHOLDER.sub(put, text)
+        if new != text and p.runs:
+            p.runs[0].text = new
+            for r in p.runs[1:]:
+                r.text = ""
+    return done
+
+
 # -------------------------------------------------------------------- tools --
 
 
 def pipeline_tools(store: Store, chat: str, workspace: Path, resolve: Callable[[str], Path],
-                   shown: Callable[[Path], str], ask: ModelCall, drafts: set[Path] | None = None) -> dict[str, Any]:
+                   shown: Callable[[Path], str], ask: ModelCall, drafts: set[Path] | None = None,
+                   profile: Callable[[], str] = lambda: "") -> dict[str, Any]:
 
     def _inputs(names: list[str]) -> list[Path]:
         out: list[Path] = []
@@ -417,7 +478,78 @@ def pipeline_tools(store: Store, chat: str, workspace: Path, resolve: Callable[[
         return (f"{made}{len(found)} changes from {a.name} to {b.name}"
                 + (f" (and {more} more not shown)" if more > 0 else "") + ":\n" + "\n".join(lines))
 
-    return {"extract_table": extract_table, "write_summary": write_summary, "compare_documents": compare_documents}
+    @tool(name="fill_template")
+    def fill_template(template: str, path: str, details: str = "") -> Any:
+        """Fill in a Word template's blanks ({{Name}}, [Client Name], <<date>>) from the user's saved details.
+
+        The template is left as it is; the filled copy is a new file. A blank the details do not answer is
+        left as it is and named in the result.
+
+        Args:
+            template: The .docx with blanks.
+            path: The filled copy to create, e.g. "offer_letter.docx".
+            details: Facts from the user's message the saved details lack, e.g. "client: Acme Ltd".
+        """
+        from datetime import date
+
+        import docx as python_docx
+
+        from agent.tools.documents.base import _atomic
+        from agent.tools.documents.docx import _check_docx
+
+        source = resolve(template)
+        if source.suffix.lower() != ".docx" or not source.is_file():
+            return _failed(f"{source.name} is not a Word document here (.docx)")
+        if not path.lower().endswith(".docx"):
+            return _failed("path must end in .docx")
+        names = blanks(python_docx.Document(str(source)))
+        if not names:
+            return _failed(f"{source.name} has no blanks like {{{{Name}}}}, [Client Name] or <<date>> to fill.")
+        today = date.today()
+        known = (f"{profile()[:6000]}\n{details}\nToday: {today.isoformat()}, {today:%d %B %Y}, "
+                 f"{today:%B %d, %Y}, {today:%d/%m/%Y}")
+        schema = {"type": "object", "additionalProperties": False, "required": names,
+                  "properties": {n: {"type": "string", "maxLength": 300} for n in names}}
+        try:
+            answer = ask.ask(f"My details:\n{known}\n\nThe document's blanks: {', '.join(names)}\n\n"
+                             "Give the value for each blank.", schema, system=TEMPLATE_SYSTEM, name="blanks",
+                             max_tokens=800, temperature=0.1)
+        except ModelCallError as exc:
+            return _failed(str(exc))
+        values, missing = {}, []
+        for n in names:
+            v = " ".join(str((answer or {}).get(n) or "").split()) if isinstance(answer, dict) else ""
+            if v and grounded(v, known):
+                values[n] = v
+            else:
+                missing.append(n)
+        if not values:
+            return _failed("none of the blanks could be filled from the user's details; ask the user for: "
+                           + ", ".join(missing))
+        asked = resolve(path)
+        target = _free(asked, drafts)
+
+        def build(tmp: Path) -> dict[str, Any]:
+            doc = python_docx.Document(str(source))
+            fill(doc, values)
+            doc.save(str(tmp))
+            return {}
+
+        try:
+            _atomic(target, build, _check_docx)
+        except Exception as exc:  # noqa: BLE001 - the model needs words
+            return _failed(f"could not write {target.name}: {type(exc).__name__}: {exc}")
+        if drafts is not None:
+            drafts.add(target)
+        out = (f"Created {shown(target)} from {source.name}: filled "
+               + "; ".join(f"{n} = {v}" for n, v in values.items()) + ".")
+        if missing:
+            out += (" Left blank (not in the user's details; ask the user, then fill again): "
+                    + ", ".join(missing) + ".")
+        return out
+
+    return {"extract_table": extract_table, "write_summary": write_summary, "compare_documents": compare_documents,
+            "fill_template": fill_template}
 
 
 __all__ = ["changes", "extract", "grounded", "numbers_grounded", "pipeline_tools", "read_blocks", "sections",

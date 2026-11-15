@@ -81,6 +81,8 @@ export const SECTIONS: Section[] = [
             help: "Summarise a long document section by section, every figure checked. Comes with the docx and pdf skills." },
           { key: "tools.atlas.compare_documents", label: "compare_documents", control: toggle,
             help: "Every change between two versions of a document, found by code. Comes with the docx and pdf skills." },
+          { key: "tools.atlas.fill_template", label: "fill_template", control: toggle,
+            help: "Fill a Word template's blanks ({{Name}}, [Client Name]) from your details. Comes with the docx skill." },
           { key: "tools.atlas.run_skill", label: "run_skill", control: toggle,
             help: "Run a skill's own scripts (merge or split PDFs, convert files), with no shell. Every file it names is checked like any other." },
           { key: "tools.atlas.calculate", label: "calculate", control: toggle,

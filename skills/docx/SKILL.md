@@ -24,6 +24,9 @@ PDF from that Markdown with `create_document`.
 
 - A summary of a long document, as a file: **`write_summary`**(file, path). It
   reads every page, section by section, and checks each figure.
+- A template with blanks ({{Name}}, [Client Name], <<date>>) filled from the user's
+  details: **`fill_template`**(template, path, details). Put facts from the
+  message in `details`.
 - What changed between two versions: **`compare_documents`**(old, new, path).
   Code finds every change; give `path` to write them to a document too.
 

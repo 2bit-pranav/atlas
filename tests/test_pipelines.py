@@ -115,3 +115,33 @@ def test_the_policy_reads_every_input_and_creates_the_output(tmp_path, monkeypat
                                                  ("read", tmp_path / "Elsewhere")}
     got = effects("compare_documents", {"old": "v1.docx", "new": "v2.docx"}, None, scope)
     assert {(e.action, e.path.name) for e in got} == {("read", "v1.docx"), ("read", "v2.docx")}
+
+
+def test_a_template_is_filled_from_the_details_and_nothing_is_invented(tmp_path) -> None:
+    from docx import Document
+
+    from agent.ingest.store import Store
+    from agent.tools.pipelines import pipeline_tools
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    d = Document()
+    d.sections[0].header.paragraphs[0].text = "Ref: [Reference]"
+    d.add_paragraph("Dear {{Name}}, welcome to <<Company>>.")
+    d.add_table(rows=1, cols=1).rows[0].cells[0].text = "City: «City»"
+    d.save(str(ws / "offer.docx"))
+    before = (ws / "offer.docx").read_bytes()
+
+    def answer(prompt):
+        assert "Asha Verma" in prompt and "Northwind" in prompt          # the details and the message reach it
+        return {"Name": "Asha Verma", "Company": "Northwind", "City": "Pune", "Reference": "REF-9"}   # REF-9: invented
+
+    tools = pipeline_tools(Store(tmp_path / "parsed"), "c1", ws, lambda p: ws / p, lambda p: p.name, Script(answer),
+                           profile=lambda: "Name: Asha Verma\nCity: Pune")
+    out = str(tools["fill_template"](template="offer.docx", path="letter.docx", details="company: Northwind"))
+    filled = Document(str(ws / "letter.docx"))
+    assert filled.paragraphs[0].text == "Dear Asha Verma, welcome to Northwind."
+    assert filled.tables[0].rows[0].cells[0].text == "City: Pune"
+    assert filled.sections[0].header.paragraphs[0].text == "Ref: [Reference]"      # not in the details: left blank
+    assert "Left blank" in out and "Reference" in out
+    assert (ws / "offer.docx").read_bytes() == before                                 # the template is untouched

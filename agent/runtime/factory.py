@@ -16,6 +16,7 @@ from strands_harness import create_harness
 
 from agent.config import paths
 from agent.config.settings import Settings
+from agent.extension.form_fill import read_profile
 from agent.ingest.store import store_for
 from agent.integrations.skills.catalog import SkillManager
 from agent.model.sampling import RetryPlan, build_model
@@ -148,7 +149,8 @@ def build_agent(
     drafts: set[Path] = set()
     skill_tools = SkillTools(preload=set(writes), tools={name: t for name, t in {
         **document_tools(workspace_dir, shown, resolve, store, chat_id, drafts),
-        **pipeline_tools(store, chat_id, workspace_dir, resolve, shown, ask, drafts)}.items() if name in enabled})
+        **pipeline_tools(store, chat_id, workspace_dir, resolve, shown, ask, drafts,
+                         profile=lambda: read_profile(settings))}.items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 

@@ -110,6 +110,7 @@ class AtlasToolSettings(StrictModel):
     extract_table: bool = True  # agent/tools/pipelines.py, with the xlsx skill
     write_summary: bool = True  # with the docx and pdf skills
     compare_documents: bool = True  # with the docx and pdf skills
+    fill_template: bool = True  # with the docx skill: a Word template's blanks from the user's details
     run_skill: bool = True  # agent/tools/skills_run.py: a skill's script, no shell
     calculate: bool = True  # agent/tools/maths/
     dates: bool = True
@@ -339,6 +340,7 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.extract_table": Tier.LIVE,
     "tools.atlas.write_summary": Tier.LIVE,
     "tools.atlas.compare_documents": Tier.LIVE,
+    "tools.atlas.fill_template": Tier.LIVE,
     "tools.atlas.run_skill": Tier.LIVE,
     "tools.atlas.calculate": Tier.LIVE,
     "tools.atlas.dates": Tier.LIVE,
