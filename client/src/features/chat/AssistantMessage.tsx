@@ -72,7 +72,7 @@ export function AssistantMessage({ turn, chatId, parts, stats, running, isLast }
         if (part.kind === "superseded")
           return <Superseded key={i} text={part.text} />
         if (part.kind === "notice")
-          return <div key={i} className={inPanel}><Notice text={part.text} /></div>
+          return <Notice key={i} text={part.text} />   // always in the answer: the work panel does not show notices
         return <Markdown key={i} text={part.text} />
       })}
 
