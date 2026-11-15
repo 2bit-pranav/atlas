@@ -1,4 +1,0 @@
-all           A  passed 4/4  complete 100%  errors/run 0.00  avg  27.3s
-docs          A  passed 4/4  complete 100%  errors/run 0.00  avg  27.3s
-hard          A  passed 4/4  complete 100%  errors/run 0.00  avg  27.3s
-write         A  passed 4/4  complete 100%  errors/run 0.00  avg  27.3s

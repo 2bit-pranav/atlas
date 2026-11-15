@@ -76,7 +76,7 @@ survived (a file outside the allowed folders, the pairing token, a .docx the
 shell was told to append to); the others answer "allow". `--compare` runs every
 task twice, interleaved, without and with the given settings; `--llama` at a
 llama-server started with `--metrics` counts model work. Results go to
-`benchmarks/<date>-<name>/` (see [benchmarks/README.md](../benchmarks/README.md)):
+`benchmarks/<date>-<name>/` (see [benchmarks/BENCHMARKS.md](../benchmarks/BENCHMARKS.md)):
 `summary.txt` by tag and `results.json` are committed; one trace per run goes to
 `traces/`, which is not. The graders are themselves tested offline
 (`test_suite_graders.py`), each against a right and a wrong answer.

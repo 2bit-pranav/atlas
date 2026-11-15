@@ -97,7 +97,7 @@ skills/*
 # Tool caches.
 .cache/
 
-# Benchmark traces stay local; summaries and results.json are committed (benchmarks/README.md)
+# Benchmark traces stay local; summaries and results.json are committed (benchmarks/BENCHMARKS.md)
 benchmarks/*/traces/
 
 # graphify knowledge graph: generated (and cached) by /graphify, rebuilt on demand
