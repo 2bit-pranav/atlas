@@ -95,7 +95,9 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     are placed as the tool will place them (`Scope.place`), so `../x` is checked."""
     out: list[tuple[Path, bool]] = []
     if (name in TOOL_ACTIONS or name == "write") and isinstance(args.get("path"), str) and args["path"]:
-        out.append((scope.place(args["path"]), TOOL_ACTIONS.get(name) != "read"))
+        # A tool that creates places its new file as it does: a bare name in the workspace.
+        place = scope.place_new if TOOL_ACTIONS.get(name) == "create" else scope.place
+        out.append((place(args["path"]), TOOL_ACTIONS.get(name) != "read"))
     if name in DESTINATION_TOOLS and isinstance(args.get("destination"), str) and args["destination"]:
         out.append((scope.place(args["destination"]), True))
     out += [(scope.place(f), False) for f in pipeline_inputs(name, args)]

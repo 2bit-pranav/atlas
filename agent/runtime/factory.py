@@ -148,9 +148,9 @@ def build_agent(
     # Files the writing tools made this turn: the turn may make them again (documents/tool._free).
     drafts: set[Path] = set()
     skill_tools = SkillTools(preload=set(writes), tools={name: t for name, t in {
-        **document_tools(workspace_dir, shown, resolve, store, chat_id, drafts),
+        **document_tools(workspace_dir, shown, resolve, store, chat_id, drafts, place_new=scope.place_new),
         **pipeline_tools(store, chat_id, workspace_dir, resolve, shown, ask, drafts,
-                         profile=lambda: read_profile(settings))}.items() if name in enabled})
+                         profile=lambda: read_profile(settings), place_new=scope.place_new)}.items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
@@ -193,7 +193,7 @@ def build_agent(
                # End-of-turn callbacks run in reverse: the provenance rail after the done check,
                # so a turn the done check sent back is not sent back twice.
                Provenance(notify=observer),
-               DoneCheck(workspace_dir, request, notify=observer, place=scope.place),
+               DoneCheck(workspace_dir, request, notify=observer, place=scope.place_new),
                skill_tools,
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )

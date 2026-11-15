@@ -124,7 +124,8 @@ def _effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[E
     out: list[Effect] = []
     raw = args.get("path")
     if name in TOOL_ACTIONS and isinstance(raw, str) and raw:
-        out.append(Effect(TOOL_ACTIONS[name], scope.place(raw)))
+        place = scope.place_new if TOOL_ACTIONS[name] == "create" else scope.place   # as the tool places it
+        out.append(Effect(TOOL_ACTIONS[name], place(raw)))
         dest = args.get("destination")
         if name in DESTINATION_TOOLS and isinstance(dest, str) and dest:
             out.append(Effect("create", scope.place(dest)))

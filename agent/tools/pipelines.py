@@ -380,7 +380,8 @@ def fill(doc: Any, values: dict[str, str]) -> int:
 
 def pipeline_tools(store: Store, chat: str, workspace: Path, resolve: Callable[[str], Path],
                    shown: Callable[[Path], str], ask: ModelCall, drafts: set[Path] | None = None,
-                   profile: Callable[[], str] = lambda: "") -> dict[str, Any]:
+                   profile: Callable[[], str] = lambda: "",
+                   place_new: Callable[[str], Path] | None = None) -> dict[str, Any]:
 
     def _inputs(names: list[str]) -> list[Path]:
         out: list[Path] = []
@@ -394,7 +395,7 @@ def pipeline_tools(store: Store, chat: str, workspace: Path, resolve: Callable[[
         return list(dict.fromkeys(out))
 
     def _write(path: str, markdown: str) -> tuple[Path, str]:
-        asked = resolve(path)
+        asked = (place_new or resolve)(path)   # a new file: a bare name is the workspace's
         target = _free(asked, drafts)
         create(target, markdown, base=workspace)
         if drafts is not None:
@@ -555,7 +556,7 @@ def pipeline_tools(store: Store, chat: str, workspace: Path, resolve: Callable[[
         if not values:
             return _failed("none of the blanks could be filled from the user's details; ask the user for: "
                            + ", ".join(missing))
-        asked = resolve(path)
+        asked = (place_new or resolve)(path)   # a new file: a bare name is the workspace's
         target = _free(asked, drafts)
 
         def build(tmp: Path) -> dict[str, Any]:

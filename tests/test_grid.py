@@ -347,3 +347,17 @@ def test_a_command_that_talks_to_the_network_asks_in_work_mode_too(home, command
     policy, asked = _policy(home, mode="work", answer="denied")
     assert _call(policy, "shell", {"command": command})
     assert len(asked.calls) == 1
+
+
+def test_a_new_file_named_bare_lands_in_the_workspace_even_beside_a_namesake(home) -> None:
+    """invoices.xlsx in an allowed folder drew a new invoices.xlsx there as invoices-2.xlsx (2026-11-15)."""
+    from agent.safety.grid import effects
+
+    (home / "Docs" / "invoices.xlsx").write_text("x")
+    policy, _ = _policy(home)
+    ws = home / ".data" / "chats" / "c1"
+    assert policy.scope.place_new("invoices.xlsx") == ws / "invoices.xlsx"
+    assert policy.scope.place("invoices.xlsx") == home / "Docs" / "invoices.xlsx"          # a read still finds it
+    made = [e.path for e in effects("extract_table", {"files": [], "columns": ["x"], "path": "invoices.xlsx"},
+                                    None, policy.scope) if e.action == "create"]
+    assert made == [ws / "invoices.xlsx"]                                                    # the policy checks the same place

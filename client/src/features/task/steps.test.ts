@@ -58,6 +58,12 @@ describe("steps", () => {
                            { kind: "text", text: "I did not delete it." }], false)
     expect(steps).toMatchObject([{ label: "Did not delete Resume 2022.pdf", status: "error", note: "You said no" }])
   })
+
+  it("does not call a change done while it waits for the user", () => {
+    const steps = toSteps([tool("delete_file", { path: "C:/x/Documents/Old/Resume 2022.pdf" }, "", "running"),
+                           { kind: "approval", id: "1", command: "delete C:/x", status: "pending", expires_at: 0 }], true)
+    expect(steps).toMatchObject([{ label: "Delete Resume 2022.pdf", status: "waiting" }])
+  })
 })
 
 describe("the work line", () => {

@@ -52,10 +52,16 @@ function host(url: string): string {
 }
 
 /** The label for a run of calls to one tool. */
+/** A change not made yet (running, or waiting on its card) is not labelled as done: "Deleted X · Waiting for you" said otherwise. */
+const PENDING: Record<string, string> = { delete_file: "Delete", move_file: "Move", copy_file: "Copy", create_document: "Save",
+  write: "Save", edit: "Change", edit_docx: "Change", set_cell: "Change" }
+
 function label(name: string, calls: ToolPart[]): string {
   const n = calls.length
   const first = calls[0]
   const failed = calls.every((c) => c.status === "error")
+  if (PENDING[name] && calls.some((c) => c.status === "running"))
+    return `${PENDING[name]} ${base(arg(first, "path")) || "a file"}`
   if (READS.has(name)) {
     const names = calls.map((c) => base(arg(c, "path")))
     return n === 1 ? `Read ${names[0] || "a file"}` : `Read ${n} ${noun(names)}`

@@ -75,7 +75,7 @@ def _free(target: Path, drafts: set[Path] | None = None) -> Path:
 
 
 def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Callable[[str], Path],
-                   store: Store, chat: str, drafts: set[Path] | None = None) -> dict[str, Any]:
+                   store: Store, chat: str, drafts: set[Path] | None = None, place_new: Callable[[str], Path] | None = None) -> dict[str, Any]:
     """The writing tools for one chat, by name. `resolve` places a path as every
     file tool does (`placement.locate`)."""
 
@@ -113,7 +113,7 @@ def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Calla
             content: The document, as Markdown.
             title: Optional document title.
         """
-        asked = resolve(path)
+        asked = (place_new or resolve)(path)   # a new file: a bare name is the workspace's
         target = _free(asked, drafts)
         try:
             content = expand(content, resolve)
