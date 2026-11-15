@@ -11,6 +11,7 @@ from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
 from agent.platform.winpaths import drive_path, windows_path
 from agent.safety.scope import Scope
+from agent.tools.documents.references import referenced
 
 #: What each of Atlas's file tools does to its `path`, for the floor and the grid. The
 #: harness `write` is not here: it creates or changes, by whether the file exists.
@@ -19,7 +20,20 @@ TOOL_ACTIONS = {
                                  "find_files", "list_folder", "copy_file")},
     "create_document": "create", "edit_docx": "change", "set_cell": "change", "edit": "change",
     "move_file": "change", "delete_file": "delete",
+    # The pipelines (tools/pipelines.py) create `path`; their inputs are in PIPELINE_INPUTS.
+    "extract_table": "create", "write_summary": "create", "compare_documents": "create", "fill_template": "create",
 }
+#: The pipelines' input arguments: every file they name is read.
+PIPELINE_INPUTS = {"extract_table": ("files",), "write_summary": ("file",), "compare_documents": ("old", "new"),
+                   "fill_template": ("template",)}
+
+
+def pipeline_inputs(name: str, args: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    for key in PIPELINE_INPUTS.get(name, ()):
+        value = args.get(key)
+        out += [str(v) for v in (value if isinstance(value, list) else [value]) if isinstance(v, str) and v]
+    return out
 #: Tools that also create their `destination` (copy_file reads its `path`, move_file changes it).
 DESTINATION_TOOLS = {"copy_file", "move_file"}
 
@@ -81,10 +95,18 @@ def _paths_of(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[
     are placed as the tool will place them (`Scope.place`), so `../x` is checked."""
     out: list[tuple[Path, bool]] = []
     if (name in TOOL_ACTIONS or name == "write") and isinstance(args.get("path"), str) and args["path"]:
-        out.append((scope.place(args["path"]), TOOL_ACTIONS.get(name) != "read"))
+        # A tool that creates places its new file as it does: a bare name in the workspace.
+        place = scope.place_new if TOOL_ACTIONS.get(name) == "create" else scope.place
+        out.append((place(args["path"]), TOOL_ACTIONS.get(name) != "read"))
     if name in DESTINATION_TOOLS and isinstance(args.get("destination"), str) and args["destination"]:
         out.append((scope.place(args["destination"]), True))
+    out += [(scope.place(f), False) for f in pipeline_inputs(name, args)]
+    if name == "run_skill" and isinstance(args.get("args"), list):
+        from agent.tools.skills_run import skill_effects
+
+        out += [(p, action != "read") for action, p in skill_effects(args["args"], scope.place)]
     if name == "create_document":
+        out += [(scope.place(f), False) for f in referenced(str(args.get("content", "")))]
         # Images in the Markdown are files it reads and embeds: checked like any read,
         # or a document could carry any picture on the disk (or Atlas's own files).
         for src in _IMAGE.findall(str(args.get("content", ""))):

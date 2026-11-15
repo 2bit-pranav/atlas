@@ -39,13 +39,14 @@ from agent.tools.documents.base import DocumentError, _atomic
 from agent.tools.documents.blocks import edit_docx_block, set_xlsx_cell
 from agent.tools.documents.create import create
 from agent.tools.documents.docx import _check_docx
+from agent.tools.documents.references import expand
 from agent.tools.documents.xlsx import _check_xlsx
 
 #: Which writing tools each bundled skill brings with it.
 SKILL_TOOLS: dict[str, tuple[str, ...]] = {
-    "pdf": ("create_document",),
-    "docx": ("create_document", "edit_docx"),
-    "xlsx": ("create_document", "set_cell"),
+    "pdf": ("create_document", "write_summary", "compare_documents"),
+    "docx": ("create_document", "edit_docx", "write_summary", "compare_documents", "fill_template"),
+    "xlsx": ("create_document", "set_cell", "extract_table"),
 }
 
 
@@ -59,8 +60,14 @@ def _failed(message: str) -> dict[str, Any]:
     return {"status": "error", "content": [{"text": f"Error: {message}"}]}
 
 
-def _free(target: Path) -> Path:
-    """`target`, or the first `name-2.ext`, `name-3.ext` ... that does not exist."""
+def _free(target: Path, drafts: set[Path] | None = None) -> Path:
+    """`target`, or the first `name-2.ext`, `name-3.ext` ... that does not exist.
+
+    A file this same turn created (`drafts`) is the turn's own draft and may be
+    made again: sent back by the done check, the model wrote its full summary as
+    `summary-2.docx` beside its one-bullet `summary.docx` (2026-11-14)."""
+    if drafts is not None and target in drafts:
+        return target
     n, out = 2, target
     while out.exists():
         out, n = target.with_name(f"{target.stem}-{n}{target.suffix}"), n + 1
@@ -68,7 +75,7 @@ def _free(target: Path) -> Path:
 
 
 def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Callable[[str], Path],
-                   store: Store, chat: str) -> dict[str, Any]:
+                   store: Store, chat: str, drafts: set[Path] | None = None, place_new: Callable[[str], Path] | None = None) -> dict[str, Any]:
     """The writing tools for one chat, by name. `resolve` places a path as every
     file tool does (`placement.locate`)."""
 
@@ -93,6 +100,11 @@ def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Calla
         as ![caption](path) on their own line -- to keep a source document's
         images, copy the ![...](asset:...) lines its reader printed, exactly. For .xlsx,
         every Markdown table becomes a sheet named after the heading above it.
+        For a summary of a long document use write_summary; for a table from many files,
+        extract_table. Never retype a table or numbers from another file: put a reference on its own
+        line and the data is copied in exactly: {{report.docx#t1}} (a Word table),
+        {{sales.xlsx!North!A1:C41}} (cells), {{sales.xlsx sql: SELECT ...}} or
+        {{orders.csv sql: SELECT region, SUM(total) FROM orders GROUP BY region}}.
         An existing file is never replaced: the new one gets a new name. To change
         an existing document use edit_docx or set_cell.
 
@@ -101,15 +113,18 @@ def document_tools(workspace: Path, shown: Callable[[Path], str], resolve: Calla
             content: The document, as Markdown.
             title: Optional document title.
         """
-        asked = resolve(path)
-        target = _free(asked)
+        asked = (place_new or resolve)(path)   # a new file: a bare name is the workspace's
+        target = _free(asked, drafts)
         try:
+            content = expand(content, resolve)
             info = create(target, content, title or None, base=workspace,
                           asset=lambda ref: store.asset(chat, ref))
         except DocumentError as exc:
             return _failed(str(exc))
         except Exception as exc:  # noqa: BLE001 - the model needs words, not a traceback
             return _failed(f"could not create {target.name}: {type(exc).__name__}: {exc}")
+        if drafts is not None:
+            drafts.add(target)
         missing = info.pop("missing_images", [])
         detail = ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in info.items() if v)
         size = target.stat().st_size

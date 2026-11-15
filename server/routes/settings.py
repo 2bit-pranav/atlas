@@ -81,6 +81,8 @@ def register(api: Any, state: Any) -> Any:
         state.settings = _live_settings(on_disk, state.boot)
         # Servers whose arguments hold {atlas:folders} reconnect with the new list.
         await asyncio.to_thread(state.mcp.set_settings, state.settings)
+        if any(k.startswith("access.") for k in patch):
+            state.index.wake()   # new folders are indexed now, not in ten minutes
         return settings_view()
 
     # ------------------------------------------------------------- models --

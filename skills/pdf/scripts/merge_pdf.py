@@ -36,6 +36,11 @@ def main() -> int:
     parser.add_argument("output", help="the PDF to write, e.g. combined.pdf")
     parser.add_argument("inputs", nargs="+", help="file.pdf or file.pdf:pages")
     args = parser.parse_args()
+    # An existing file is never the output (an output never replaces a file), so it is the first
+    # input: the model gave only the inputs, and exp1.pdf was taken for the output (2026-11-15).
+    if split_spec(args.output)[0].is_file():
+        args.inputs.insert(0, args.output)
+        args.output = "merged.pdf"
 
     out = output_path(args.output)
     if out.suffix.lower() != ".pdf":
@@ -53,8 +58,6 @@ def main() -> int:
             return fail(f"{path.name}: {exc}")
         merged.import_pages(src, pages=pages)
         used.append(f"{path.name} ({'all' if spec == 'all' else spec}: {len(pages)} page{'s' * (len(pages) != 1)})")
-    if out.exists() and any(split_spec(a)[0].resolve() == out.resolve() for a in args.inputs):
-        return fail("the output would overwrite one of the inputs; give it a new name")
     merged.save(str(out))
     total = len(pdfium.PdfDocument(str(out)))
     print(created(out, pages=total, sources="; ".join(used)))

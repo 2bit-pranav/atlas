@@ -48,6 +48,8 @@ export type Part =
   | { kind: "reasoning"; text: string }
   /** An answer the model gave before it was sent back to work after a failure. */
   | { kind: "superseded"; text: string }
+  /** A guardrail's note for the user (instructions found in a source, figures with no source). */
+  | { kind: "notice"; level?: "info" | "warning"; text: string }
   | {
       kind: "tool"
       id: string
@@ -97,6 +99,8 @@ export interface ChangedFile {
   name: string
   size: number
   change: "created" | "modified"
+  /** Why the document does not open (a .xlsx holding CSV text): not offered as done. */
+  broken?: string
 }
 
 export interface WorkspaceFile {
@@ -117,6 +121,10 @@ export interface TurnStats {
   prompt_per_second?: number
   model_calls?: number
   duration_ms?: number
+  /** The run that wrote this turn: its trace is `atlas trace <run_id>`. */
+  run_id?: string
+  /** Each model call's own numbers (the fields above are the last call's). */
+  calls?: { prompt_fresh: number; prompt_cached: number; completion: number; prompt_ms: number; generation_ms: number }[]
 }
 
 export interface Turn {

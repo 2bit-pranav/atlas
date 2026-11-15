@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -20,6 +21,25 @@ from server.transcript import answer_of
 from server.views import _run_view
 
 
+def _own(state: Any, chat_id: str, files: list[dict[str, Any]], refs: list[dict[str, Any]]) -> tuple[list, list]:
+    """A message's attachments and quoted passages, as files of this chat.
+
+    The client sent each file's path back and the server opened whatever it named
+    (an image or a recording is read into the message), so anyone who could send a
+    message could attach any file on the disk (2026-11-12). A path must be inside
+    the chat's folder and name a file there; a quoted passage keeps no path of the
+    client's (the run fills it from the file's name)."""
+    root = state.chat_dir(chat_id).resolve()
+    own: list[dict[str, Any]] = []
+    for f in files:
+        raw = str(f.get("path") or f.get("name") or "") if isinstance(f, dict) else ""
+        target = (root / raw).resolve() if raw else root     # an absolute path stays itself
+        if root not in target.parents or not target.is_file():
+            raise HTTPException(422, f"{Path(raw).name or 'that attachment'} is not a file of this chat: attach it again")
+        own.append({**f, "name": f.get("name") or target.name, "path": str(target)})
+    return own, [{k: v for k, v in r.items() if k != "path"} for r in refs if isinstance(r, dict)]
+
+
 def register(api: Any, state: Any) -> None:
     # -------------------------------------------------------------- turns --
 
@@ -28,6 +48,7 @@ def register(api: Any, state: Any) -> None:
         state.require_chat(chat_id)
         if not body.text.strip() and not body.files:
             raise HTTPException(422, "empty message")
+        files, refs = _own(state, chat_id, body.files, body.refs)
         # Checked before inserting, so a 409 never leaves a stranded turn.
         state.ensure_run_slot()
 
@@ -36,7 +57,7 @@ def register(api: Any, state: Any) -> None:
             raise HTTPException(409, "the last answer did not complete: retry or edit it first")
         turn = state.store.insert_turn(
             chat_id, body.text, parent_turn_id=leaf["id"] if leaf else None,
-            before_snap=leaf["after_snap"] if leaf else None, files=body.files, refs=body.refs,
+            before_snap=leaf["after_snap"] if leaf else None, files=files, refs=refs,
         )
         if first_words := " ".join(body.text.split())[:60]:
             state.store.set_title(chat_id, first_words, only_if_empty=True)
@@ -73,6 +94,7 @@ def register(api: Any, state: Any) -> None:
         refs = body.refs if body.refs is not None else json.loads(turn.get("refs_json") or "[]")
         if not body.text.strip() and not files:
             raise HTTPException(422, "empty message")
+        files, refs = _own(state, turn["chat_id"], files, refs)
         state.ensure_run_slot()
 
         # Destructive by design: the old future answered a question that is

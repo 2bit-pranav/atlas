@@ -166,3 +166,51 @@ def test_a_skill_brings_its_tools_in_one_fixed_order(env) -> None:
     c = _agent({"read_text": text}, ["xlsx"])
     off.sync(c)
     assert list(c.tool_registry.registry) == ["read_text", "create_document"]
+
+
+def test_a_message_naming_a_document_starts_with_its_tools(env) -> None:
+    """The model tried `write` on a .docx before create_document in 8 of 19 writing runs (2026-11-12)."""
+    from agent.runtime.skill_tools import for_message
+    from agent.tools.reading import read_tools
+
+    assert for_message("Put the 12 invoices into one spreadsheet", ["inv01.pdf"]) == {"xlsx", "pdf"}
+    assert for_message("Make handbook_v2.docx from this", []) == {"docx"}
+    assert for_message("summarise this in a Word document", []) == {"docx"}
+    assert for_message("what is the capital of France?", ["notes.txt"]) == set()
+    assert for_message("filter orders", ["orders.csv"]) == {"xlsx"}
+
+    text, _ = read_tools(lambda p: env.ws / p, lambda p: p.name, False)
+    writers = {"create_document": env.create_document, "edit_docx": env.edit_docx, "set_cell": env.set_cell}
+    hook = SkillTools(writers, preload={"xlsx"})
+    a = _agent({"read_text": text}, [])
+    hook.sync(a)
+    assert list(a.tool_registry.registry) == ["read_text", "create_document", "set_cell"]
+    a.state = SimpleNamespace(get={"agent_skills": {"activated_skills": ["docx"]}}.get)   # loading a skill keeps them
+    hook.sync(a)
+    assert list(a.tool_registry.registry) == ["read_text", "create_document", "edit_docx", "set_cell"]
+
+
+def test_a_refused_write_on_a_document_brings_the_tool_it_names(env) -> None:
+    from agent.tools.reading import read_tools
+
+    text, _ = read_tools(lambda p: env.ws / p, lambda p: p.name, False)
+    hook = SkillTools({"create_document": env.create_document, "edit_docx": env.edit_docx})
+    a = _agent({"read_text": text}, [])
+    hook._after_tool(SimpleNamespace(tool_use={"name": "write", "input": {"path": "report.docx"}}, agent=a, result={}))
+    assert list(a.tool_registry.registry) == ["read_text", "create_document", "edit_docx"]
+    hook._after_tool(SimpleNamespace(tool_use={"name": "write", "input": {"path": "notes.txt"}}, agent=a, result={}))
+    assert list(a.tool_registry.registry) == ["read_text", "create_document", "edit_docx"]
+
+
+def test_a_draft_made_this_turn_may_be_made_again_but_never_a_file_from_before(tmp_path) -> None:
+    """Sent back by the done check, the model's full summary went to summary-2.docx beside its own
+    one-bullet summary.docx (2026-11-14): the turn's own draft is replaced; an older file never is."""
+    from agent.tools.documents.tool import _free
+
+    old, draft = tmp_path / "old.docx", tmp_path / "summary.docx"
+    old.write_text("x")
+    draft.write_text("x")
+    drafts = {draft}
+    assert _free(draft, drafts) == draft
+    assert _free(old, drafts) == tmp_path / "old-2.docx"
+    assert _free(draft) == tmp_path / "summary-2.docx"          # no drafts known: never replaced

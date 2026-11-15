@@ -103,9 +103,16 @@ def test_shell_commands_cannot_reach_atlas_or_other_chats(layout, command) -> No
     assert event.cancel_tool and asked.calls == [], command
 
 
-@pytest.mark.parametrize("command", ["rm -rf build", "echo x > out/notes.txt", "rm -rf ./old", "ls .."])
+@pytest.mark.parametrize("command", ["rm -rf build", "echo x > out/notes.txt", "rm -rf ./old", "ls", "ls sub"])
 def test_shell_commands_in_the_workspace_pass(layout, command) -> None:
     assert not _run(layout.scope, "shell", {"command": command}).cancel_tool, command
+
+
+def test_listing_the_folder_above_the_workspace_is_refused(layout) -> None:
+    """It holds every other chat's folder. Reads are placed like writes now (2026-11-12)."""
+    asked = Asked()
+    event = _run(layout.scope, "shell", {"command": "ls .."}, asked)
+    assert event.cancel_tool and asked.calls == []
 
 
 def test_an_image_line_cannot_embed_atlas_files(layout) -> None:

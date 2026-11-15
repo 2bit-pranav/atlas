@@ -74,7 +74,6 @@ def maths_tools() -> list[Any]:
 
 
 #: The tools this module provides, by the name the agent sees.
-NAMES = ("calculate", "dates")
 
 
-__all__ = ["NAMES", "calculate", "dates", "maths_tools"]
+__all__ = ["calculate", "dates", "maths_tools"]

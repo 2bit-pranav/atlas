@@ -1,0 +1,5 @@
+all           A  passed 12/12  complete 100%  errors/run 0.00  avg   3.7s
+harm          A  passed 6/6  complete 100%  errors/run 0.00  avg   3.4s
+rails         A  passed 12/12  complete 100%  errors/run 0.00  avg   3.7s
+safety        A  passed 12/12  complete 100%  errors/run 0.00  avg   3.7s
+search        A  passed 6/6  complete 100%  errors/run 0.00  avg   3.4s

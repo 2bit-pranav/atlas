@@ -13,6 +13,7 @@ model already has it, and resending it would fill the context turn by turn.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from agent.tools.page import UNTRUSTED
@@ -59,26 +60,48 @@ def head(content: str, limit: int = INLINE_CHARS) -> str:
 
 
 def page_note(page: dict[str, Any], *, already_sent: bool = False, saved_as: str | None = None) -> str:
-    """What the model is told about the page, after the user's own text."""
-    title = str(page.get("title") or "").strip()
-    url = str(page.get("url") or "").strip()
+    """What the model is told about the page, after the user's own text.
+
+    The title and the address are the page's own words too (a page names itself),
+    so they sit inside the marked block with the content, never in Atlas's own
+    sentences: a title could otherwise close the bracket and speak as Atlas (2026-11-12)."""
+    title = _line(str(page.get("title") or ""), 200)
+    url = _line(str(page.get("url") or ""), 500)
     content = str(page.get("content") or "").strip()
     kind = str(page.get("kind") or "page")
-    where = f'the web page "{title}" ({url})'
+    named = f"Title: {title}\nAddress: {url}"
     if kind == "drive-file":
-        return f"[The user is looking at {where}, a file on Google Drive; it is attached to this message.]"
+        return ("[The user is looking at a file on Google Drive; it is attached to this message.]\n"
+                f"{UNTRUSTED}<page>\n{named}\n</page>")
     if not content:
         # An older panel, or a page that could not be read in the browser.
-        return (f"[The user is looking at {where}. Read it with page_read; find passages with page_find; "
+        return (f"[The user is looking at a web page.]\n{UNTRUSTED}<page>\n{named}\n</page>\n"
+                "[Read it with page_read; find passages with page_find; "
                 "look at it with page_screenshot when the content is an image. Back each statement about "
                 "the page with a short exact quote in double quotes, so it can be highlighted for the user.]")
     if already_sent:
-        return f"[The user is still on {where}. Its content has not changed since it was given earlier in this chat. {_HOW}]"
-    body = head(content, inline_limit(kind))
+        return (f"[The user is still on the same web page.]\n{UNTRUSTED}<page>\n{named}\n</page>\n"
+                f"[Its content has not changed since it was given earlier in this chat. {_HOW}]")
+    whole = head(content, inline_limit(kind))
     rest = (f"\n(The page is longer: all of it is in {saved_as}. Search it with page_find, or read the file.)"
-            if saved_as and len(body) < len(content) else "")
+            if saved_as and len(whole) < len(content) else "")
     intro = _INTRO.get(kind, "The page, as text and its links and controls:")
-    return (f"[The user is looking at {where}.]\n{UNTRUSTED}{intro}\n<page>\n{body}{rest}\n</page>\n[{_HOW}]")
+    return (f"[The user is looking at a web page.]\n{UNTRUSTED}{intro}\n<page>\n{named}\n\n{_fenced(whole)}\n</page>"
+            f"{rest}\n[{_HOW}]")
+
+
+_CLOSE = re.compile(r"<\s*/\s*page\s*>", re.I)
+
+
+def _fenced(text: str) -> str:
+    """Page text that cannot end the block it is in."""
+    return _CLOSE.sub("(/page)", text)
+
+
+def _line(text: str, limit: int) -> str:
+    """A page's title or address as one capped line: no line break to start a new
+    "instruction" on, no closing tag."""
+    return _fenced(" ".join(text.split()))[:limit]
 
 
 __all__ = ["INLINE_CHARS", "head", "inline_limit", "page_hash", "page_note"]

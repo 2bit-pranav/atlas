@@ -51,6 +51,14 @@ class RunLimits(HookProvider):
         if reason:
             event.cancel = self._stop(reason)
 
+    def charge(self) -> str | None:
+        """A model call asked by code (agent/runtime/model_call.py): counted like the agent's. Why it may not start, or None."""
+        self._start()
+        self._model_calls += 1
+        reason = self._past_time() or (
+            f"{self.settings.max_model_calls} model calls" if self._model_calls > self.settings.max_model_calls else None)
+        return self._stop(reason) if reason else None
+
     def before_tool_call(self, event: Any) -> None:
         self._start()
         if reason := self._past_time():
@@ -63,6 +71,8 @@ class RunLimits(HookProvider):
             event.cancel_tool = (f"Refused: this exact call has already run {self.settings.repeat_limit} "
                                  "time(s) in this message. Use the result you already have, or try "
                                  "something different; repeating it will not change the answer.")
+            self._notify({"type": "policy", "step": "limits", "tool": use.get("name"), "verdict": "refuse",
+                          "reason": "repeated call", "args": use.get("input")})
 
     # ----------------------------------------------------------- helpers --
 

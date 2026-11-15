@@ -28,6 +28,12 @@ Two kinds, kept apart on purpose.
 | `test_finding.py` | `find_files` and `list_folder`: ranking, junk folders, content; copy and move never overwrite |
 | `test_ingest.py` | the ingest store and `read_pdf` / `read_docx` / `read_xlsx`: OCR, search, ownership, cleanup |
 | `test_edit_tools.py` | `create_document`, `edit_docx`, `set_cell`, and tools that arrive with their skill |
+| `test_model_call.py`, `test_pipelines.py` | the workflow lane: Stop, limits and trace for a question asked by code; values not in their file left out, every section and change found |
+| `test_indexer.py` | the folder index: documents found by what they say, junk and big files skipped, text only |
+| `test_run_skill.py` | `run_skill`: an enabled skill's own scripts only, no shell, Stop, every path argument seen by the policy |
+| `test_context.py` | earlier tool results stubbed near the window, answers kept |
+| `test_harness_contract.py` | what Atlas assumes about Strands, on a scripted model |
+| `test_rails.py` | guardrails: the fence on a real turn, instruction detection, the egress rails, number provenance |
 | `test_formula_injection.py`, `test_combine_xlsx.py` | spreadsheets: `=` text stays text; the combine script |
 | `test_maths.py` | `calculate` and `dates`: results, the forms people write, what is refused |
 | `test_chats.py` | the chat tree: send, retry, edit, version switching, crash recovery |
@@ -50,8 +56,11 @@ other Atlas first). Start an Atlas, then point them at it:
 .venv\Scripts\python tests\live\suite.py --url http://127.0.0.1:8000        # 39 graded tasks, thinking off and on
 .venv\Scripts\python tests\live\suite.py --tags files --name files-after-x   # saved as benchmarks/<date>-files-after-x
 .venv\Scripts\python tests\live\suite.py --tags docs safety --repeats 3
+.venv\Scripts\python tests\live\suite.py --tags hard --repeats 2          # the five harder writing tasks (live/harder.py)
 .venv\Scripts\python tests\live\suite.py --compare model.context_size=16384   # each task with and without
 .venv\Scripts\python tests\live\suite.py --list
+# Start Atlas for a suite run with the fixture server allowed (it opens only public links otherwise):
+#   set ATLAS_LOCAL_LINKS=127.0.0.1:18090 && atlas start
 ```
 
 **The suite** (`live/suite.py`, inputs from `live/fixtures.py`) is what
@@ -59,14 +68,15 @@ other Atlas first). Start an Atlas, then point them at it:
 inputs and a grader that decides by script, never by a model: completeness,
 errors (wrong facts, unsafe results) and pass. Tags group them: `docs` (`read`,
 `write`, `multi`, `ocr`, `xlsx`, `pdf`, `web`), `tools`, `instructions`, `chat`,
-`recovery`, `safety`, `search` (web search through Exa: needs a key, costs a few
+`recovery`, `safety` (`rails`: the injection and exfiltration tasks), `context` (`long-chat`: earlier messages in the same
+chat first, `Task.before`), `search` (web search through Exa: needs a key, costs a few
 cents a run), `files` (`find`, `harm`: harmful requests, graded on why
 nothing was harmed: refused, asked and denied, or the model not trying; luck fails). Safety tasks answer approval cards "deny" and check what
 survived (a file outside the allowed folders, the pairing token, a .docx the
 shell was told to append to); the others answer "allow". `--compare` runs every
 task twice, interleaved, without and with the given settings; `--llama` at a
 llama-server started with `--metrics` counts model work. Results go to
-`benchmarks/<date>-<name>/` (see [benchmarks/README.md](../benchmarks/README.md)):
+`benchmarks/<date>-<name>/` (see [benchmarks/BENCHMARKS.md](../benchmarks/BENCHMARKS.md)):
 `summary.txt` by tag and `results.json` are committed; one trace per run goes to
 `traces/`, which is not. The graders are themselves tested offline
 (`test_suite_graders.py`), each against a right and a wrong answer.

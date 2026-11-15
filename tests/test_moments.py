@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from helpers import settings_file
 
 from agent.extension import moments
+from agent.runtime import model_call
 from server.app import create_app
 
 CHAPTERED = """# But what is a neural network?
@@ -84,7 +85,7 @@ def _page(content: str) -> dict:
 
 
 def test_chapters_become_a_finished_turn_without_the_model(app_client, monkeypatch) -> None:
-    monkeypatch.setattr(moments.httpx, "post", lambda *a, **k: pytest.fail("no model call for chapters"))
+    monkeypatch.setattr(model_call.httpx, "post", lambda *a, **k: pytest.fail("no model call for chapters"))
     r = app_client.post(f"/api/chats/{app_client.chat}/moments", json=_page(CHAPTERED))
     assert r.status_code == 200, r.text
     chat = r.json()["chat"]
@@ -113,7 +114,7 @@ def test_without_chapters_the_model_picks_from_the_transcript(app_client, monkey
         seen["schema"] = json["response_format"]["json_schema"]["schema"]
         return Reply()
 
-    monkeypatch.setattr(moments.httpx, "post", post)
+    monkeypatch.setattr(model_call.httpx, "post", post)
     r = app_client.post(f"/api/chats/{app_client.chat}/moments", json=_page(PLAIN))
     assert r.status_code == 200, r.text
     assert seen["schema"]["properties"]["moments"]["items"]["properties"]["time"]["enum"] == ["0:04", "1:30", "5:10", "9:00"]

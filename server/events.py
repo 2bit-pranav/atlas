@@ -21,6 +21,8 @@ import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
+from agent.safety.rails import unfenced
+
 # What `translate` emits (the full event list is in server/AGENTS.md):
 #
 #   text_delta        visible answer text
@@ -173,8 +175,9 @@ def _reasoning_text(block: Any) -> str:
 def _result_text(result: dict[str, Any]) -> str:
     content = result.get("content")
     if isinstance(content, list):
+        # Without the input fence (agent/safety/rails.py): it is for the model, not the person.
         return "\n".join(
-            str(b.get("text", "")) for b in content if isinstance(b, dict)
+            unfenced(str(b.get("text", ""))) for b in content if isinstance(b, dict)
         )
     return str(content or "")
 

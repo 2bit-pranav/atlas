@@ -8,7 +8,7 @@ the next message. It needs no server.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,7 @@ from strands_harness import create_harness
 
 from agent.config import paths
 from agent.config.settings import Settings
+from agent.extension.form_fill import read_profile
 from agent.ingest.store import store_for
 from agent.integrations.skills.catalog import SkillManager
 from agent.model.sampling import RetryPlan, build_model
@@ -23,16 +24,21 @@ from agent.model.server import effective as effective_caps
 from agent.platform.windows_shell import WindowsLocalEnvironment, default_environment
 from agent.platform.winpaths import shown_in
 from agent.prompt.system import _compose_instructions, _tool_sources
+from agent.recovery.done_check import DoneCheck
 from agent.recovery.model_retry import LocalModelRetry
 from agent.recovery.tool_recovery import ToolFailureRecovery
 from agent.runtime.memory import MemoryManager
+from agent.runtime.model_call import ModelCall
 from agent.runtime.restore import _restore
 from agent.runtime.skill_tools import SkillTools
 from agent.safety.approvals import Approver
+from agent.safety.egress import EgressGuard
 from agent.safety.limits import RunLimits
 from agent.safety.policy import TaintTracker, ToolPolicy
 from agent.safety.protected import Protected
-from agent.safety.scope import Scope
+from agent.safety.provenance import Provenance
+from agent.safety.rails import InputFence
+from agent.safety.scope import Scope, upload_key
 from agent.store.snapshots import SessionManager
 from agent.tools.doc_reading import doc_read_tools
 from agent.tools.documents.tool import document_tools
@@ -40,41 +46,22 @@ from agent.tools.files import file_tools
 from agent.tools.finding import finding_tools
 from agent.tools.manager import ToolManager
 from agent.tools.maths.tool import maths_tools
+from agent.tools.pipelines import pipeline_tools
 from agent.tools.reading import read_tools
+from agent.tools.skills_run import skill_run_tools
 from agent.tools.web import read_key, web_tools
-
-CONVERSATION_MANAGERS = {
-    "null": "NullConversationManager",
-    "sliding": "SlidingWindowConversationManager",
-    "summarizing": "SummarizingConversationManager",
-}
 
 
 def build_conversation_manager(settings: Settings) -> Any:
-    """The SDK conversation manager named in settings, or Null.
+    """Earlier tool results shortened near the window ("trim", runtime/context.py), or nothing trimmed ("null")."""
+    from strands.agent.conversation_manager import NullConversationManager
 
-    `NullConversationManager` is the default: the harness's `context_manager`
-    is disabled (see `MemoryManager`), and until a trimming rule is measured,
-    keeping the full history is better than trimming with an untested one.
-    """
-    from strands.agent import conversation_manager as cm
+    from agent.runtime.context import TrimToolResults
 
-    name = settings.context.conversation_manager
-    cls_name = CONVERSATION_MANAGERS.get(name, "NullConversationManager")
-    cls = getattr(cm, cls_name, None)
-    if cls is None:
-        raise ValueError(
-            f"context.conversation_manager={name!r} maps to {cls_name}, "
-            "which this Strands build does not provide"
-        )
-    if cls_name == "NullConversationManager":
-        return cls()
-    kwargs: dict[str, Any] = {
-        "proactive_compression": {
-            "compression_threshold": settings.context.prune_trigger_ratio
-        }
-    }
-    return cls(**kwargs)
+    c = settings.context
+    if c.conversation_manager == "null":
+        return NullConversationManager()
+    return TrimToolResults(c.window or settings.model.context_size, c.prune_trigger_ratio, c.prune_target_ratio)
 
 
 def build_agent(
@@ -94,6 +81,9 @@ def build_agent(
     untrusted: Callable[[str], bool] | None = None,
     on_taint: Callable[[], None] | None = None,
     sandbox: Any = None,
+    uploads: Iterable[Path | str] = (),
+    writes: Iterable[str] = (),
+    request: str = "",
 ) -> Any:
     """Build one Strands `Agent` for one turn.
 
@@ -111,6 +101,9 @@ def build_agent(
         tainted: whether outside content (a web page, a fetch) has entered the chat.
         untrusted: whether an MCP tool, by its agent-facing name, returns outside content.
         on_taint: called when a tool brings outside content in (`TaintTracker`).
+        uploads: the files the user attached to this chat: changing or deleting one asks.
+        writes: skills whose writing tools the turn starts with (`skill_tools.for_message`).
+        request: the user's message, for the done check (what it asked to be made).
     """
     tool_manager = ToolManager(settings)
     memory_manager = MemoryManager(settings)
@@ -127,22 +120,37 @@ def build_agent(
     builtin = tool_manager.builtin_tools()
     skills = skill_manager.enabled()
     enabled = set(tool_manager.atlas_tools())
-    scope = _scope(settings, workspace_dir)
+    scope = _scope(settings, workspace_dir, uploads)
     # The tools place a path exactly as the policy checks it: one rule (Scope.place).
     resolve = scope.place
     shown = shown_in(workspace_dir)
     store = store_for(paths.data_dir(settings))
+    # Stop reaches a tool that loops (pipelines, run_skill) through the agent's cancel signal.
+    built: dict[str, Any] = {}
+
+    def cancelled() -> bool:
+        return "agent" in built and built["agent"].cancel_signal.is_set()
+
     atlas_tools = [t for t in (*finding_tools(scope, resolve, shown, store),
                                *read_tools(resolve, shown, bool(effective_caps(settings)["vision"]), workspace_dir),
                                *doc_read_tools(store, chat_id, resolve, workspace_dir, on_taint),
                                *file_tools(resolve, shown),
                                # Not offered without a key: a tool that only fails wastes a turn.
                                *(web_tools(paths.data_dir(settings)) if read_key(paths.data_dir(settings)) else []),
-                               *maths_tools())
+                               *maths_tools(),
+                               *skill_run_tools(paths.skills_dir(settings), lambda: {s["name"] for s in skills},
+                                                workspace_dir, resolve, cancelled))
                    if t.tool_name in enabled]
     # Writing tools are registered when their skill is loaded (runtime/skill_tools.py).
-    skill_tools = SkillTools({name: t for name, t in document_tools(
-        workspace_dir, shown, resolve, store, chat_id).items() if name in enabled})
+    # The pipelines ask the model through ModelCall: the run's limits, Stop and trace hold.
+    limits = RunLimits(settings.limits, notify=observer)
+    ask = ModelCall(settings, observer=observer, limits=limits, cancelled=cancelled)
+    # Files the writing tools made this turn: the turn may make them again (documents/tool._free).
+    drafts: set[Path] = set()
+    skill_tools = SkillTools(preload=set(writes), tools={name: t for name, t in {
+        **document_tools(workspace_dir, shown, resolve, store, chat_id, drafts, place_new=scope.place_new),
+        **pipeline_tools(store, chat_id, workspace_dir, resolve, shown, ask, drafts,
+                         profile=lambda: read_profile(settings), place_new=scope.place_new)}.items() if name in enabled})
     instructions = _compose_instructions(settings, chat_id, _tool_sources(
         [*builtin, *(t.tool_name for t in atlas_tools)], [s["name"] for s in skills], list(tools or [])))
 
@@ -173,15 +181,24 @@ def build_agent(
         retry_strategy=LocalModelRetry(settings.resilience, notify=observer),
         # Before a tool runs: the run's limits, then one ordered policy
         # (policy.py), so a refused repeat never shows a card. After: recovery.
-        hooks=[RunLimits(settings.limits, notify=observer),
-               ToolPolicy(scope, approver=approver,
+        # The input fence first: after-tool callbacks run in reverse, so it wraps results last.
+        hooks=[InputFence(on_taint, observer), limits,
+               # Everything that leaves the machine, before the policy could show a card for it.
+               EgressGuard(store=store, chat=chat_id, request=request, tainted=tainted or (lambda: False),
+                           untrusted=untrusted, observer=observer),
+               ToolPolicy(scope, approver=approver, observer=observer,
                           ask_outside=settings.access.ask_outside, sensitive=sensitive, tainted=tainted,
                           mode=settings.access.mode, chat_grants=chat_grants),
                ToolFailureRecovery(settings.resilience, notify=observer),
+               # End-of-turn callbacks run in reverse: the provenance rail after the done check,
+               # so a turn the done check sent back is not sent back twice.
+               Provenance(notify=observer),
+               DoneCheck(workspace_dir, request, notify=observer, place=scope.place_new),
                skill_tools,
                *([TaintTracker(untrusted or (lambda _name: False), on_taint)] if on_taint else [])],
     )
 
+    built["agent"] = agent
     if isinstance(agent.sandbox, WindowsLocalEnvironment):
         agent.sandbox.cancel_signal = agent.cancel_signal  # Stop ends a running command too
     if restore_snapshot_id:
@@ -191,7 +208,7 @@ def build_agent(
     return agent
 
 
-def _scope(settings: Settings, workspace: Path) -> Scope:
+def _scope(settings: Settings, workspace: Path, uploads: Iterable[Path | str] = ()) -> Scope:
     """What a turn may touch without asking: its workspace and the allowed folders.
 
     Readable as well: the skills (their SKILL.md and scripts) and the Python
@@ -206,7 +223,8 @@ def _scope(settings: Settings, workspace: Path) -> Scope:
         protected=Protected(root=paths.ROOT, data=paths.data_dir(settings),
                             mcp_config=paths.mcp_config(settings), venv=Path(sys.prefix),
                             skills=paths.skills_dir(settings), workspace=workspace),
+        uploads=frozenset(upload_key(u) for u in uploads),
     )
 
 
-__all__ = ["CONVERSATION_MANAGERS", "build_agent", "build_conversation_manager"]
+__all__ = ["build_agent", "build_conversation_manager"]

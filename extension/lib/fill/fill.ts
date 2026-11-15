@@ -8,7 +8,7 @@
  */
 
 import { box, button, shadow, toast } from "@ext/ui/overlay"
-import { fieldName, visible } from "@ext/page/read"
+import { fieldName, seen, visible } from "@ext/page/read"
 import { answer, holds, isGoogleForm, questions, type GQuestion } from "@ext/fill/gforms"
 
 export interface Field {
@@ -50,6 +50,8 @@ type Target = HTMLElement | HTMLInputElement[] | GQuestion
 const isQuestion = (t: Target): t is GQuestion => !Array.isArray(t) && "item" in t && "kind" in t
 
 let fields = new Map<string, Target>()
+/** Each field's label, for the review list. */
+let labels = new Map<string, string>()
 let preview: { values: Record<string, string>; layer: HTMLDivElement; bar: HTMLDivElement; frame: number } | null = null
 
 function secret(el: Element, label: string): boolean {
@@ -61,6 +63,7 @@ function secret(el: Element, label: string): boolean {
 /** The visible, editable fields of the page's forms, with ids for the preview. */
 export function formFields(): Field[] {
   fields = new Map()
+  labels = new Map()
   const out: Field[] = []
   if (isGoogleForm()) {
     // Its questions are not form fields: read them from their roles (gforms.ts).
@@ -74,6 +77,7 @@ export function formFields(): Field[] {
         continue
       }
       fields.set(id, q)
+      labels.set(id, q.label.slice(0, 160))
       out.push({ id, label: q.label.slice(0, 160), type: TYPE[q.kind], ...(q.options.length ? { options: q.options } : {}),
                  ...(q.required ? { required: true } : {}) })
     }
@@ -91,10 +95,14 @@ export function formFields(): Field[] {
       }
       if (!TYPES.has(type)) continue  // password, hidden, file, checkbox, buttons
     }
+    // What gets the user's own words must be a field they can see (a styled radio's
+    // native input is often hidden behind its label; it only picks one of the page's options).
+    if (!seen(el)) continue
     const label = fieldName(el).replace(/\s+/g, " ").trim().slice(0, 120)
     if (!label || secret(el, label)) continue
     const id = `f${++n}`
     fields.set(id, el)
+    labels.set(id, label)
     const field: Field = { id, label, type: el instanceof HTMLSelectElement ? "select" : el instanceof HTMLTextAreaElement ? "textarea" : (el as HTMLInputElement).type || "text" }
     if (el instanceof HTMLSelectElement)
       field.options = Array.from(el.options).map((o) => o.text.trim()).filter(Boolean)
@@ -107,6 +115,7 @@ export function formFields(): Field[] {
     if (secret(group[0], label)) continue
     const id = `f${++n}`
     fields.set(id, group)
+    labels.set(id, label)
     out.push({ id, label, type: "radio", options: group.map((r) => fieldName(r).trim() || r.value) })
   }
   out.push(...uploadFields(n))
@@ -127,9 +136,33 @@ export function previewFill(values: Record<string, string>): { shown: number } {
   const label = document.createElement("span")
   label.className = "logo"
   label.textContent = `Atlas suggests ${ids.length} value${ids.length === 1 ? "" : "s"}`
-  bar.append(label, button("Apply", () => void applyFill()), button("Discard", () => discardFill()))
+  // Every field with its whole value, before Apply: the tags over the fields cut long
+  // values short and cannot be seen for fields further down the page.
+  const list = document.createElement("div")
+  list.style.cssText = "position:fixed;z-index:2147483647;left:50%;transform:translateX(-50%);bottom:72px;width:min(420px,92vw);" +
+    "max-height:40vh;overflow:auto;background:#171717;color:#fafafa;font:12px/1.45 system-ui,sans-serif;border-radius:10px;" +
+    "padding:8px 10px;box-shadow:0 4px 14px rgb(0 0 0 / .25);white-space:pre-wrap;overflow-wrap:anywhere;"
+  for (const id of ids) {
+    const row = document.createElement("div")
+    row.style.cssText = "padding:3px 0;border-top:1px solid #2e2e2e;"
+    const name = document.createElement("div")
+    name.textContent = labels.get(id) ?? id
+    name.style.cssText = "color:#a3a3a3;font-size:11px;"
+    const value = document.createElement("div")
+    value.textContent = values[id]
+    row.append(name, value)
+    list.appendChild(row)
+  }
+  // Open when a value would be cut short on its tag; otherwise one click away.
+  list.hidden = !ids.some((id) => values[id].length > 40 || values[id].includes(String.fromCharCode(10)))
+  layer.appendChild(list)
+  const review = button(list.hidden ? "Review" : "Hide list", () => {
+    list.hidden = !list.hidden
+    review.textContent = list.hidden ? "Review" : "Hide list"
+  }, "Every field and the whole value suggested for it")
+  bar.append(label, review, button("Apply", () => void applyFill()), button("Discard", () => discardFill()))
   const draw = () => {
-    layer.replaceChildren(...ids.map((id) => {
+    layer.replaceChildren(list, ...ids.map((id) => {
       const r = rectOf(fields.get(id)!)
       const tag = document.createElement("div")
       tag.style.cssText = `position:fixed;z-index:2147483646;left:${r.left - 2}px;top:${r.top - 2}px;width:${r.width}px;` +

@@ -24,7 +24,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 from strands import tool
@@ -114,6 +114,29 @@ def url_refusal(url: str) -> str | None:
         pass
     if "." not in host or host == "localhost" or host.endswith((".local", ".localhost", ".internal", ".lan", ".home")):
         return f"{host} is not a public website."
+    return _carried(url, parsed)
+
+
+MAX_URL = 500
+_DRIVE_IN_URL = re.compile(r"(?:^|[/=\s])[A-Za-z]:[/\\]|[$%]ATLAS_")
+
+
+def _carried(url: str, parsed: Any) -> str | None:
+    """Why an address must not be fetched: it may be carrying the user's data out.
+    The question was checked and the address was not, so a page could have the
+    model read `https://evil.example/?d=<the user's text>` (2026-11-12). The part
+    after `?` and `#` gets the query's checks; the path only what no real address
+    holds (a drive path), since `/a/2026-11-05-12345678` is an ordinary article."""
+    if len(url) > MAX_URL:
+        return f"the address is {len(url)} characters; real page addresses are under {MAX_URL}. Use the page's own link."
+    if _DRIVE_IN_URL.search(unquote(parsed.path)):
+        return "the address holds a file path; never send the user's files or paths to a website."
+    extra = re.sub(r"[?&=#+;,]", " ", unquote(f"{parsed.query} {parsed.fragment}"))
+    if _PATHLIKE.search(extra) or _DRIVE_IN_URL.search(extra):
+        return "the address holds a file path; never send the user's files or paths to a website."
+    if _LONG_NUMBER.search(extra):
+        return ("the address carries a long number after its `?` (an account, card or id number?); "
+                "read the page without that part.")
     return None
 
 

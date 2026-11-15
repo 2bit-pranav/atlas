@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from agent.common import trace
 from agent.config import paths
 from agent.ingest.store import store_for
 from agent.store.snapshots import SessionManager
@@ -57,6 +58,7 @@ def register(api: Any, state: Any) -> None:
         state.chat_grants.pop(chat_id, None)
         await SessionManager(state.settings, chat_id).delete_all()
         shutil.rmtree(paths.chat_dir(state.settings, chat_id), ignore_errors=True)
+        trace.delete_chat(paths.data_dir(state.settings), chat_id)   # it holds the whole conversation
         # Its parsed documents too, unless another chat has the same file.
         await asyncio.to_thread(store_for(paths.data_dir(state.settings)).forget_chat, chat_id)
         return {"deleted": chat_id}

@@ -12,10 +12,14 @@
  *   checked against that Atlas before it is kept.
  */
 
-import { loadSettings, localHttp, samePlace, saveSettings, type PendingAsk } from "@ext/shared/settings"
+import { loadSettings, localHttp, lockStorage, pageSettings, samePlace, saveSettings, type PendingAsk } from "@ext/shared/settings"
 
 export default defineBackground(() => {
   void browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+  // Content scripts get no storage: the pairing token is there. Saving once moves a
+  // token an older version kept inside the settings to its own key.
+  lockStorage()
+  void saveSettings({})
 
   browser.runtime.onInstalled.addListener(async () => {
     await browser.contextMenus.removeAll() // menus outlive updates: drop any an older version made
@@ -42,6 +46,11 @@ export default defineBackground(() => {
     if (message?.type === "atlas:ask" && sender.tab?.id !== undefined) {
       void openAndAsk(sender.tab.id, { action: message.action, text: message.text, language: message.language })
         .then((opened) => reply({ opened }))
+      return true
+    }
+    if (message?.type === "atlas:settings") {
+      // A content script's settings: everything but the token.
+      void loadSettings().then((settings) => reply(pageSettings(settings)))
       return true
     }
     if (message?.type === "atlas:saveTable") {

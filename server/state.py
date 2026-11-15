@@ -12,11 +12,14 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from agent.common import trace
 from agent.config import paths
 from agent.config.settings import (
     load_settings,
 )
 from agent.extension.basket import Basket
+from agent.ingest.indexer import FolderIndex
+from agent.ingest.store import store_for
 from agent.integrations.mcp.pool import McpManager
 from agent.model import server as llama
 from agent.model.sampling import RetryPlan
@@ -24,7 +27,8 @@ from agent.platform.winpaths import model_path
 from agent.prompt.notes import clock_note, retry_hint
 from agent.prompt.page import inline_limit, page_hash, page_note
 from agent.runtime.factory import build_agent
-from agent.store.chats import CANCELLED, COMPLETED, FAILED, ChatStore
+from agent.runtime.skill_tools import for_message
+from agent.store.chats import CANCELLED, COMPLETED, FAILED, INTERRUPTED, ChatStore
 from agent.store.snapshots import SessionManager
 from agent.tools.page import page_file_name, page_tools
 from server.events import _aiter, translate
@@ -39,6 +43,7 @@ from server.services.prompt import (
     _strip_hint,
 )
 from server.services.workspace import _changed, _scan
+from server.transcript import Transcript
 from server.views import _run_view, _turn_view
 
 logger = logging.getLogger(__name__)
@@ -61,9 +66,35 @@ class Atlas:
         self.chat_grants: dict[str, list] = {}
         #: Files Fill found for upload fields, as cards the extension drags onto a page (in memory).
         self.basket = Basket()
-        if n := self.store.mark_interrupted():
-            logger.info("%d turn(s) left running by a previous process are now interrupted", n)
+        #: The allowed folders' documents, kept in the ingest store in the background.
+        self.index = FolderIndex(store_for(paths.data_dir(self.settings)),
+                                 folders=lambda: [Path(f).expanduser() for f in self.settings.access.folders if f.strip()],
+                                 enabled=lambda: self.settings.access.index_folders)
+        self.index.start()
+        if left := self.store.mark_interrupted():
+            logger.info("%d turn(s) left running by a previous process are now interrupted", len(left))
+            for row in left:
+                self._show_interrupted(row["id"], row["chat_id"])
         logger.info("backend ready (root=%s, db=%s)", paths.ROOT, self.store.db_path)
+
+    def _show_interrupted(self, turn_id: str, chat_id: str) -> None:
+        """What a crashed run had done, from its trace: the turn shows it instead of nothing."""
+        path = trace.for_turn(paths.data_dir(self.settings), chat_id, turn_id)
+        if path is None:
+            return
+        try:
+            records = trace.read(path)
+            folded = Transcript(self.settings.model.context_size)
+            for r in records:
+                if r.get("type") == "event" and isinstance(r.get("event"), dict):
+                    folded.fold(r["event"])
+            run_id = path.stem.split("-", 1)[-1]
+            self.store.finish_turn(turn_id, INTERRUPTED, render=folded.parts,
+                                   stats={**folded.stats, "run_id": run_id},
+                                   error="Atlas stopped while this answer was being written. What it had done "
+                                         "is above; retry to run it again.")
+        except Exception:  # noqa: BLE001 - a bad trace must not stop the backend starting
+            logger.warning("could not show interrupted turn %s from its trace", turn_id, exc_info=True)
 
     def modalities(self) -> dict[str, bool]:
         """What the loaded model can take in (vision, audio), from llama-server.
@@ -89,6 +120,7 @@ class Atlas:
         return self._modalities
 
     def close(self) -> None:
+        self.index.stop()
         self.mcp.stop_all()
         self.store.close()
 
@@ -139,6 +171,13 @@ class Atlas:
         except RunConflict as exc:
             raise HTTPException(409, str(exc)) from exc
         run.page = page.model_dump() if page else None
+        try:
+            run.trace = trace.open_trace(paths.data_dir(self.settings), turn["chat_id"], turn["id"], run.id)
+            run.trace.write("run", chat=turn["chat_id"], turn=turn["id"], run=run.id, thinking=thinking,
+                            model=self.settings.model.name, retry=bool(retry), mode=self.settings.access.mode,
+                            page=(run.page or {}).get("url"))
+        except OSError:
+            logger.warning("could not open the trace for run %s", run.id, exc_info=True)
         # Outside content read in an earlier turn is still in the history.
         run.tainted = self.store.is_tainted(turn["chat_id"])
         run.task = asyncio.create_task(self.execute(run, turn, thinking=thinking, retry=retry))
@@ -237,6 +276,11 @@ class Atlas:
                 tainted=lambda: run.tainted,
                 untrusted=self.mcp.is_untrusted,
                 on_taint=lambda: self.taint(run),
+                uploads=[f["path"] for row in self.store.path(run.chat_id)
+                         for f in json.loads(row["files_json"] or "[]") if isinstance(f, dict) and f.get("path")],
+                request=turn["user_text"],
+                writes=for_message(turn["user_text"], [str(f.get("name") or f.get("path") or "") for f in
+                                                      json.loads(turn["files_json"] or "[]") if isinstance(f, dict)]),
             )
             run.agent = agent
             if run.cancel.is_set():
@@ -276,10 +320,10 @@ class Atlas:
 
     def _finish(self, run: Run, status: str, *, after_snap: str | None = None,
                 error: str | None = None) -> None:
-        stats = run.transcript.final_stats()
+        stats = {**run.transcript.final_stats(), "run_id": run.id}
         try:
             stats["files"] = _changed(run.workspace_before,
-                                      _scan(self.chat_dir(run.chat_id)))
+                                      _scan(self.chat_dir(run.chat_id)), self.chat_dir(run.chat_id))
         except OSError:
             logger.warning("could not scan the workspace of chat %s", run.chat_id, exc_info=True)
         try:

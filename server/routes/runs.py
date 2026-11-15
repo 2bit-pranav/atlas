@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
+import httpx
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
+from agent.common import trace
+from agent.config import paths
+from agent.model import server as llama
 from server.schemas import (
     Answer,
     CallResult,
@@ -16,6 +21,39 @@ from server.views import _run_view
 
 
 def register(api: Any, state: Any) -> None:
+    # ------------------------------------------------------------- traces --
+
+    @api.post("/traces/{run_id}/replay")
+    async def replay(run_id: str, call: int = 1) -> dict[str, Any]:
+        """Send one saved model request again, as it was, and return what comes back now.
+
+        For `atlas replay`: the llama-server key lives only in the backend. Not an
+        extension route (security.EXTENSION_ROUTES): a trace is a whole conversation.
+        """
+        if state.runs.active() is not None:
+            raise HTTPException(409, "a run is active; replay when it has finished")
+        path = trace.find(paths.data_dir(state.settings), run_id) if len(run_id) >= 6 else None
+        if path is None:
+            raise HTTPException(404, f"no trace for run {run_id}")
+        records = await asyncio.to_thread(trace.read, path)
+        sent = next((r for r in records if r.get("type") == "model_request" and r.get("call") == call), None)
+        if sent is None:
+            raise HTTPException(404, f"run {run_id} has no model call {call}")
+        then = next((r for r in records if r.get("type") == "model_response" and r.get("call") == call), None)
+        body = {**sent["body"], "stream": False}
+        body.pop("stream_options", None)
+        async with httpx.AsyncClient(timeout=600) as client:
+            response = await client.post(f"http://127.0.0.1:{state.settings.ports.llama}/v1/chat/completions",
+                                         json=body, headers=llama.auth_headers())
+        if response.status_code >= 400:
+            raise HTTPException(502, f"llama-server answered {response.status_code}: {response.text[:500]}")
+        message = (response.json().get("choices") or [{}])[0].get("message") or {}
+        now = {"text": message.get("content") or "", "reasoning": message.get("reasoning_content") or "",
+               "tool_calls": [{"name": (c.get("function") or {}).get("name", ""),
+                               "arguments": (c.get("function") or {}).get("arguments", "")}
+                              for c in message.get("tool_calls") or []]}
+        return {"run": path.stem.split("-", 1)[-1], "call": call, "then": then, "now": now}
+
     # --------------------------------------------------------------- runs --
 
     @api.get("/runs/{run_id}")

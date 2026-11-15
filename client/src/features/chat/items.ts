@@ -15,7 +15,7 @@ export function items(parts: Part[], merge = false): Item[] {
   let work: Item[] = []
   const flush = () => { out.push(...work); work = [] }
   parts.forEach((part, index) => {
-    const into = merge && part.kind !== "text" && part.kind !== "superseded" ? work : (flush(), out)
+    const into = merge && part.kind !== "text" && part.kind !== "superseded" && part.kind !== "notice" ? work : (flush(), out)
     if (merge && part.kind === "reasoning") {
       const r = work.find((w) => "reasoning" in w)
       if (r && "reasoning" in r) { r.reasoning += "\n\n" + part.text; r.last = index }

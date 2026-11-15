@@ -13,6 +13,30 @@ export function visible(el: Element): boolean {
   return style.visibility !== "hidden" && style.display !== "none"
 }
 
+/**
+ * Whether a person could see a field: what Fill may suggest a value for. A page
+ * can keep a field in the layout and out of sight (transparent, a pixel wide,
+ * pushed off the page, clipped away) and name it "Full address" or "Phone": the
+ * user's details would be suggested, applied and submitted to a field they never
+ * saw (2026-11-12). One test, on the field and everything it sits in.
+ */
+export function seen(el: Element): boolean {
+  if (!visible(el)) return false
+  const r = el.getBoundingClientRect()
+  if (r.width < 8 || r.height < 8) return false
+  const page = document.documentElement
+  const left = r.left + scrollX, top = r.top + scrollY
+  if (left + r.width <= 0 || top + r.height <= 0 ||
+      left >= Math.max(page.scrollWidth, innerWidth) || top >= Math.max(page.scrollHeight, innerHeight)) return false
+  for (let node: Element | null = el; node; node = node.parentElement) {
+    const style = getComputedStyle(node)
+    if (style.opacity !== "" && Number(style.opacity) < 0.1) return false
+    if (/inset\(\s*(?:50|100)%/.test(style.clipPath ?? "")) return false
+    if (/rect\(\s*0(?:px)?[,\s]+0(?:px)?[,\s]+0(?:px)?[,\s]+0(?:px)?\s*\)/.test(style.clip ?? "")) return false
+  }
+  return true
+}
+
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-" })
 turndown.remove(["script", "style", "noscript", "iframe", "form", "button", "input", "select", "textarea"])
 // The words of a link, not its address; an image's description, not its file. Addresses cost the

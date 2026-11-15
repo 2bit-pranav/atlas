@@ -131,12 +131,13 @@ def _text(node: Any) -> str:
 def _redirect(node: Any) -> list[Effect]:
     operator = next((c.text.decode() for c in node.children if not c.is_named), "")
     target = node.child_by_field_name("destination")
-    if target is None or ">" not in operator or target.type == "number" or operator.startswith(">&"):
-        return []                          # `<` reads; `2>&1` duplicates a descriptor
+    if target is None or target.type == "number" or operator.startswith((">&", "<&")):
+        return []                          # `2>&1` duplicates a descriptor
     path = _text(target)
     if path.lower() in _NULL:
         return []
-    return [Effect("write", operator, (path,))]
+    # `< file` reads it: placed like any path a command names (grid.shell_reads).
+    return [Effect("write" if ">" in operator else "read", operator, (path,))]
 
 
 def _command(node: Any, depth: int) -> list[Effect]:

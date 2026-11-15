@@ -1,10 +1,9 @@
 """Runs: one active at a time, outliving the frontend (server/AGENTS.md).
 
 A run is an `asyncio` task plus an in-memory event buffer, dropped a few
-minutes after the run ends. Nothing goes to disk: the messages are already in
-Strands' snapshot, and an event log would be a second copy with its own schema.
-The price is that a backend crash loses the partial text; the turn becomes
-`interrupted` and retry recovers it.
+minutes after the run ends. Its trace (`agent/common/trace.py`) is the copy on
+disk: every event, every model request and response, every policy decision,
+written as it happens. A turn a crash left `interrupted` is shown from it.
 
 A reopened frontend resumes with `GET /runs/{id}/events?after=<n>` and gets
 everything it missed, then live events.
@@ -60,6 +59,8 @@ class Run:
     tainted: bool = False
     #: The chat workspace when the run began: `path -> (size, mtime_ns)`.
     workspace_before: dict[str, tuple[int, int]] = field(default_factory=dict)
+    #: Everything that happens, on disk as it happens (agent/common/trace.py).
+    trace: Any = None
 
     @property
     def done(self) -> bool:
@@ -76,6 +77,8 @@ class Run:
             event = {**event, "at": int(time.time() * 1000)}
         self.events.append({"seq": len(self.events), **event})
         self.transcript.fold(event)
+        if self.trace is not None:
+            self.trace.write("event", event=self.events[-1])
         self.wake()
         return len(self.events) - 1
 
@@ -86,7 +89,20 @@ class Run:
         emitted at most four times a second, which keeps the buffer small.
         """
         kind = event.get("type")
+        if kind in ("model_request", "model_response", "model_error", "policy"):
+            if self.trace is not None:
+                body = {k: v for k, v in event.items() if k != "type"}
+                if kind != "policy":
+                    body["call"] = self.transcript.stats["model_calls"]
+                self.trace.write(kind, **body)
+            return
+        if kind == "call_timings":
+            # A workflow call (agent/runtime/model_call.py): its own numbers only. Its small
+            # prompt is not the chat's context, so the context meter is left as it is.
+            self.transcript.call_timings(event)
+            return
         if kind == "timings":
+            self.transcript.call_timings(event)
             stats = {"type": "stats", **stats_from_timings(event)}
             now = time.monotonic()
             if now - self._last_stats >= 0.25:
@@ -94,7 +110,7 @@ class Run:
                 self.emit(stats)
             else:
                 self.transcript.fold(stats)
-        elif kind in ("call_start", "model_retry", "resumed"):
+        elif kind in ("call_start", "model_retry", "resumed", "notice"):
             self.emit(event)
         elif kind == "limit":
             # Strands makes the stop message the turn's answer without streaming
@@ -185,6 +201,9 @@ class Run:
         self.emit({"type": "stats", **{k: v for k, v in self.transcript.final_stats().items()}})
         self.emit({"type": "error", "status": status, "message": error} if error
                   else {"type": "done", "status": status})
+        if self.trace is not None:
+            self.trace.write("end", status=status, **({"error": error} if error else {}))
+            self.trace.close()
         self.wake()
 
 

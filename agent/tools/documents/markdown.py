@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -64,9 +65,58 @@ def _inline(token: Any) -> list[Run]:
     return runs
 
 
+_BLOCK_ID = re.compile(r"^\[b\d+\]\s*|\s*\[b\d+(?:, section [\d.]+)?\]\s*$", re.M)
+_TABLE_HEAD = re.compile(r"^\[t\d+:[^\n]*$")
+_TABLE_ROW = re.compile(r"^r\d+:\s?(.*)$")
+_RUN_ROWS = re.compile(r"(?:^|\s)r\d+:\s?")
+#: read_docx's heading: `# 2.1 Title [b5]`. The outline number is the reader's, not the title's:
+#: copied, "3 Expenses" kept its old number after the sections were reordered (2026-11-14).
+#: shortcut: a Title of the form "10 Steps [b1]" loses its "10"; the reader would need to mark its numbers.
+_HEADING_NUMBER = re.compile(r"^(#{1,6}\s+)\d{1,2}(?:\.\d{1,2})*\s+(?=.*\[b\d+\]\s*$)")
+
+
+def without_reader_marks(text: str) -> str:
+    """The reader's addresses taken back out of text copied from it.
+
+    read_docx prints `[b2]` before a paragraph, `[b3]` after a heading, and a table
+    as a `[t1: table, ...]` line then `r1: a | b | c` rows, so edit_docx can name
+    them. Asked to rebuild a document, the model copied that output as it was: the
+    new file held the marks as text and the table as lines of prose (3 of 4 runs,
+    2026-11-12). Here the marks go, and the rows become a table again.
+    """
+    out: list[str] = []
+    rows: list[str] = []
+
+    def flush() -> None:
+        if rows:
+            out.append("| " + rows[0] + " |")
+            out.append("|" + "---|" * (rows[0].count("|") + 1))
+            out.extend("| " + r + " |" for r in rows[1:])
+            rows.clear()
+
+    for line in text.split("\n"):
+        if _TABLE_HEAD.match(line):
+            flush()
+            # The model has joined the mark and its rows into one line, `]` dropped (2026-11-14):
+            # `[t1: ... r1: Name | City r2: Asha | Pune`.
+            if merged := re.search(r"\br1:\s?(.*)$", line):
+                rows.extend(r.strip() for r in _RUN_ROWS.split("r1: " + merged.group(1))[1:])
+            continue
+        if _TABLE_ROW.match(line) and len(_RUN_ROWS.findall(line)) > 1:   # several rows on one line
+            rows.extend(r.strip() for r in _RUN_ROWS.split(line)[1:])
+            continue
+        if (row := _TABLE_ROW.match(line)) and (rows or "|" in line):
+            rows.append(row.group(1).strip())
+            continue
+        flush()
+        out.append(_BLOCK_ID.sub("", _HEADING_NUMBER.sub(lambda m: m.group(1), line)))
+    flush()
+    return "\n".join(out)
+
+
 def parse_markdown(text: str) -> list[Block]:
     md = MarkdownIt("commonmark").enable("table").enable("strikethrough")
-    tokens = md.parse(text)
+    tokens = md.parse(without_reader_marks(text))
     blocks: list[Block] = []
     lists: list[dict[str, Any]] = []      # stack of {"ordered", "n"}
     quote = 0

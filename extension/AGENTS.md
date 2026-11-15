@@ -2,7 +2,7 @@
 
 A side panel for Edge and Chrome (Manifest V3, built with WXT). It is a second
 UI on the same backend: the chat is the web UI's own components, and the
-extension only adds what needs the browser. Design: `docs/extension.md`.
+extension only adds what needs the browser.
 
 ```
 entrypoints/
@@ -122,7 +122,8 @@ Two ways in:
   to its tab id (extension pages get no tab messages).
 - Otherwise the panel attaches the PDF to the chat's first message (fetched
   with the user's session; `file://` and fallbacks copied by the backend,
-  `/api/chats/{id}/files/import`), and the pdf skill reads it, OCR included.
+  `/api/chats/{id}/files/import`), and `read_pdf` reads it from the ingest store,
+  OCR included.
 
 **Tables** are offered only on request: select text inside a real data table
 and the chip adds xlsx / csv. "Real" is strict (`dataTable` in `lib/ui/chip.ts`): the
@@ -170,7 +171,25 @@ options, against the user's details (`<data>/profile.md`, edited in Settings
 > Browser extension and never readable by the extension). The values appear
 over the fields with Apply / Discard; Apply sets them with input and change
 events. The form is never submitted. Password, OTP, CVV, card and captcha
-fields are never collected.
+fields are never collected, nor is a field a person could not see (`seen` in
+`read.ts`: too small, off the page, transparent or clipped, by itself or by
+what it sits in). The bar's Review lists every field with its whole value.
+
+**The pairing token** is under its own storage key (`pairing`), and
+`storage.local` is closed to content scripts (`lockStorage`, when the worker
+starts): they run inside web pages. A content script asks the worker for its
+settings (`atlas:settings`), which never include the token.
+
+**Actions report as cards, not turns.** Fill's progress and result show in a
+card above the composer (`ActionNote.tsx`); nothing goes into the chat. After a
+finished answer the panel offers fixed follow-up pills for the page kind
+(`PanelHome.tsx`, "Simpler", "Translate…"); no model call.
+
+**Key moments** on a YouTube video is a ready-made turn
+(`POST /api/chats/{id}/moments`): the description's chapters when the video has
+them, else one model call whose times are limited to the transcript's. The
+panel shows "Found N key moments" and Play-from-here rows. A custom question
+about the video is a normal turn.
 
 **History.** The clock button lists the browser's own chats (`source:
 extension`), newest first, with their site; reopening one about another page
@@ -179,3 +198,30 @@ page. The last chat comes back when the panel reopens on the same page. All
 chats, these included, are also in the web UI.
 
 Nothing runs on sites in the never-read list; what the user typed into a field is never read.
+
+## Non-Obvious Invariants & Footguns
+
+- **Content scripts never see the token.** It lives under its own storage key,
+  `storage.local` is closed to content scripts at startup, and they get their
+  settings from the worker (`atlas:settings`) without it. A content script runs
+  inside a web page; anything it can read, the page can.
+- **Pairing is pinned to one address.** The worker keeps a token only for the
+  address in the extension's own settings; a page cannot change that address.
+- **Never collect what the user typed, or a field nobody can see.** A typed field
+  is only "(filled)" in the tree; password, OTP, CVV, card and captcha fields are
+  never collected; Fill skips fields `seen()` says are hidden (size, position,
+  opacity, clipping, up the parent chain).
+- **Never submit, never upload by itself.** Fill fills on Apply only; Next and
+  Submit are the user's. A basket file reaches a page only through a drop the
+  browser marks as the user's own; a faked drop is ignored.
+- **Page content taints the chat the moment it is in a message.** That is what
+  makes later commands and changes ask. A new way of bringing page text in must
+  taint too (the backend does it for `page` on a message).
+- **Hard caps on every page walk** (60k nodes, 1.5 s): a hostile page must not be
+  able to hang the tab.
+- **WXT's `@` is its source folder**, which is `client/src`; this folder's own
+  code is `@ext`. Shared web UI code must stay light (pdf.js is the viewer's alone).
+- **The browser's PDF viewer runs no content script.** PDF features go through
+  `viewer.html` or an attachment, never a content script.
+- **Extension pages get no tab messages:** the panel reaches the viewer with
+  `runtime.sendMessage` addressed to its tab id.

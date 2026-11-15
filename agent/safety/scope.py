@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +22,12 @@ class Scope:
     readable: list[Path] = field(default_factory=list)
     #: Atlas's own files, refused whatever the folders allow (protected.py).
     protected: Protected | None = None
+    #: The files the user attached to this chat (`upload_key` of each). They sit in
+    #: the workspace, where everything runs unasked: changing or deleting one asks.
+    uploads: frozenset[str] = frozenset()
+
+    def is_upload(self, path: Path) -> bool:
+        return bool(self.uploads) and upload_key(path) in self.uploads
 
     def place(self, raw: str) -> Path:
         """Where a file tool's `path` argument lands: an absolute path as given,
@@ -32,6 +39,20 @@ class Scope:
             return Path(windows_path(raw))
         return locate(raw, self.workspace, self.folders) or self.workspace / raw
 
+    def place_new(self, raw: str) -> Path:
+        """Where a file a tool creates lands. A bare name is the workspace's: placed like a
+        read, an `invoices.xlsx` that already existed in Downloads drew the new one there as
+        invoices-2.xlsx, out of the chat (2026-11-15). A path naming a folder is placed as usual."""
+        expanded = expand_workspace(raw, self.workspace)
+        if not Path(expanded).is_absolute() and not expanded.startswith("/") and "/" not in expanded.replace("\\", "/"):
+            return self.workspace / expanded
+        return self.place(raw)
+
+
+def upload_key(path: Path | str) -> str:
+    """One spelling per file, so a path the model typed matches the one that was saved."""
+    return os.path.normcase(os.path.realpath(path))
+
 
 def _absolute(path: Path) -> Path:
     try:
@@ -40,4 +61,4 @@ def _absolute(path: Path) -> Path:
         return Path(path).expanduser().absolute()
 
 
-__all__ = ["Scope"]
+__all__ = ["Scope", "upload_key"]

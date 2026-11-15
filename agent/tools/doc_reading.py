@@ -22,7 +22,8 @@ from typing import Any
 from strands import tool
 
 from agent.ingest.store import PENDING, Store, kind_of
-from agent.tools.reading import MAX_CHARS
+from agent.tools.documents.references import TABLE_HINT
+from agent.tools.reading import MAX_CHARS, copy_hint
 
 #: A document this short is shown whole when no pages/section is asked for.
 SHORT_PAGES = 5
@@ -220,7 +221,7 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
             hits = store.search(sha, search)
             if not hits:
                 return f"No paragraph or table in {name} holds any of: {search}."
-            parts, cut = _fit([_docx_block(b) for b in hits])
+            parts, cut = _fit([_docx_block(b, name) for b in hits])
             return (f"{name}: {len(hits)} blocks match \"{search}\", best first"
                     + (f", showing {len(parts)}" if cut else "") + ".\n\n" + "\n\n".join(parts))
         if section.strip():
@@ -232,11 +233,11 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
             head = f"{name}: section {s}"
         else:
             chosen, head = blocks, f"{name}"
-        parts, cut = _fit([_docx_block(b) for b in chosen])
+        parts, cut = _fit([_docx_block(b, name) for b in chosen])
         if cut and not section.strip() and outline:
             first = outline[0]["section"].split(".")[0]
             body = [b for b in blocks if (b["section"] or "") in ("", first) or (b["section"] or "").startswith(first + ".")]
-            parts, _ = _fit([_docx_block(b) for b in body])
+            parts, _ = _fit([_docx_block(b, name) for b in body])
             toc = "\n".join(f"{'  ' * o['section'].count('.')}{o['section']} {o['title']}" for o in outline[:60])
             return (f"{name}: {len(blocks)} blocks, too long to show at once; outline, then section {first}. "
                     f"Read a section with read_docx(path=\"{name}\", section=\"2\"), or find something with "
@@ -278,22 +279,29 @@ def doc_read_tools(store: Store, chat: str, resolve: Callable[[str], Path], work
             # The exact retry: after a bare "no sheet" the model dropped the path too (2026-11-05).
             return _failed(f"no sheet {sheet!r} in {name}. {listing}. Next: read_xlsx(path=\"{path or name}\", "
                            f"sheet=\"{names[0] if names else ''}\")")
-        return f"{name}: {listing}.\n\n" + _grid(target, target_sheet, range)
+        return (f"{name}: {listing}.\n\n" + _grid(target, target_sheet, range) + "\n\n"
+                + copy_hint(name, f'SELECT <column>, SUM(<number column>) FROM "{target_sheet}" GROUP BY <column>'))
 
     return [read_pdf, read_docx, read_xlsx]
 
 
-def _docx_block(b: dict[str, Any]) -> str:
+def _docx_block(b: dict[str, Any], name: str = "the document.docx") -> str:
     if b["kind"] == "heading":
-        number = f"{b['section']} " if b["section"] else ""
-        return f"{'#' * min(6, b.get('level') or 1)} {number}{b['text']} [{b['id']}]"
+        # The section number goes in the mark, not before the title: copied into a new document,
+        # "# 3 Expenses" kept its old number after the sections were reordered (2026-11-14).
+        number = f", section {b['section']}" if b["section"] else ""
+        return f"{'#' * min(6, b.get('level') or 1)} {b['text']} [{b['id']}{number}]"
     if b["kind"] == "table":
         # Rows numbered as edit_docx counts them, so a cell's id is read off, not worked out:
         # shown as a pipe row, the model passed the whole row to the edit tool (2026-11-03).
         lines = [ln for i, ln in enumerate(b["text"].splitlines()) if i != 1]   # drop |---|
         rows = "\n".join(f"r{n}: {ln.strip().strip('|').strip()}" for n, ln in enumerate(lines, 1))
+        # To keep the table in a new document, the reference copies it exactly: retyped from these
+        # lines it lost rows, or came out as one line of text (2026-11-14).
         return (f"[{b['id']}: table, {b.get('rows')} rows x {b.get('cols')} cols. A cell is "
-                f"{b['id']}.rROW.cCOL, columns counted from the left: c1, c2, ...]\n{rows}")
+                f"{b['id']}.rROW.cCOL, columns counted from the left: c1, c2, ...]\n{rows}\n"
+                f"{TABLE_HINT}, put {{{{{name}#{b['id']}}}}} on its own line in "
+                "create_document; never retype it.]")
     if b["kind"] == "image":
         return b["text"]
     return f"[{b['id']}] {b['text']}"
@@ -344,8 +352,13 @@ def _grid(path: Path, sheet: str, spec: str) -> str:
     return out
 
 
-def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
-    """One SELECT over the workbook's sheets, each loaded as a table (first row = column names).
+class QueryError(ValueError):
+    """A query that cannot run; the message is for the model."""
+
+
+def xlsx_rows(path: Path, sql: str, sheet: str = "", limit: int = 200) -> tuple[list[str], list[tuple], int]:
+    """(header, rows, coerced): one SELECT over the workbook's sheets, each loaded as a
+    table (first row = column names). `coerced` counts text cells in number columns.
 
     A bare expression with a sheet (`SUM("revenue")`, sheet Mar) is completed to
     `SELECT ... FROM "Mar"`: the model wrote the expression and stopped there.
@@ -357,7 +370,7 @@ def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
         sql = f'SELECT {sql} FROM "' + sheet.replace('"', '""') + '"'
 
     if FORBIDDEN.search(sql) or ";" in sql.strip().rstrip(";"):
-        return _failed("only one SELECT query is allowed.")
+        raise QueryError("only one SELECT query is allowed.")
     con = duckdb.connect(":memory:")
     coerced = 0
     columns: dict[str, list[str]] = {}
@@ -384,26 +397,117 @@ def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
             data = [tuple(_value(r[i], numeric[i]) for i in range(len(cols))) for r in body]
             if data:
                 con.executemany(f"INSERT INTO {q} VALUES ({', '.join('?' * len(cols))})", data)
-        cur = con.execute(sql)
+        _seal(con)
+        try:
+            cur = con.execute(sql)
+        except duckdb.BinderException:
+            lettered = by_letter(sql, columns)
+            if lettered == sql:
+                raise
+            cur = con.execute(lettered)   # columns named by letter, as read_xlsx's grid shows them
         header = [d[0] for d in cur.description or []]
-        result = cur.fetchmany(200)
+        result = cur.fetchmany(limit)
+        if any(isinstance(v, dict) for r in result for v in r):
+            # `SELECT "Jan" AS month ... GROUP BY "Jan"`: a sheet's name in double quotes is its whole
+            # row, so every row became its own group and its own "total" (2026-11-14).
+            raise QueryError('a sheet\'s name in double quotes is its whole row, not a value. To label rows '
+                             "with it, write it in single quotes: SELECT 'Jan' AS month, \"region\", "
+                             'SUM("revenue") FROM "Jan" GROUP BY "region".')
     except duckdb.Error as exc:
         msg = str(exc).split("\n")[0]
         hint = (" Text values go in single quotes ('North'); double quotes name a column or sheet."
                 if "column" in msg.lower() and '"' in sql else "")
         tables = "; ".join(f'"{t}" columns: ' + ", ".join(f'"{c}"' for c in cs) for t, cs in columns.items())
-        return _failed(f"the query failed: {msg}.{hint} Tables (sheets) and their columns: {tables}. "
-                       'Columns are named by the header row, not by letter.')
+        raise QueryError(f"the query failed: {msg}.{hint} Tables (sheets) and their columns: {tables}. "
+                         'Columns are named by the header row, not by letter.') from None
     finally:
         book.close()
         con.close()
-    lines = [" | ".join(header)] + [" | ".join(cell_str(v) for v in r) for r in result]
-    shown, cut = _fit(lines)
+    return header, result, coerced
+
+
+_QUOTED_SQL = re.compile(r"""('(?:[^']|'')*'|"(?:[^"]|"")*")""")
+_FROM = re.compile(r"""\bFROM\s+(?:"((?:[^"]|"")+)"|(\w+))""", re.I)
+
+
+def by_letter(sql: str, columns: dict[str, list[str]]) -> str:
+    """`SELECT A, SUM(C) FROM "Jan" GROUP BY A` with the letters as the sheet's column names.
+
+    read_xlsx shows a sheet as a grid with letters, and the model then wrote its SQL
+    with them, twice, gave up and typed the totals instead (2026-11-14). Only bare
+    capital letters outside quotes, only for columns the sheet in FROM has."""
+    m = _FROM.search(sql)
+    name = (m.group(1) or m.group(2)).replace('""', '"') if m else next(iter(columns), "")
+    cols = columns.get(name) or next((c for t, c in columns.items() if t.lower() == name.lower()), [])
+    letters = {chr(65 + i): c for i, c in enumerate(cols[:26])}
+    parts = _QUOTED_SQL.split(sql)
+    for i in range(0, len(parts), 2):   # even parts are outside quotes
+        parts[i] = re.sub(r"\b([A-Z])\b", lambda x: '"' + letters[x[1]].replace('"', '""') + '"'
+                          if x[1] in letters else x[1], parts[i])
+    return "".join(parts)
+
+
+def _query(path: Path, sql: str, names: list[str], sheet: str = "") -> Any:
+    try:
+        header, result, coerced = xlsx_rows(path, sql, sheet)
+    except QueryError as exc:
+        return _failed(str(exc))
     # A total that silently skipped "n/a" cells is a confidently wrong number: say so.
     note = (f"\nNote: {coerced} cell{'s' * (coerced != 1)} in number columns held text (like \"n/a\") "
             "and counted as empty." if coerced else "")
+    return _rows_text(header, result) + note
+
+
+def _rows_text(header: list[str], result: list[tuple]) -> str:
+    lines = [" | ".join(header)] + [" | ".join(cell_str(v) for v in r) for r in result]
+    shown, cut = _fit(lines)
     return (f"{len(result)} row{'s' * (len(result) != 1)}" + (f", showing {len(shown) - 1}" if cut else "")
-            + ":\n" + "\n".join(shown) + note)
+            + ":\n" + "\n".join(shown))
+
+
+def _seal(con: Any) -> None:
+    """No more files once the tables are loaded: a SELECT can call DuckDB's own
+    readers (`read_text('C:/...')`, `read_csv`, `glob`) and read any file on the
+    disk, past every path check; it did (2026-11-12). Locked, so no query undoes it."""
+    con.execute("SET enable_external_access = false")
+    con.execute("SET lock_configuration = true")
+
+
+def csv_rows(path: Path, sql: str, limit: int = 200) -> tuple[list[str], list[tuple]]:
+    """(header, rows): one SELECT over a CSV file, as a table named after the file
+    (`orders` for orders.csv; also `data`)."""
+    import duckdb
+
+    if FORBIDDEN.search(sql) or ";" in sql.strip().rstrip(";"):
+        raise QueryError("only one SELECT query is allowed.")
+    name = re.sub(r"\W+", "_", path.stem).strip("_") or "data"
+    # `FROM orders.csv`: the file's name for its table, written twice by the model (2026-11-14).
+    sql = re.sub(rf"""(["']?){re.escape(path.name)}\1""", name, sql, flags=re.I)
+    con = duckdb.connect(":memory:")
+    columns: list[str] = []
+    try:
+        con.execute("CREATE TABLE data AS SELECT * FROM read_csv_auto(?, header = true)", [str(path)])
+        if name != "data":
+            con.execute(f'CREATE VIEW "{name}" AS SELECT * FROM data')
+        columns = [r[0] for r in con.execute("DESCRIBE data").fetchall()]
+        _seal(con)
+        cur = con.execute(sql)
+        return [d[0] for d in cur.description or []], cur.fetchmany(limit)
+    except duckdb.Error as exc:
+        msg = str(exc).split("\n")[0]
+        raise QueryError(f'the query failed: {msg}. The table is "{name}" (or data), columns: '
+                         + ", ".join(f'"{c}"' for c in columns) + ". Text values go in single quotes.") from None
+    finally:
+        con.close()
+
+
+def query_csv(path: Path, sql: str) -> Any:
+    """A CSV queried for the model. It pasted rows into `python -c` instead, and the
+    quoting broke (2026-11-12)."""
+    try:
+        return _rows_text(*csv_rows(path, sql))
+    except QueryError as exc:
+        return _failed(str(exc))
 
 
 def _numeric(values: list[Any]) -> bool:
@@ -421,6 +525,9 @@ def _value(v: Any, numeric: bool) -> Any:
 def cell_str(v: Any) -> str:
     if isinstance(v, float) and v.is_integer():
         return str(int(v))
+    if isinstance(v, float):
+        # A sum of cents in binary floats: 19158.239999999998 is 19158.24 (12 significant digits).
+        return f"{v:.12g}"
     return "" if v is None else str(v)
 
 

@@ -22,6 +22,7 @@ import { ProducedFiles } from "@/features/chat/ProducedFiles"
 import { Action, CopyButton } from "@/features/chat/MessageActions"
 import { toSteps, workSummary } from "@/features/task/steps"
 import { cn } from "@/lib/cn"
+import { Notice } from "@/features/chat/Notice"
 
 export function PanelAnswer({ turn, chatId, parts, stats, running, isLast }: {
   turn: Turn; chatId: string; parts: Part[]; stats: TurnStats | null; running: boolean; isLast: boolean
@@ -34,6 +35,7 @@ export function PanelAnswer({ turn, chatId, parts, stats, running, isLast }: {
   const reasoning = parts.filter((p) => p.kind === "reasoning").map((p) => (p as { text: string }).text).join("\n\n").trim()
   const texts = parts.filter((p) => p.kind === "text" || p.kind === "superseded")
   const approvals = parts.filter((p): p is Extract<Part, { kind: "approval" }> => p.kind === "approval")
+  const notices = parts.filter((p): p is Extract<Part, { kind: "notice" }> => p.kind === "notice")
   const answering = parts.some((p) => p.kind === "text")
   const working = running && !answering
 
@@ -81,6 +83,7 @@ export function PanelAnswer({ turn, chatId, parts, stats, running, isLast }: {
       )}
 
       {approvals.map((p) => <ApprovalCard key={p.id} part={p} live={running} />)}
+      {notices.map((p, i) => <Notice key={i} text={p.text} />)}
 
       <div className={cn(texts.length > 0 && "mt-1.5")}>
         {texts.map((p, i) => p.kind === "superseded" ? null : <Markdown key={i} text={(p as { text: string }).text} />)}

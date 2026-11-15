@@ -69,6 +69,16 @@ def _window(name: str, lines: list[str], start: int, end: int | None) -> str:
     return head + "\n" + "\n".join(out)
 
 
+def copy_hint(name: str, example: str) -> str:
+    """Said with every table the readers show. Asked to put rows or a total in a document, the
+    model retyped them: an order left out, totals made up (hard-orders, hard-sales, 2026-11-14)."""
+    table = Path(name).stem
+    return (f"To put these rows or a total in a document, never retype them: put a reference on its own line "
+            f"in create_document, and the rows are copied in exactly: "
+            f"{{{{{name} sql: {example.format(table=table)}}}}}. A total the same way, on its own line: "
+            f"{{{{{name} sql: SELECT ROUND(SUM(<number column>), 2) AS total FROM {table if name.endswith('.csv') else '<sheet>'} ...}}}}.")
+
+
 def _search(name: str, lines: list[str], query: str) -> str:
     """Lines holding the most of the query's words (case ignored), in file order.
 
@@ -112,17 +122,20 @@ def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str], vis
                        "or give its full path.")
 
     @tool(name="read_text")
-    def read_text(path: str, start_line: int = 1, end_line: int = 0, search: str = "") -> Any:
+    def read_text(path: str, start_line: int = 1, end_line: int = 0, search: str = "", sql: str = "") -> Any:
         """Read a text file (.txt, .md, .csv, .log, .json, code): numbered lines, capped near 1,500 tokens.
 
         Not for .pdf/.docx/.xlsx (use read_pdf, read_docx, read_xlsx) or images (use read_image).
         Long files: read in steps with start_line, or find lines with search, e.g. search="error timeout".
+        A .csv can be queried: the file is a table named after it, e.g. for orders.csv
+        sql='SELECT region, SUM(total) FROM orders GROUP BY region'. Use sql for totals, counts and filters.
 
         Args:
             path: File name in your workspace, or its full path.
             start_line: First line to show (1-based).
             end_line: Last line to show; 0 for as many as fit.
             search: Words to find; returns the lines holding the most of them, with line numbers.
+            sql: For a .csv: one SELECT query over it.
         """
         target = resolve(path)
         if target.suffix.lower() in IMAGES:
@@ -131,13 +144,22 @@ def read_tools(resolve: Callable[[str], Path], shown: Callable[[Path], str], vis
             return _failed(f"{target.name} is not a text file. Use {other}(path=\"{target.name}\").")
         if not target.is_file():
             return _missing(target)
+        if sql.strip():
+            if target.suffix.lower() != ".csv":
+                return _failed(f"sql works on a .csv; {target.name} is not one. Use search or start_line.")
+            from agent.tools.doc_reading import query_csv
+
+            return query_csv(target, sql)
         text = _decode(target.read_bytes())
         if text is None:
             return _failed(f"{target.name} is a binary file, not text; read_text cannot show it.")
         lines = text.splitlines()
         if search.strip():
             return _search(target.name, lines, search)
-        return _window(target.name, lines, start_line, end_line or None)
+        out = _window(target.name, lines, start_line, end_line or None)
+        if target.suffix.lower() == ".csv":
+            out += "\n\n" + copy_hint(target.name, "SELECT * FROM {table} WHERE ...")
+        return out
 
     @tool(name="read_image")
     def read_image(path: str) -> Any:

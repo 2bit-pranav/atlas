@@ -29,7 +29,8 @@ src/
                              files, sources beside the answer), steps.ts (tool calls as plain steps),
                              layout.ts (TaskLayout context)
   features/chat/             ChatScreen, TurnRow, UserMessage, AssistantMessage, ApprovalCard (approvalText.ts),
-                             Reasoning, StatsBar, MessageActions, Markdown, ToolBlock, ContextGauge;
+                             Reasoning, StatsBar, MessageActions, Markdown, ToolBlock, ContextGauge,
+                             Notice (a guardrail's note: instructions in a source, unsourced figures);
                              transcript.ts (fold run events into parts; mirrors server/transcript.py)
   features/composer/         Composer, FileChip, MentionMenu; audio.ts (record the microphone,
                              re-encode as 16 kHz mono WAV)
@@ -198,3 +199,28 @@ Storage → Other with a generic control straight away. To place it in a section
 with a label, help text and a proper control, add a `Field` to
 `features/settings/schema.ts`. RESTART-tier keys get the "restart" badge
 automatically.
+
+## Non-Obvious Invariants & Footguns
+
+- **`transcript.ts` mirrors `server/transcript.py`.** Both fold the same events into
+  the same parts (`text`, `reasoning`, `tool`, `approval`, `superseded`, `notice`).
+  A new event or part kind changes both, or a reload shows something different
+  from the live stream.
+- **A selector must not build a new object.** `useAtlas(s => ({...}))` re-renders
+  forever. Select primitives or existing objects.
+- **An image in an answer is never loaded** (`Markdown.tsx` shows its address as a
+  link): a page can make the model end an answer with an image URL that carries
+  chat text out. Keep it that way for any new Markdown renderer.
+- **Workspace files are downloads.** Only raster images are served inline, so an
+  HTML or SVG file a run made never runs on Atlas's origin.
+- **The extension builds from this source.** WXT's `@` alias points at
+  `client/src`, so shared components import `@/...` unchanged. A web-only
+  dependency (a route, `window.location`) breaks the side panel; use the slots in
+  `state/slots.ts` and `configureApi` instead.
+- **Settings keys must exist in `TIERS`** (`agent/config/settings.py`) before
+  `schema.ts` can show them; a schema key the backend does not know is a 422 on save.
+- **Approval cards always show the exact text** for a command, an install, or
+  anything after outside content. A friendlier summary there could hide what is
+  being approved.
+- **No request leaves for fonts or assets.** Fonts are bundled (`@fontsource`); do
+  not add a CDN link.

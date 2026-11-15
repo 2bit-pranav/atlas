@@ -13,6 +13,7 @@ from agent.config.settings import load_settings
 from agent.extension import basket as basket_mod
 from agent.extension import form_fill
 from agent.extension.basket import Basket, candidates, refusal
+from agent.runtime import model_call
 from server.app import create_app
 
 
@@ -73,7 +74,7 @@ def test_fill_offers_files_as_cards_never_as_typed_values(home, monkeypatch) -> 
         sent["body"] = json
         return Reply()
 
-    monkeypatch.setattr(form_fill.httpx, "post", post)
+    monkeypatch.setattr(model_call.httpx, "post", post)
     basket = Basket()
     out = form_fill.suggest(settings, [{"id": "u1", "label": "Upload your resume", "type": "file", "accept": ".pdf"}],
                             "Internship", basket)
@@ -125,7 +126,7 @@ def test_files_are_offered_even_when_the_model_picks_none(home, monkeypatch) -> 
         def json(self) -> dict:
             return {"choices": [{"message": {"content": json.dumps({"u1": []})}}]}
 
-    monkeypatch.setattr(form_fill.httpx, "post", lambda *a, **k: Reply())
+    monkeypatch.setattr(model_call.httpx, "post", lambda *a, **k: Reply())
     out = form_fill.suggest(settings, [{"id": "u1", "label": "Resume", "type": "file"}], "", Basket())
     assert {c["name"] for c in out["files"]} >= {"Resume_2026.pdf", "Resume_2019.docx"}
     assert out["missing"] == []

@@ -52,10 +52,16 @@ function host(url: string): string {
 }
 
 /** The label for a run of calls to one tool. */
+/** A change not made yet (running, or waiting on its card) is not labelled as done: "Deleted X · Waiting for you" said otherwise. */
+const PENDING: Record<string, string> = { delete_file: "Delete", move_file: "Move", copy_file: "Copy", create_document: "Save",
+  write: "Save", edit: "Change", edit_docx: "Change", set_cell: "Change" }
+
 function label(name: string, calls: ToolPart[]): string {
   const n = calls.length
   const first = calls[0]
   const failed = calls.every((c) => c.status === "error")
+  if (PENDING[name] && calls.some((c) => c.status === "running"))
+    return `${PENDING[name]} ${base(arg(first, "path")) || "a file"}`
   if (READS.has(name)) {
     const names = calls.map((c) => base(arg(c, "path")))
     return n === 1 ? `Read ${names[0] || "a file"}` : `Read ${n} ${noun(names)}`
@@ -74,6 +80,14 @@ function label(name: string, calls: ToolPart[]): string {
     case "write":
       return failed ? `Could not save ${base(arg(first, "path"))}`
         : n === 1 ? `Saved ${base(arg(first, "path"))}` : `Saved ${n} files`
+    case "extract_table":
+      return failed ? `Could not make ${base(arg(first, "path"))}` : `Made ${base(arg(first, "path"))}`
+    case "fill_template":
+      return failed ? `Could not fill ${base(arg(first, "template"))}` : `Filled ${base(arg(first, "template"))}`
+    case "write_summary":
+      return failed ? `Could not summarise ${base(arg(first, "file"))}` : `Summarised ${base(arg(first, "file"))}`
+    case "compare_documents":
+      return failed ? "Could not compare the documents" : `Compared ${base(arg(first, "old"))} and ${base(arg(first, "new"))}`
     case "edit_docx":
     case "set_cell":
     case "edit":
@@ -91,6 +105,10 @@ function label(name: string, calls: ToolPart[]): string {
       const skill = /ATLAS_SKILLS\}?\/([\w-]+)\//.exec(arg(first, "command"))?.[1]
       if (failed) return skill ? `The ${skill} tool did not run` : "A command did not run"
       return skill ? `Ran the ${skill} tool` : n === 1 ? "Ran a command" : `Ran ${n} commands`
+    }
+    case "run_skill": {
+      const script = arg(first, "script").replace(/\.py$/, "").replace(/_/g, " ")
+      return failed ? `The ${script || "skill"} tool did not run` : `Ran the ${script || "skill"} tool`
     }
     case "skills": return `Loaded the ${arg(first, "skill_name") || "a"} skill`
     case "page_read":

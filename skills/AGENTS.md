@@ -2,7 +2,9 @@
 
 A skill is a folder with a `SKILL.md`. The model sees every enabled skill's
 `name` and `description` in its prompt, calls the `skills` tool to load the
-body when one applies, and then runs the skill's scripts through `shell`.
+body when one applies, and then runs the skill's scripts with `run_skill(skill, script, args)`
+(agent/tools/skills_run.py): no shell, an argument list, the workspace as the folder.
+An output never replaces a file (`_shared.output_path` picks a free name).
 
 ```
 skills/
@@ -18,13 +20,14 @@ Documents are *read* with Atlas's own tools (`read_pdf`, `read_docx`,
 `read_xlsx`), from what was parsed at upload; no skill is loaded to read.
 The bundled skills are for what reading is not: merging, splitting,
 converting and writing. Loading one adds its writing tools: `create_document`
-(Markdown in), `edit_docx` (a paragraph or cell by id) and `set_cell`. What a skill needs is listed on
-the Skills page with an install button.
+(Markdown in), `edit_docx` (a paragraph or cell by id), `set_cell`, and the pipelines
+`extract_table`, `write_summary`, `compare_documents` and `fill_template` (agent/tools/pipelines.py).
+What a skill needs is listed on the Skills page with an install button.
 
 ## Writing one for a 2B model
 
-- **Ship a script; never ask the model to write library code.** "Run
-  `python skills/pdf/scripts/merge_pdf.py out.pdf "a.pdf" "b.pdf"`" works.
+- **Ship a script; never ask the model to write library code.**
+  `run_skill(skill="pdf", script="merge_pdf.py", args=["out.pdf", "a.pdf", "b.pdf"])` works.
   "Use pypdf to extract page 3" does not.
 - **Keep `SKILL.md` short.** Its whole body is loaded into a 32k window. The
   Skills page warns above about 2,500 tokens.
@@ -39,12 +42,10 @@ the Skills page with an install button.
   by `open_link` for every caller, `read_pdf` and the backend's PDF import and
   viewer included: checked for the file type and 100 MB, and refused when a link
   returns a web page instead.
-- **Resolve inputs with `_shared.resolve`.** A relative path is looked for in
-  the workspace, then the allowed folders (`$ATLAS_FOLDERS`); a bare name
-  found nowhere is looked up by name there (`find_by_name`: unique matches
-  only, bounded, inputs only). Name outputs with `default_output` and report
-  them with `created()`, which prints the path relative to the workspace: a
-  bare `x.docx` read as "beside the input" and the model looked there.
+- **Resolve inputs with `_shared.resolve`, name outputs with `output_path` or
+  `default_output`.** `run_skill` already passes paths placed as the policy
+  checked them. Report outputs with `created()`, which prints the path relative
+  to the workspace and the real (possibly renamed) name.
 - **Tolerate mangled quoting.** Paths may arrive with stray quotes or
   backslashes; `_shared.unquote` is there for that.
 - **Declare what you need.** `requirements.txt` for Python, `package.json`
@@ -69,3 +70,27 @@ write and debug code tend not to.
 
 Switch a skill off instead of deleting it to keep it around; the switch is
 `skills.disabled` in `settings.json`.
+
+## Non-Obvious Invariants & Footguns
+
+- **An output must never replace an existing file.** `output_path` and
+  `default_output` return a free name (`x-2.pdf`). The tool policy treats every
+  existing path in `run_skill`'s arguments as a read: a script that writes over an
+  existing file would bypass the create check. Never open an output path for
+  writing without going through them, and give a folder (`--out-dir`) as is, not
+  through `output_path`, which would rename it.
+- **Scripts run with no shell.** `run_skill` passes an argv list; quoting,
+  pipes, `;` and `$VAR` mean nothing. A SKILL.md example must be a `run_skill(...)`
+  call, not a shell line.
+- **Only an enabled skill's own `scripts/*.py` can run**, by bare file name. A
+  helper a script imports must live beside it or in `_shared.py`.
+- **The environment has no secrets.** `ATLAS_*` and anything named like a key,
+  token or password are stripped; a script that needs an API key cannot get one
+  from the backend's environment, by design.
+- **Stop ends the whole process tree** (and so does the 300 s timeout): a script
+  must not rely on finishing its cleanup after a kill.
+- **Option names starting with `--out` are treated as written folders** by the
+  policy (`skills_run.path_args`). Name an output-folder option that way, or the
+  policy will check it as a read.
+- `pdf2docx` brings in PyMuPDF, which is AGPL-3.0: replace it before Atlas is
+  distributed.

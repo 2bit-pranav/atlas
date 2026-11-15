@@ -15,7 +15,11 @@ export function ProducedFiles({ files, chatId }: { files: ChangedFile[]; chatId:
             <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">{ext}</span>
             <span className="min-w-0">
               <span className="block max-w-48 truncate text-sm font-medium" title={f.name}>{f.name}</span>
-              <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Created" : "Updated"} · {formatBytes(f.size)}</span>
+              {f.broken ? (
+                <span className="block text-xs text-destructive" title={f.broken}>Does not open as a {ext} file</span>
+              ) : (
+                <span className="block text-xs text-muted-foreground">{f.change === "created" ? "Created" : "Updated"} · {formatBytes(f.size)}</span>
+              )}
             </span>
             <Tip label="Download">
               <FileLink chatId={chatId} name={f.name} download

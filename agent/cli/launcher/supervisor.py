@@ -6,7 +6,7 @@ neither the backend nor the web UI needs the model to be loaded:
 
 * `llama`: llama-server with the chosen model (the slow one, ~12 s).
 * `backend`: the FastAPI app. In normal mode it also serves the built UI.
-* `web`: in normal mode, the build in `client/dist` (built once if missing);
+* `web`: in normal mode, the build in `client/dist` (built if missing, rebuilt when its sources changed);
   with `--dev`, the Vite dev server with hot reload.
 
 While running, a supervisor thread reports a process that exits, and serves
@@ -271,6 +271,12 @@ class Launcher:
             self.emit(Event("starting", "web", text="building the web UI (once)"))
             if not self._build_client(rotate):
                 return False
+        elif self._client_stale(dist) and npm():
+            # A UI older than its sources hid every UI change since (the guardrail notices went
+            # unseen for a day, 2026-11-15). If the rebuild fails, the older build still serves,
+            # and the ready line below says it is stale.
+            self.emit(Event("starting", "web", text="rebuilding the web UI (its sources changed)"))
+            self._build_client(rotate, quiet=True)
         self.emit(Event("starting", "web", text="served by backend"))
         backend_ready.wait()
         if self.state.get("backend") != "ready":
@@ -284,7 +290,7 @@ class Launcher:
                         details={"url": url, "stale": self._client_stale(dist)}))
         return True
 
-    def _build_client(self, rotate: bool) -> bool:
+    def _build_client(self, rotate: bool, quiet: bool = False) -> bool:
         exe = npm()
         if not exe:
             return self._fail("web", "the web UI is not built and Node.js is not installed",
@@ -298,6 +304,8 @@ class Launcher:
             log.write(proc.stdout + proc.stderr)
             log.flush()
             if proc.returncode != 0:
+                if quiet:
+                    return False
                 return self._fail("web", f"`npm {' '.join(args[1:])}` failed",
                                   "Last lines below.", (proc.stdout + proc.stderr).strip().splitlines()[-12:])
         return True

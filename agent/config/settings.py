@@ -86,7 +86,7 @@ class BuiltinToolSettings(StrictModel):
 
     write: bool = True
     edit: bool = True
-    shell: bool = True
+    shell: bool = False  # off: skills run through run_skill; when on, every command asks
 
 
 class AtlasToolSettings(StrictModel):
@@ -107,6 +107,11 @@ class AtlasToolSettings(StrictModel):
     create_document: bool = True  # agent/tools/documents/
     edit_docx: bool = True  # with the docx skill
     set_cell: bool = True  # with the xlsx skill
+    extract_table: bool = True  # agent/tools/pipelines.py, with the xlsx skill
+    write_summary: bool = True  # with the docx and pdf skills
+    compare_documents: bool = True  # with the docx and pdf skills
+    fill_template: bool = True  # with the docx skill: a Word template's blanks from the user's details
+    run_skill: bool = True  # agent/tools/skills_run.py: a skill's script, no shell
     calculate: bool = True  # agent/tools/maths/
     dates: bool = True
 
@@ -219,6 +224,9 @@ class AccessSettings(StrictModel):
 
     folders: list[str] = Field(default_factory=list) # absolute paths from user's home
     ask_outside: bool = True
+    #: Keep the documents in `folders` in the ingest store, text layer only, so find_files
+    #: finds them by what they say (agent/ingest/indexer.py).
+    index_folders: bool = True
     #: The permission grid's mode (agent/safety/grid.py): look reads only; ask asks before
     #: changes, deletes and commands in the folders; work changes them without asking.
     mode: Literal["look", "ask", "work"] = "ask"
@@ -237,22 +245,19 @@ class SessionSettings(StrictModel):
 
 
 class ContextSettings(StrictModel):
-    """Context trimming, through a Strands conversation manager.
+    """Context trimming (agent/runtime/context.py).
 
     The harness's own `context_manager` is disabled because its `agentic` mode
     adds a `retrieve_context` tool and offloads tool results to a stash, the
-    same family of cross-branch leak as memory. With the default "null"
-    manager history is kept intact, and a long chat will eventually hit the
-    window. `prune_target_ratio` and `generation_reserve` are not read yet.
+    same family of cross-branch leak as memory. "trim" shortens earlier turns'
+    tool results to a stub past `prune_trigger_ratio` of the window, down to
+    `prune_target_ratio`; "null" keeps everything, and a long chat will hit the window.
     """
 
-    conversation_manager: str = Field(
-        default="null", pattern="^(null|sliding|summarizing)$"
-    )
+    conversation_manager: str = Field(default="trim", pattern="^(null|trim)$")
     window: int = Field(default=32768, gt=0)
     prune_trigger_ratio: float = Field(default=0.75, gt=0.0, lt=1.0)
     prune_target_ratio: float = Field(default=0.50, gt=0.0, lt=1.0)
-    generation_reserve: int = Field(default=8000, gt=0)
 
     @model_validator(mode="after")
     def _ordered(self) -> ContextSettings:
@@ -335,6 +340,11 @@ TIERS: dict[str, Tier] = {
     "tools.atlas.create_document": Tier.LIVE,
     "tools.atlas.edit_docx": Tier.LIVE,
     "tools.atlas.set_cell": Tier.LIVE,
+    "tools.atlas.extract_table": Tier.LIVE,
+    "tools.atlas.write_summary": Tier.LIVE,
+    "tools.atlas.compare_documents": Tier.LIVE,
+    "tools.atlas.fill_template": Tier.LIVE,
+    "tools.atlas.run_skill": Tier.LIVE,
     "tools.atlas.calculate": Tier.LIVE,
     "tools.atlas.dates": Tier.LIVE,
     "tools.interventions": Tier.LIVE,
@@ -362,13 +372,13 @@ TIERS: dict[str, Tier] = {
     "approvals.timeout": Tier.LIVE,
     "access.folders": Tier.LIVE,
     "access.ask_outside": Tier.LIVE,
+    "access.index_folders": Tier.LIVE,
     "access.mode": Tier.LIVE,
     "session.dir": Tier.RESTART,
     "context.conversation_manager": Tier.LIVE,
     "context.window": Tier.RESTART,
     "context.prune_trigger_ratio": Tier.LIVE,
     "context.prune_target_ratio": Tier.LIVE,
-    "context.generation_reserve": Tier.LIVE,
     "paths.data_dir": Tier.RESTART,
     "system_prompt": Tier.LIVE,
 }
